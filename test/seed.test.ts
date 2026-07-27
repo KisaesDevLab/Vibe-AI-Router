@@ -1,15 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { seed } from '../db/seed.js';
-import { migrate } from '../db/migrate.js';
 import { createDb } from '../src/db/client.js';
+import { resetDb } from './helpers.js';
 
 const url = process.env['VIBE_ROUTER_TEST_DATABASE_URL'];
 
 describe.skipIf(!url)('seed (Phase 1.15)', () => {
   it('produces a navigable dataset and is idempotent', async () => {
     const dbUrl = url as string;
-    await migrate(dbUrl, 'up');
-    await seed(dbUrl);
+    await resetDb(dbUrl); // exact-count assertions need a clean slate
     await seed(dbUrl); // idempotency: second run must not throw or duplicate
 
     const { db, close } = createDb(dbUrl, 2);

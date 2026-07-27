@@ -62,3 +62,16 @@ Grouped by phase. This file is the Phase 15 review agenda.
 - [Q-016] Thinking text exposure → **surfaced as AIResponse.thinking (transient only), thinking
   deltas NOT relayed into the SSE stream** → callers get it non-streaming when enabled;
   streaming relay would require an envelope chunk-type extension — deferred → **S**
+
+## Phase 5
+
+- [Q-017] "Pinned URL + checksum" sync source → **vendored filtered snapshot shipped in-repo
+  (data/litellm-prices.json, provenance in data/VENDOR.md); nightly sync reads the vendored
+  file, no network** → supply-chain-safe, offline-appliance-safe; refresh is a release action;
+  optional remote refresh can be added behind CATALOG_SYNC_URL later → **S**
+- [Q-018] Manual sync endpoint needs auth before Phase 11 exists → **/admin/* bootstrap surface
+  gated by ADMIN_BOOTSTRAP_TOKEN (≥16 chars, constant-time compare); routes NOT REGISTERED when
+  unset** → fail closed; Phase 11 replaces with session auth → **S**
+- [Q-019] Audit writer needed before Phase 8 → **minimal registry-based writer in
+  src/protect/audit.ts (zod-validated detail per event type)** → catalog events land in the
+  real audit_log from day one; Phase 8 extends the registry rather than rewriting → **S**

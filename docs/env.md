@@ -14,6 +14,8 @@ Validation: `src/config/env.ts` (zod). Invalid config → the process refuses to
 | `ROUTER_MAX_BODY_BYTES` | no | `10485760` | gateway request body cap (2.9) |
 | `ROUTER_MAX_MESSAGES` | no | `200` | max messages per request |
 | `ROUTER_MAX_JSON_DEPTH` | no | `24` | JSON nesting cap, checked before schema parse |
+| `CATALOG_SYNC_CRON` | no | `15 3 * * *` | nightly catalog sync schedule; empty string disables |
+| `ADMIN_BOOTSTRAP_TOKEN` | no | — | ≥16 chars; enables pre-UI admin endpoints (`/admin/catalog/sync`); unset → routes not registered |
 
 Test-only:
 

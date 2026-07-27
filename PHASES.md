@@ -85,7 +85,19 @@ appear in usage; json_schema handled via forced-tool mapping (Q-014).
 
 ## Phase 5 — Model Catalog & Pricing Sync
 
-- [ ] 5.1 … 5.9
+- [x] 5.1 Catalog service: custom CRUD, retire (sunset when referenced), read helpers
+- [x] 5.2 Vendored LiteLLM sync (data/litellm-prices.json, 291 chat models, sha256 in data/VENDOR.md)
+- [x] 5.3 Additive+flagging: vanish→deprecated, reappear→reactivate, never delete; diff report
+- [x] 5.4 Pricing appends to history (effective_from = sync date), only on change
+- [x] 5.5 Capability inference + capability_overrides survive re-sync and win
+- [x] 5.6 node-cron nightly (CATALOG_SYNC_CRON) + POST /admin/catalog/sync (bootstrap token);
+        failures audit+log, never block serving
+- [x] 5.7 Deprecation alert job → model_deprecation_warning audit events
+- [x] 5.8 Custom model validation; pricing optional → cost_unknown path
+- [x] 5.9 Tests: idempotency, override survival, diff accuracy, history append, reactivation
+
+**Acceptance met:** vendored feed populates catalog; custom models coexist untouched; re-sync
+is a no-op (test-proven, incl. jsonb key-order pitfall).
 
 ## Phase 6 — Credential Vault
 

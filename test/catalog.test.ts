@@ -1,0 +1,192 @@
+/**
+ * Catalog & pricing sync (5.9): idempotency, override survival, diff accuracy, deprecation
+ * flagging, pricing append-only history, custom model validation.
+ */
+import { beforeAll, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
+import { createDb, type DbHandle } from '../src/db/client.js';
+import { resetDb } from './helpers.js';
+import { modelPricing, models } from '../db/schema.js';
+import { parseFeed, syncCatalog } from '../src/catalog/sync.js';
+import {
+  createCustomModel,
+  effectiveCapabilities,
+  findRetiredModelReferences,
+  pricingAt,
+  setCapabilityOverrides,
+} from '../src/catalog/service.js';
+
+const url = process.env['VIBE_ROUTER_TEST_DATABASE_URL'];
+
+const FEED_V1: Record<string, unknown> = {
+  'gpt-test-1': {
+    max_input_tokens: 100000,
+    max_output_tokens: 8000,
+    input_cost_per_token: 0.0000025,
+    output_cost_per_token: 0.00001,
+    litellm_provider: 'openai',
+    mode: 'chat',
+    supports_function_calling: true,
+    supports_response_schema: true,
+    supports_vision: false,
+  },
+  'claude-test-1': {
+    max_input_tokens: 200000,
+    max_output_tokens: 64000,
+    input_cost_per_token: 0.000003,
+    output_cost_per_token: 0.000015,
+    cache_read_input_token_cost: 3e-7,
+    cache_creation_input_token_cost: 0.00000375,
+    litellm_provider: 'anthropic',
+    mode: 'chat',
+    supports_function_calling: true,
+    supports_prompt_caching: true,
+  },
+  'ollama/test-local': {
+    max_tokens: 32768,
+    litellm_provider: 'ollama',
+    mode: 'chat',
+    supports_function_calling: true,
+  },
+  'text-embedding-x': { max_input_tokens: 8191, litellm_provider: 'openai', mode: 'embedding' },
+  'no-context-model': { litellm_provider: 'openai', mode: 'chat' },
+};
+
+describe('parseFeed (pure)', () => {
+  it('maps providers to kinds, prefixes canonical ids, converts pricing to $/MTok', () => {
+    const { entries, skipped } = parseFeed(FEED_V1);
+    const byId = new Map(entries.map((e) => [e.canonicalId, e]));
+    expect(byId.get('openai/gpt-test-1')?.providerKind).toBe('openai_compat');
+    expect(byId.get('anthropic/claude-test-1')?.providerKind).toBe('anthropic');
+    expect(byId.get('ollama/test-local')?.providerKind).toBe('local');
+    expect(byId.get('openai/gpt-test-1')?.pricing.inputPerMtok).toBe('2.5');
+    expect(byId.get('anthropic/claude-test-1')?.pricing.cacheReadPerMtok).toBe('0.3');
+    expect(byId.get('anthropic/claude-test-1')?.capabilities).toEqual({ tools: true, caching: true });
+    // embedding mode + missing context are skipped, with names reported
+    expect(skipped).toContain('text-embedding-x');
+    expect(skipped).toContain('no-context-model');
+  });
+
+  it('parses the real vendored feed without errors', async () => {
+    const { loadVendoredFeed } = await import('../src/catalog/sync.js');
+    const { feed } = await loadVendoredFeed();
+    const { entries } = parseFeed(feed);
+    expect(entries.length).toBeGreaterThan(100);
+    // spot-check a few staples exist with sane pricing
+    const claude = entries.find((e) => e.canonicalId.startsWith('anthropic/claude'));
+    expect(claude).toBeDefined();
+    expect(Number(claude?.pricing.inputPerMtok)).toBeGreaterThan(0);
+  });
+});
+
+describe.skipIf(!url)('syncCatalog (DB)', () => {
+  let handle: DbHandle;
+
+  beforeAll(async () => {
+    const dbUrl = url as string;
+    await resetDb(dbUrl); // exact-diff assertions need a clean slate
+    handle = createDb(dbUrl, 2);
+    return async () => handle.close();
+  });
+
+  it('first sync adds; second identical sync is a no-op (idempotency)', async () => {
+    const r1 = await syncCatalog(handle.db, FEED_V1, { source: 't', sourceSha256: 'a' });
+    expect(r1.added.sort()).toEqual(['anthropic/claude-test-1', 'ollama/test-local', 'openai/gpt-test-1']);
+    expect(r1.pricingChanged.length).toBe(2); // local model has no pricing in feed
+
+    const r2 = await syncCatalog(handle.db, FEED_V1, { source: 't', sourceSha256: 'a' });
+    expect(r2.added).toEqual([]);
+    expect(r2.updated).toEqual([]);
+    expect(r2.pricingChanged).toEqual([]);
+    expect(r2.deprecated).toEqual([]);
+  });
+
+  it('pricing change appends a history row; old row preserved (5.4)', async () => {
+    const feedV2 = structuredClone(FEED_V1) as Record<string, Record<string, unknown>>;
+    feedV2['gpt-test-1']!['input_cost_per_token'] = 0.000005; // price hike
+    const r = await syncCatalog(handle.db, feedV2, { source: 't', sourceSha256: 'b' });
+    expect(r.pricingChanged).toEqual(['openai/gpt-test-1']);
+
+    const model = await handle.db.query.models.findFirst({
+      where: eq(models.canonicalId, 'openai/gpt-test-1'),
+    });
+    const history = await handle.db.query.modelPricing.findMany({
+      where: eq(modelPricing.modelId, model!.id),
+      orderBy: modelPricing.effectiveFrom,
+    });
+    expect(history.length).toBe(2);
+    expect(Number(history[0]!.inputPerMtok)).toBe(2.5);
+    expect(Number(history[1]!.inputPerMtok)).toBe(5);
+
+    // pricingAt honors effective_from ordering
+    const latest = await pricingAt(handle.db, model!.id, new Date());
+    expect(Number(latest!.inputPerMtok)).toBe(5);
+  });
+
+  it('capability overrides survive re-sync and win over synced values (5.5)', async () => {
+    const model = await handle.db.query.models.findFirst({
+      where: eq(models.canonicalId, 'openai/gpt-test-1'),
+    });
+    await setCapabilityOverrides(handle.db, model!.id, { vision: true });
+    await syncCatalog(handle.db, FEED_V1, { source: 't', sourceSha256: 'c' });
+    const after = await handle.db.query.models.findFirst({ where: eq(models.id, model!.id) });
+    expect((after!.capabilityOverrides as Record<string, boolean>)['vision']).toBe(true);
+    expect(effectiveCapabilities(after!)).toMatchObject({ vision: true, tools: true });
+  });
+
+  it('vanished models flagged deprecated, never deleted; reappearing models reactivate (5.3)', async () => {
+    const feedWithout = structuredClone(FEED_V1) as Record<string, unknown>;
+    delete feedWithout['gpt-test-1'];
+    const r = await syncCatalog(handle.db, feedWithout, { source: 't', sourceSha256: 'd' });
+    expect(r.deprecated).toContain('openai/gpt-test-1');
+    const gone = await handle.db.query.models.findFirst({
+      where: eq(models.canonicalId, 'openai/gpt-test-1'),
+    });
+    expect(gone?.status).toBe('deprecated');
+
+    const r2 = await syncCatalog(handle.db, FEED_V1, { source: 't', sourceSha256: 'e' });
+    expect(r2.updated).toContain('openai/gpt-test-1');
+    const back = await handle.db.query.models.findFirst({
+      where: eq(models.canonicalId, 'openai/gpt-test-1'),
+    });
+    expect(back?.status).toBe('active');
+  });
+
+  it('custom (seed) models are never touched by sync', async () => {
+    const custom = await handle.db.query.models.findFirst({
+      where: eq(models.canonicalId, 'ollama/qwen3:14b'),
+    });
+    expect(custom?.source).toBe('custom');
+    expect(custom?.status).toBe('active'); // absent from FEED_V1 yet not deprecated
+  });
+
+  it('custom model validation (5.8): bad ids and missing context rejected; pricing optional', async () => {
+    await expect(createCustomModel(handle.db, { canonicalId: 'nope' })).rejects.toThrow(/invalid model/);
+    const created = await createCustomModel(handle.db, {
+      canonicalId: 'ollama/custom-unpriced:7b',
+      providerKind: 'local',
+      displayName: 'Custom Unpriced',
+      contextWindow: 16384,
+      capabilities: { tools: true },
+    });
+    expect(created.source).toBe('custom');
+    expect(await pricingAt(handle.db, created.id, new Date())).toBeNull(); // → cost_unknown at ledger time
+  });
+
+  it('deprecation references surface policies pointing at retired models (5.7)', async () => {
+    // deprecate the local seed model? No — retire a referenced synced model instead:
+    // tb policies reference custom models only, so build the reference through a synced one
+    const model = await handle.db.query.models.findFirst({
+      where: eq(models.canonicalId, 'anthropic/claude-test-1'),
+    });
+    await handle.db.update(models).set({ status: 'deprecated' }).where(eq(models.id, model!.id));
+    const policy = await handle.db.query.policies.findFirst();
+    await handle.db
+      .update((await import('../db/schema.js')).policies)
+      .set({ fallbackChain: [model!.id] })
+      .where(eq((await import('../db/schema.js')).policies.id, policy!.id));
+
+    const refs = await findRetiredModelReferences(handle.db);
+    expect(refs.some((r) => r.canonicalId === 'anthropic/claude-test-1' && r.role === 'fallback')).toBe(true);
+  });
+});

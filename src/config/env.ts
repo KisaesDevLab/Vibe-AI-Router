@@ -20,6 +20,10 @@ const envSchema = z.object({
   ROUTER_MAX_BODY_BYTES: z.coerce.number().int().positive().default(10 * 1024 * 1024),
   ROUTER_MAX_MESSAGES: z.coerce.number().int().positive().default(200),
   ROUTER_MAX_JSON_DEPTH: z.coerce.number().int().positive().default(24),
+  /** Catalog sync schedule (5.6); empty string disables the cron */
+  CATALOG_SYNC_CRON: z.string().default('15 3 * * *'),
+  /** Pre-Phase-11 admin surface; unset → bootstrap admin routes are not registered (Q-018) */
+  ADMIN_BOOTSTRAP_TOKEN: z.string().min(16).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -2,6 +2,23 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-07-26 — Phase 5 complete
+
+- Vendored LiteLLM feed (291 chat models across openai/azure/anthropic/groq/deepseek/ollama;
+  sha256 + provenance in data/VENDOR.md). parseFeed maps provider→kind, prefixes canonical ids,
+  converts $/tok → $/MTok; skips non-chat and context-less entries with names reported.
+- syncCatalog: additive+flagging (deprecate on vanish, reactivate on return, custom rows
+  untouched), pricing history append only on change, capability_overrides never written.
+  Pitfall fixed: Postgres jsonb reorders keys — capability comparison must be key-order
+  insensitive or every sync reports spurious updates.
+- Catalog service: custom CRUD (zod, pricing optional → cost_unknown), retire→sunset when
+  policy-referenced, pricingAt(ts), findRetiredModelReferences.
+- Jobs: node-cron nightly + deprecation alerts; failures audit (catalog_sync_failed) and never
+  block. Bootstrap admin surface behind ADMIN_BOOTSTRAP_TOKEN (Q-018).
+- Minimal audit writer with per-event zod detail schemas (Q-019); registry extensible for
+  Phase 8.
+- Verified: 96/96 twice consecutively (state-pollution guard: resetDb in exact-count suites).
+
 ## 2026-07-26 — Phase 4 complete
 
 - Anthropic native adapter: Messages API translation (system extraction, tool_use/tool_result

@@ -16,8 +16,18 @@ async function main(): Promise<void> {
     },
   });
 
+  if (env.ADMIN_BOOTSTRAP_TOKEN) {
+    const { registerBootstrapAdmin } = await import('../admin-api/bootstrap.js');
+    registerBootstrapAdmin(app, { db: handle.db, log, adminToken: env.ADMIN_BOOTSTRAP_TOKEN });
+  }
+
+  const scheduler = env.CATALOG_SYNC_CRON
+    ? (await import('../catalog/scheduler.js')).startCatalogScheduler(handle.db, log, env.CATALOG_SYNC_CRON)
+    : undefined;
+
   const shutdown = async (signal: string): Promise<void> => {
     app.log.info({ signal }, 'shutting down');
+    if (scheduler) void scheduler.stop();
     await app.close();
     await handle.close();
     process.exit(0);
