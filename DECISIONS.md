@@ -31,11 +31,11 @@ Container/service: `vibe-ai-router` (GHCR: `ghcr.io/kisaesdevlab/vibe-ai-router`
 (`http://vibe-ai-router:8220`) and is never exposed through Caddy. Chosen over `ai.<domain>` to
 avoid implying a general AI endpoint for humans. **Reversal: S**.
 
-## D-005 — Node 20 runtime target (plan-pinned), Node 24 tolerated for dev
+## D-005 — Node 24 runtime (Phase 15B decision; superseded Node 20 plan pin)
 
-Docker base is node:20-alpine; `engines.node >= 20`. Dev boxes run Node 24 — code avoids
-&gt;20 APIs. Newer suite apps (Vault, 1099) target Node 24; unifying on 24 is a Phase 15
-question ([Q-002]). **Reversal: S** (bump base image).
+Originally node:20-alpine per plan ([Q-002]). Kurt chose Node 24 in the 15B review to match
+the newer suite apps (Vault, 1099) — Docker base node:24-alpine, `engines.node >= 24`,
+CI on 24. **Reversal: S** (bump base image back).
 
 ## D-006 — Hand-authored up/down SQL migrations, custom runner
 

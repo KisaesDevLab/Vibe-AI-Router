@@ -4,10 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-**Nothing is built.** The repo contains only `VIBE-AI-ROUTER-BUILD-PLAN.md` — the source of truth
-for scope, phase order, and acceptance criteria. There are no commits on `master` yet. The next
-work is Phase 0 (scaffolding), which itself calls for creating `PHASES.md`, `STATE.md`,
-`QUESTIONS.md`, and `DECISIONS.md` alongside this file.
+**All phases 0–14 + 15A built and 15B reviewed** (2026-07-26/27, one autonomous pass; see
+`PHASES.md` per-item status, `STATE.md` verification journal, `QUESTIONS.md` 58 decisions,
+`REVIEW-PACKET.md` with Kurt's recorded verdicts). v1.0.0 tagged after 15C applied the review
+outcomes: scrubber default **redact** (Q-056), **Node 24** runtime (Q-057), TB call-site swap
+deferred to ticket MIG-1 (Q-058, docs/migration-tickets.md).
+
+**Not yet run on the real appliance:** live vibellm smoke (`scripts/smoke-live.ts`, Q-011),
+1-hour memory soak (Q-054), real shadow-diff report. `VIBE-AI-ROUTER-BUILD-PLAN.md` remains
+the scope source of truth; reviewed decisions are LOCKED — do not relitigate.
 
 Suite context: this replaces the scrapped **Vibe Shield** concept (`../Vibe-Shield/`) with
 routing-layer enforcement instead of a separate guard product.
@@ -59,7 +64,7 @@ These are the product. Several are enforced by `/test/invariants` in CI from Pha
 
 ## Stack & conventions
 
-- Node.js 20, TypeScript strict, **Fastify** (chosen over Express for first-class SSE streaming and
+- Node.js 24 (Q-057; plan said 20), TypeScript strict, **Fastify** (chosen over Express for first-class SSE streaming and
   lower proxy overhead), Drizzle ORM, PostgreSQL 16, Redis 7 (optional — rate limiting + response
   cache, always with an in-memory fallback), React 18 + Vite admin UI, pnpm, Vitest, tsx.
 - Docker single container + the shared appliance Postgres. Default port **8220** (block

@@ -3,8 +3,9 @@
 **Q: Does any client data go to an AI vendor?**
 Only what you explicitly permit, tier by tier. LOCAL-tier tasks (the default for anything
 identifying) never leave the appliance. SCRUBBED-tier requests are machine-scanned for SSNs,
-EINs, bank routing/account numbers, and card numbers before any cloud call; a match blocks the
-request. CLOUD-tier tasks contain no client data by construction. Enforcement is server-side
+EINs, bank routing/account numbers, and card numbers before any cloud call; matches are
+redacted to `[TYPE]` tokens before transmission (or block the request entirely, per firm
+setting). CLOUD-tier tasks contain no client data by construction. Enforcement is server-side
 and logged.
 
 **Q: Which AI company processes our data when cloud is used?**

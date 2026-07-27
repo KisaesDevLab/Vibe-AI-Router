@@ -30,9 +30,11 @@ switch the class to redact/warn or fix the source data.
 
 ## Modes (firm setting `scrubber_mode`)
 
-- **block** (default): 422 `scrubber_blocked`, detail = `{matches: {type: count}}` — never values.
-- **redact**: outbound deep copy gets `[TYPE]` tokens; original envelope object untouched;
-  one-way (no de-tokenization exists anywhere).
+- **redact** (default since 15C review, Q-056): outbound deep copy gets `[TYPE]` tokens;
+  original envelope object untouched; one-way (no de-tokenization exists anywhere);
+  `scrubber_redacted` audit event with counts.
+- **block**: 422 `scrubber_blocked`, detail = `{matches: {type: count}}` — never values.
+  The strictest posture; one click in Firm settings.
 - **warn**: pass through unmodified + `scrubber_warning` audit event.
 
 Scope: cloud-bound requests only (selected model kind ≠ `local`); covers every message string,

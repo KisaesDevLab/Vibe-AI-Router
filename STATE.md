@@ -2,6 +2,22 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-07-27 — Phase 15B+15C complete → v1.0.0
+
+- 15B: Kurt answered the full agenda in interactive Q&A (verdict table at the top of
+  REVIEW-PACKET.md). All KEEP except: scrubber default → redact (Q-056), Node 24 (Q-057),
+  TB swap deferred to MIG-1 ticket (Q-058).
+- 15C applied: pipeline default ?? 'redact' (both read sites), seed firm redact, invariant (c)
+  hardened to set block explicitly, (c3) restores redact; Dockerfile node:24-alpine,
+  engines >=24, CI node 24; docs synced (scrubber.md, firm docs, SENSITIVITY-REVIEW marked
+  reviewed-KEEP, CLAUDE.md current-state, DECISIONS D-005, CHANGELOG 1.0.0).
+- 15.10: no second shadow-diff — no classification-affecting change (scrubber default affects
+  cloud-bound only; TB classification is local_only).
+- Re-verified: typecheck/lint clean, 206/206, e2e smoke green, Node 24 image built + smoked
+  (healthz/version 1.0.0/UI/metrics).
+- Tagged v1.0.0. Remaining operator actions: appliance deploy (docs/appliance.md), first-deploy
+  verifications (Q-011/Q-054), schedule MIG-1…8 (docs/migration-tickets.md).
+
 ## 2026-07-26 — Phase 15A complete — BUILD PAUSED FOR HUMAN REVIEW
 
 - REVIEW-PACKET.md assembled: 7 consequence-ordered agenda items (sensitivity first), all

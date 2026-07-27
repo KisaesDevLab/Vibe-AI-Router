@@ -207,3 +207,15 @@ Grouped by phase. This file is the Phase 15 review agenda.
   vibellm smoke (Q-011)** → dev-box hour-long soak measures the wrong hardware anyway → **S**
 - [Q-055] drizzle-orm high advisory (GHSA-gpj5-g38j-94v9, SQL-identifier escaping) → upgraded
   0.44→0.45.2, full suite green; CI now gates on `pnpm audit --audit-level high` → **S**
+
+## Phase 15 (operator decisions — Kurt, 15B Q&A 2026-07-27)
+
+- [Q-056] Scrubber firm default → **CHANGE block→redact per Kurt** → protected numbers become
+  [TYPE] tokens before cloud transmission; block stays one click away per firm; invariant (c)
+  test now sets block explicitly → **S**
+- [Q-057] Runtime → **CHANGE Node 20→24 per Kurt** → suite standardization (Vault/1099);
+  image/engines/CI updated, full suite re-verified → **S**
+- [Q-058] TB call-site swap (MIG-1) → **deferred by Kurt from the 15C window to its own
+  scheduled ticket** → 1.0.0 ships without it; trial-balance-app keeps its direct path until
+  MIG-1 lands (direct-path flag removal, plan 15.8, moves with MIG-1) → **S**
+- All other agenda items: **KEEP as built** (recorded in REVIEW-PACKET.md verdict table).

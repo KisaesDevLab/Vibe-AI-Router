@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.0 — 2026-07-27
+
+Phase 15 human review complete (REVIEW-PACKET.md carries the full verdict table). Changes from
+rc.1, all operator-decided:
+
+- Scrubber firm default changed **block → redact** (Q-056): protected numbers become `[TYPE]`
+  tokens before cloud transmission; block remains a per-firm setting. Invariant suite updated
+  (block-mode invariant now sets the mode explicitly).
+- Runtime standardized on **Node 24** (Q-057): image base, engines, CI.
+- All sensitivity-tier assignments confirmed as built (SENSITIVITY-REVIEW.md marked reviewed).
+- TB call-site migration (MIG-1) deferred by decision to its own ticket (Q-058) — 1.0.0 ships
+  the router; trial-balance-app swaps in the MIG-1 window.
+
 ## 1.0.0-rc.1 — 2026-07-26
 
 Initial release candidate. One autonomous build pass, phases 0–14 of

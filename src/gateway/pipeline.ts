@@ -253,7 +253,7 @@ export async function stageScrub(ctx: PipelineCtx, deps: PipelineDeps): Promise<
     cloudBound = model.providerKind !== 'local';
     if (!cloudBound) return;
 
-    const mode = effective.firmSettings.scrubber_mode ?? 'block';
+    const mode = effective.firmSettings.scrubber_mode ?? 'redact';
     if (mode === 'redact') {
       const result = redactEnvelope(ctx.envelope);
       report = result.report;
@@ -279,7 +279,7 @@ export async function stageScrub(ctx: PipelineCtx, deps: PipelineDeps): Promise<
     Object.entries(report.counts).map(([k, v]) => [k, v ?? 0]),
   ) as Record<string, number>;
 
-  const mode = effective.firmSettings.scrubber_mode ?? 'block';
+  const mode = effective.firmSettings.scrubber_mode ?? 'redact';
   if (mode === 'block') {
     deps.audit?.({
       firmId: auth.firmId,

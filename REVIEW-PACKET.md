@@ -1,5 +1,27 @@
 # REVIEW-PACKET — Vibe AI Router v1.0.0-rc.1
 
+**✅ 15B COMPLETE — answered by Kurt in Q&A, 2026-07-27. Verdicts recorded below; 15C executed
+same day. Summary: KEEP everything except → 4a scrubber default CHANGE to `redact`; 7a CHANGE
+to Node 24; 15C GO with the TB call-site swap (MIG-1) deferred to its own scheduled ticket.**
+
+| Item | Verdict |
+| --- | --- |
+| 1a taxresearch_chat tier | KEEP cloud_allowed |
+| 1b doc-extract tiers | KEEP cloud_deidentified |
+| 1 remaining 12 rows | KEEP all |
+| 2a Fastify | KEEP (batched) |
+| 3a/3b/3c pack defaults + limits | KEEP local-first everywhere |
+| 4a scrubber default | **CHANGE → redact** (applied: code default, seed, docs; block remains per-firm option) |
+| 4b structural determinism | KEEP |
+| 5a budgets | KEEP none by default |
+| 6a/6b/6c port 8220 / airouter / BSL 1.1 | KEEP |
+| 7a runtime | **CHANGE → Node 24** (applied: image, engines, CI) |
+| 7b admin auth | KEEP as-is (no throttling; SSO backlog) |
+| 7c–7j batched | KEEP all |
+| 15C go/no-go | **GO — skip TB swap** (MIG-1 scheduled separately; direct-path flag removal moves with it) |
+
+---
+
 **For:** Kurt (Phase 15B — the only human touchpoint of this build)
 **Rule of engagement:** every agenda item is a closed question with the implemented default
 stated. Answer inline: `KEEP` or `CHANGE: <instruction>`. Items are ordered by consequence.

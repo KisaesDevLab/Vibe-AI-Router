@@ -34,7 +34,7 @@ export async function seed(databaseUrl: string, log: (m: string) => void = () =>
       .values({
         name: 'Demo Firm CPA',
         slug: DEMO.firmSlug,
-        settings: { scrubber_mode: 'block' },
+        settings: { scrubber_mode: 'redact' },
       })
       .onConflictDoUpdate({ target: firms.slug, set: { name: 'Demo Firm CPA' } })
       .returning();

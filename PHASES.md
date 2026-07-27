@@ -280,14 +280,19 @@ full-appliance run happens at first deploy (same posture as 3.10/Q-011).
 - [x] 15.3 Every item is a closed KEEP/CHANGE question with the implemented default stated
 - [x] 15.4 Demo environment + scripted walkthrough (REVIEW-PACKET.md §Demo)
 
-**15B — Q&A session (Kurt) — WAITING. THE BUILD STOPS HERE.**
-- [ ] 15.5 Record answers inline in REVIEW-PACKET.md (KEEP / CHANGE: …)
-- [ ] 15.6 Triage new requirements: refinement vs post-1.0 backlog
+**15B — Q&A session (Kurt) — DONE 2026-07-27**
+- [x] 15.5 Answers recorded (REVIEW-PACKET.md verdict table): KEEP all except scrubber
+        default→redact, Node→24; 15C GO with TB swap deferred
+- [x] 15.6 Triage: no new requirements; MIG-1 rescheduled as its own ticket (Q-058)
 
-**15C — refinement execution (agent, after 15B)**
-- [ ] 15.7 Implement CHANGEs + re-run invariant/chaos/e2e
-- [ ] 15.8 TB direct-path swap + flag removal (MIG-1, Q-047)
-- [ ] 15.9 Contract/firm docs sync
-- [ ] 15.10 Second shadow-diff if classification-affecting changes
-- [ ] 15.11 Final gap-prevention pass
-- [ ] 15.12 Tag 1.0.0, deploy at own firm, schedule MIG-2…8
+**15C — refinement execution — DONE 2026-07-27**
+- [x] 15.7 CHANGEs implemented (redact default incl. seed + invariant-test hardening; Node 24
+        image/engines/CI); full suite + e2e re-verified green; image rebuilt + smoked
+- [~] 15.8 TB direct-path swap + flag removal → moved into MIG-1 per Kurt (Q-058)
+- [x] 15.9 Docs synced (scrubber.md, firm docs, SENSITIVITY-REVIEW marked reviewed, CLAUDE.md,
+        DECISIONS D-005)
+- [x] 15.10 Second shadow-diff not required — no classification-affecting change (scrubber
+        default touches cloud-bound requests only; TB classification is local_only)
+- [x] 15.11 Final gap-prevention pass (env docs/contract drift re-checked after changes)
+- [x] 15.12 Tagged v1.0.0; appliance deploy + MIG scheduling are operator actions
+        (docs/appliance.md, docs/migration-tickets.md)

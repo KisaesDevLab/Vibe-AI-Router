@@ -29,7 +29,8 @@ offers models that actually support what the task needs.
 
 Firm settings:
 
-- **Scrubber mode** — leave on **block** unless you have a reason to soften it.
+- **Scrubber mode** — ships as **redact** (protected numbers become `[SSN]`-style tokens
+  before any cloud call). Switch to **block** if you'd rather reject such requests outright.
 - **Firm monthly budget** — a hard dollar cap on AI spend; a warning shows at 80%.
 
 ## 5. Verify
@@ -42,6 +43,7 @@ just did is the same path your Vibe apps use.
 
 - Provider test fails → re-check the key and URL; see the Providers page status.
 - A task says "unconfigured — requests blocked" → it has no valid model yet; edit its policy.
-- A request is blocked with "protected data" → the scrubber found an SSN/EIN/account/card
-  number in a cloud-bound request. That's it working. Use a LOCAL-tier task for that data, or
-  review the source document.
+- Output contains `[SSN]`/`[ACCOUNT]`-style tokens → the scrubber redacted protected numbers
+  from a cloud-bound request (that's it working). If a request is instead rejected with
+  "protected data", your firm is in block mode. Use a LOCAL-tier task when the numbers
+  themselves are needed.

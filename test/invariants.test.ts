@@ -156,6 +156,12 @@ describe.skipIf(!url)('invariant suite', () => {
   });
 
   it('(c) scrubber match on cloud-bound request → 422, match types only', async () => {
+    // firm default is now redact (15C/Q-056) — this invariant asserts BLOCK-mode behavior
+    const firm = await handle.db.query.firms.findFirst();
+    await handle.db
+      .update(firms)
+      .set({ settings: { scrubber_mode: 'block' } })
+      .where(eq(firms.id, firm!.id));
     await new Promise((r) => setTimeout(r, 30)); // engine TTL
     const res = await chat('tb_doc_extract', 'extract W-2 for SSN 123-45-6789', {
       response_format: { type: 'json_schema', json_schema: { name: 'out', schema: { type: 'object' } } },
@@ -229,10 +235,10 @@ describe.skipIf(!url)('invariant suite', () => {
     expect(adapterSaw).not.toContain('4111111111111111');
     await app2.close();
 
-    // restore block mode
+    // restore the shipped default (redact, Q-056)
     await handle.db
       .update(firms)
-      .set({ settings: { scrubber_mode: 'block' } })
+      .set({ settings: { scrubber_mode: 'redact' } })
       .where(eq(firms.id, firm!.id));
   });
 

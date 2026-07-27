@@ -12,7 +12,7 @@ request (not by app good manners):
 | Tier | Meaning | Examples (defaults) |
 | --- | --- | --- |
 | **LOCAL** | Never leaves your appliance. Served by the on-box model server. | Trial-balance classification, W-9 extraction, payroll review, bank statement parsing, client document summaries |
-| **SCRUBBED** | May use your cloud AI account, but only after an automatic scan proves the request carries no SSNs, EINs, bank routing/account numbers, or card numbers. A match blocks the request (default) or redacts it, per your setting. | Source-document field extraction, letter drafting |
+| **SCRUBBED** | May use your cloud AI account, but only after an automatic scan for SSNs, EINs, bank routing/account numbers, and card numbers. A match is redacted to a `[TYPE]` token before anything is sent (default), or blocks the request entirely if you choose the stricter setting. | Source-document field extraction, letter drafting |
 | **CLOUD** | May use your cloud AI account directly — these tasks contain no client data by construction (e.g. summarizing public IRS guidance). | Tax research over public authority |
 
 The current assignment of every task is visible in the admin console (Policies page) and can

@@ -1,5 +1,5 @@
-# Multi-stage build. Runtime target is Node 20 LTS (plan-pinned) on alpine.
-FROM node:20-alpine AS build
+# Multi-stage build. Runtime target is Node 24 (suite standard per 15C review) on alpine.
+FROM node:24-alpine AS build
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -17,7 +17,7 @@ RUN pnpm build \
  && pnpm --filter @vibe-ai-router/ui build \
  && pnpm prune --prod
 
-FROM node:20-alpine AS runtime
+FROM node:24-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=8220
 # Non-root, read-only-fs friendly: the app writes nothing to disk (logs → stdout, state → pg).
