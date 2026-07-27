@@ -27,3 +27,13 @@ Grouped by phase. This file is the Phase 15 review agenda.
   schema-whole-up-front is the phase's stated purpose; avoids later migration churn → **S**
 - [Q-007] Local model cost representation? → **explicit $0 pricing rows** → local is genuinely
   zero-cost; `cost_unknown` must stay reserved for missing pricing (principle 7) → **S**
+
+## Phase 2
+
+- [Q-008] Plan taxonomy has no code for malformed bodies → **added `invalid_request` (400)** →
+  every OpenAI-compatible surface needs it; mapping unknowable inputs to `unknown` (500) would
+  misreport client bugs as server faults → **S**
+- [Q-009] Missing/unknown task class error code? → **`policy_blocked` (403)** → it is a policy
+  decision (fail closed), not a syntax error; distinguishable via message text → **S**
+- [Q-010] Client-disconnect detection → **response `close` with `writableFinished=false`**
+  (req.raw `close` fires on normal completion in Node ≥18 and falsely aborts) → **S**

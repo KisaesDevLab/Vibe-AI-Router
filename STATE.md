@@ -2,6 +2,20 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-07-26 — Phase 2 complete
+
+- Envelope frozen (src/gateway/envelope.ts + docs/envelope.md): AIRequest/AIResponse/StreamChunk,
+  OpenAI-body zod parsing, developer→system normalization, canonical request hash.
+- Error taxonomy with HTTP mapping + RETRYABLE_CODES for Phase 10 (errors.ts).
+- Pipeline stages pure + injectable (pipeline.ts): auth (sha256 + timingSafeEqual + scopes),
+  task-class fail-closed, minimal policy stage w/ max_tokens injection, scrub/ledger stubs with
+  frozen interfaces, route stage with request-time local_only assertion already active.
+- SSE relay with hijack(), heartbeat, [DONE], usage-after-finish chunk; mid-stream errors emit
+  terminal error event. Client-disconnect via response-close (Q-010 — req.raw close is wrong and
+  cost an hour of debugging; do not regress).
+- Verified: 26/26 green — official openai client contract tests (both modes), 401/403/400
+  taxonomy paths, upstream abort <1s on client disconnect.
+
 ## 2026-07-26 — Phase 1 complete
 
 - 16-table schema live: db/schema.ts (drizzle, type source) + 0001_data_model up/down SQL.

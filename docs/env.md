@@ -11,6 +11,9 @@ Validation: `src/config/env.ts` (zod). Invalid config → the process refuses to
 | `DATABASE_URL` | **yes** | — | Postgres 16 connection string |
 | `REDIS_URL` | no | — | Optional Redis; absent → in-memory fallbacks (rate limits, breaker state, cache) |
 | `LOG_LEVEL` | no | `info` | pino level |
+| `ROUTER_MAX_BODY_BYTES` | no | `10485760` | gateway request body cap (2.9) |
+| `ROUTER_MAX_MESSAGES` | no | `200` | max messages per request |
+| `ROUTER_MAX_JSON_DEPTH` | no | `24` | JSON nesting cap, checked before schema parse |
 
 Test-only:
 

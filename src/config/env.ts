@@ -16,6 +16,10 @@ const envSchema = z.object({
   /** Redis is OPTIONAL (rate limits / breaker state / response cache). Absent → in-memory fallbacks. */
   REDIS_URL: z.string().url().optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  /** Gateway sanity caps (2.9) */
+  ROUTER_MAX_BODY_BYTES: z.coerce.number().int().positive().default(10 * 1024 * 1024),
+  ROUTER_MAX_MESSAGES: z.coerce.number().int().positive().default(200),
+  ROUTER_MAX_JSON_DEPTH: z.coerce.number().int().positive().default(24),
 });
 
 export type Env = z.infer<typeof envSchema>;

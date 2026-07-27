@@ -39,7 +39,19 @@ Mirrors `VIBE-AI-ROUTER-BUILD-PLAN.md` (source of truth for full item text). `[x
 
 ## Phase 2 — Gateway Core & Envelope
 
-- [ ] 2.1 … 2.10
+- [x] 2.1 AIRequest envelope + docs/envelope.md (frozen)
+- [x] 2.2 AIResponse envelope
+- [x] 2.3 Error taxonomy + HTTP mapping (+ invalid_request extension, Q-008)
+- [x] 2.4 POST /v1/chat/completions with required X-Vibe-Task-Class (fail closed)
+- [x] 2.5 App-token bearer auth, scopes, constant-time compare
+- [x] 2.6 Ordered pipeline auth→class→policy→scrub→route→adapt→ledger→respond (scrub/ledger stubs)
+- [x] 2.7 SSE relay: heartbeat, client-disconnect abort (response-close detection), usage from final chunk
+- [x] 2.8 Request ID + canonical SHA-256 hash threading
+- [x] 2.9 Body/messages/JSON-depth caps (env-tunable)
+- [x] 2.10 Contract tests with official `openai` client, streaming + non-streaming
+
+**Acceptance met:** stubbed adapter end-to-end both modes; taxonomy verified (401/403/400 paths);
+abort propagation <1s test.
 
 ## Phase 3 — Adapter Framework + OpenAI-Compatible Adapter
 
