@@ -2,6 +2,25 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-07-27 — QA rounds D/E (security + soak)
+
+- Round D security pass (test/qa-round-d-security.test.ts, 13 attack checks) → **4 findings**:
+  (1) HIGH unhandled-error disclosure — Fastify's default handler echoed err.message, so a DB
+  error returned full SQL + bound params to the caller; fixed with a global setErrorHandler
+  (5xx → generic, logged server-side). (2) NUL/C0 chars in query params reached Postgres →
+  500 instead of 400; fixed with safeString() on all DB-bound filters. (3) login timing oracle
+  (unknown email 17× faster); fixed with always-verify against a boot-warmed dummy hash.
+  (4) unbounded SessionStore → memory-DoS given no login throttle; capped + sweep + eviction.
+  Nine other probes passed untouched (authz, CSRF×12, cookie forgery, credential sweep,
+  SQLi, proto-pollution, SSRF both directions, gateway error hygiene).
+- Round E soak on ISOLATED db (first attempt discarded — Round D's resetDb dropped tables
+  under it): 37,500 requests, **0 errors**, added p95 **14.3ms**, memory drift **−1MB**
+  (mid-run 356MB → late 355MB), flat RSS for the final 20 min. Both budgets PASS.
+- Clean-room re-run on a fresh container + fresh DB with the fixes: **26/26** (4 new hardening
+  checks added to scripts/qa-clean-room.ts).
+- Suite: 229 tests. Source hygiene: stray literal NUL bytes (which is how finding #1 surfaced)
+  removed from test sources; payloads now built explicitly via String.fromCharCode.
+
 ## 2026-07-27 — Post-1.0.0 QA rounds A/B/C (apps on hold per Q-059)
 
 - Round A regression: 216/216, e2e green, load PASS (+18.0ms p95), audit clean.

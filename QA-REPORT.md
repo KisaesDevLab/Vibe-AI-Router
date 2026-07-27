@@ -3,6 +3,18 @@
 **Context:** operator decision 2026-07-27 — app migrations (MIG-1…8) are ON HOLD until the
 router has passed multiple QA rounds. This report is the record. Scope: router only.
 
+**Summary: 5 rounds run, 9 defects found, 9 fixed, each with a permanent regression test.**
+Final state: 229 tests + 26 black-box clean-room checks + e2e green; 37,500-request soak with
+zero errors, −1 MB memory drift and 14.3 ms p95 added latency.
+
+| Round | Focus | Findings |
+| --- | --- | --- |
+| A | full regression baseline | 0 (baseline) |
+| B | fuzzing + correctness sweep | 5 (incl. 1 High: phantom cache-hit billing) |
+| C | clean-room container from empty DB | 0 — 22/22, later 26/26 |
+| D | security pass, admin + auth surface | 4 (incl. 1 High: SQL/parameter disclosure) |
+| E | 25-minute soak, isolated DB | 0 — both budgets PASS |
+
 ## Round A — full regression (automated)
 
 | Suite | Result |
@@ -74,13 +86,26 @@ and no provider labels/hostnames/stack frames in app-facing gateway errors.
 
 ## Round E — extended soak
 
-25-minute continuous run at 25 rps (~37,500 requests) against an **isolated database**, with
-RSS/heap sampled every 60 s. Budget: post-warm-up drift < 50 MB and the same p95 added-latency
-gate. Results in the table below.
+25-minute continuous run at 25 rps against an **isolated database**, RSS/heap sampled every
+60 s (25 samples).
 
-> Method note: the first soak attempt was discarded — Round D's suite calls `resetDb`, which
-> drops every table, against the database the soak was using. Isolating the soak DB was the
-> fix; a contaminated run would have reported failures that say nothing about the router.
+| Metric | Result |
+| --- | --- |
+| Requests | **37,500 sent, 0 errors** |
+| Latency (router) | p50 14.5 ms · p95 19.1 ms · p99 24.6 ms |
+| **Added latency** vs direct-to-mock baseline | p50 12.2 ms · **p95 14.3 ms** (budget < 25 ms) → PASS |
+| Memory drift, mid-run avg → late avg | 356 MB → 355 MB = **−1 MB** (budget < 50 MB) → PASS |
+| RSS profile | flat 354–356 MB for the final 20 minutes; heap sawtooth 62–187 MB (healthy GC) |
+
+No leak signature: RSS is flat to within 2 MB across the last 20 minutes, and the heap
+oscillates rather than ratchets. The `start=243MB → end=356MB` delta is warm-up (JIT, pools,
+37.5k timer allocations in the harness itself), which is exactly why the budget compares
+mid-run against late-run rather than start against end.
+
+> Method note: the first soak attempt was **discarded, not reported** — Round D's suite calls
+> `resetDb`, which drops every table, against the database that soak was using. Isolating the
+> soak database was the fix; the contaminated run's numbers would have measured test
+> interference, not the router.
 
 ## Standing QA assets (run these every round)
 
@@ -93,7 +118,18 @@ ROUTER_URL=… pnpm tsx scripts/qa-clean-room.ts # black-box acceptance (any dep
 
 ## Verdict + what QA still cannot cover on this dev box
 
-Router is release-quality for appliance deployment. Deliberately out of reach until first
-deploy (tracked Q-011/Q-054): live vibellm completions (`scripts/smoke-live.ts`), 1-hour
-memory soak on appliance hardware, real-model shadow-diff report, Caddy/TLS integration.
-App migrations remain on hold per operator decision (Q-058/Q-059) until QA sign-off.
+Router is release-quality for appliance deployment. Five rounds moved it from "all tests pass"
+to "attacked, fuzzed, soaked, and deployed from scratch" — the two High-severity findings
+(phantom billing on cache hits; SQL + parameter disclosure in unhandled errors) were both
+invisible to the original suite because each needed a config combination or an input class no
+happy-path test produces.
+
+Deliberately out of reach here, deferred to first deploy (Q-011/Q-054):
+
+- live vibellm completions (`scripts/smoke-live.ts`) — dev box has no Ollama;
+- soak on **appliance hardware** — the 25-min dev-box soak proves no leak in the code, not
+  behavior under the appliance's memory ceiling and disk;
+- real-model shadow-diff report (harness proven at 100% on deterministic mock);
+- Caddy/TLS + `SECURE_COOKIES=true` end-to-end.
+
+App migrations remain ON HOLD per operator decision (Q-058/Q-059) until explicit sign-off.

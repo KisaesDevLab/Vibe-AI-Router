@@ -17,6 +17,25 @@ the scope source of truth; reviewed decisions are LOCKED — do not relitigate.
 Suite context: this replaces the scrapped **Vibe Shield** concept (`../Vibe-Shield/`) with
 routing-layer enforcement instead of a separate guard product.
 
+## QA suites — run these, don't just run `pnpm test`
+
+`QA-REPORT.md` is the standing record (rounds A–E, 9 defects found and fixed post-1.0.0).
+Two suites are adversarial and belong in every verification pass:
+
+- `test/qa-round-b.test.ts` — fuzzing (~6.5k generated cases/run) over every untrusted-input
+  parser + regressions for the correctness findings (phantom cache-hit billing, stream header
+  drop, shed-slot leak).
+- `test/qa-round-d-security.test.ts` — attack attempts on the admin/auth surface; each check
+  MUST fail to succeed. Regressions for the error-disclosure, control-char, timing-oracle and
+  session-DoS findings.
+- `scripts/qa-clean-room.ts` — black-box HTTP acceptance against ANY deployment
+  (`ROUTER_URL=… pnpm tsx scripts/qa-clean-room.ts`); also the appliance acceptance test.
+- `scripts/load-test.ts` — perf gate; `LOAD_SAMPLE_EVERY_S=60 LOAD_SECONDS=1500` turns it into
+  a memory-stability soak.
+
+**DB-backed tests call `resetDb` (drops every table).** Never run them against a database a
+soak or demo is using — point long runs at their own database.
+
 ## Build process — autonomous, no gates
 
 Phases 0 → 14 run **without stopping for human review**. Phase 15 is the sole human touchpoint.
