@@ -8,6 +8,9 @@ import { CredentialVault } from '../vault/service.js';
 import { HealthMonitor } from '../vault/health.js';
 import { PolicyEngine } from '../policy/engine.js';
 import { writeAudit } from '../protect/audit.js';
+import { CircuitBreaker } from '../resilience/breaker.js';
+import { LoadShedGuard } from '../resilience/shed.js';
+import { RateLimiter } from '../resilience/limiter.js';
 import { buildApp } from './app.js';
 
 async function main(): Promise<void> {
@@ -28,6 +31,38 @@ async function main(): Promise<void> {
   const health = new HealthMonitor(handle.db, log);
   const engine = new PolicyEngine(handle.db);
 
+  // resilience layer (Phase 10)
+  const breaker = new CircuitBreaker({ openDurationMs: env.BREAKER_OPEN_MS });
+  breaker.onTransition = (providerId, from, to, errorRate) => {
+    log.warn({ providerId, from, to, errorRate }, 'circuit breaker transition');
+    void (async (): Promise<void> => {
+      const firm = await handle.db.query.firms.findFirst();
+      if (firm) {
+        await writeAudit(handle.db, {
+          firmId: firm.id,
+          event: 'breaker_transition',
+          provider: providerId,
+          detail: { from, to, errorRate },
+        });
+      }
+    })().catch(() => {});
+  };
+  const resilience = {
+    breaker,
+    shed: new LoadShedGuard(env.UPSTREAM_MAX_CONCURRENCY, env.UPSTREAM_QUEUE_CAP),
+    totalTimeoutMs: env.ROUTER_TIMEOUT_TOTAL_MS,
+    streamIdleTimeoutMs: env.ROUTER_TIMEOUT_STREAM_IDLE_MS,
+  };
+  const rateLimits = {
+    perToken: new RateLimiter(env.RATE_LIMIT_PER_TOKEN_RPM),
+    perUser: new RateLimiter(env.RATE_LIMIT_PER_USER_RPM),
+  };
+  const limiterPrune = setInterval(() => {
+    rateLimits.perToken.prune();
+    rateLimits.perUser.prune();
+  }, 300_000);
+  limiterPrune.unref();
+
   const app = buildApp({
     env,
     gateway: {
@@ -44,6 +79,8 @@ async function main(): Promise<void> {
             log.error({ err, event: entry.event }, 'audit write failed'),
           );
         },
+        resilience,
+        rateLimits,
       },
     },
   });

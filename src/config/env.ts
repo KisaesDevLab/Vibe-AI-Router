@@ -32,6 +32,14 @@ const envSchema = z.object({
   MASTER_KEY_PREVIOUS_VERSION: z.coerce.number().int().positive().optional(),
   /** demoted credentials auto-revoke after this many hours in grace (6.4) */
   CREDENTIAL_GRACE_HOURS: z.coerce.number().positive().default(24),
+  /** Resilience (Phase 10) — 0 disables the respective limiter */
+  RATE_LIMIT_PER_TOKEN_RPM: z.coerce.number().int().nonnegative().default(600),
+  RATE_LIMIT_PER_USER_RPM: z.coerce.number().int().nonnegative().default(240),
+  UPSTREAM_MAX_CONCURRENCY: z.coerce.number().int().positive().default(16),
+  UPSTREAM_QUEUE_CAP: z.coerce.number().int().nonnegative().default(32),
+  BREAKER_OPEN_MS: z.coerce.number().int().positive().default(30_000),
+  ROUTER_TIMEOUT_TOTAL_MS: z.coerce.number().int().positive().default(120_000),
+  ROUTER_TIMEOUT_STREAM_IDLE_MS: z.coerce.number().int().positive().default(60_000),
 });
 
 export type Env = z.infer<typeof envSchema>;

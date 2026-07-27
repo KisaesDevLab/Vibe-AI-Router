@@ -2,6 +2,23 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-07-26 — Phase 10 complete
+
+- Resilience primitives (src/resilience/): backoff (jitter, Retry-After), CircuitBreaker
+  (rolling window, half-open single probe, success-can't-open rule Q-040, snapshot() for
+  dashboards), RateLimiter (token bucket, 0-disables), LoadShedGuard (semaphore + bounded
+  queue).
+- Executor: per-hop routeForModel re-validation, breaker gating, shed, retries, total timeout,
+  stream idle watchdog; streaming fallback strictly pre-first-chunk. KEY FIX: stream generator
+  is primed in stageAdapt so pre-chunk failures return real HTTP codes instead of 200+error
+  event (chaos-test-caught).
+- Rate limiting in stageAuth (per token, per user), audited.
+- Chaos suite green: 429-retry counts hits, 500-primary→local-fallback serves with correct
+  ledger attribution, malformed chunks tolerated, mid-stream death yields clean terminal error
+  without provider splice, hang bounded by total timeout with exactly one ledger row, open
+  breaker short-circuits with zero upstream hits.
+- Verified: 175/175.
+
 ## 2026-07-26 — Phase 9 complete
 
 - Cost engine (ledger/cost.ts): $/MTok → cents(6dp); unknown pricing → cost_unknown never 0;

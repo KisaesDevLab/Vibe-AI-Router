@@ -137,3 +137,17 @@ Grouped by phase. This file is the Phase 15 review agenda.
   migration; (task_class_id, ts) index keeps the SUM cheap → **M**
 - [Q-037] Monthly rollover job (9.4) → **not needed: budgets_state rows are keyed by period
   (yyyymm); a new month naturally starts at zero** → **S**
+
+## Phase 10
+
+- [Q-038] Redis-backed breaker/rate-limit state → **in-memory only, behind clean class
+  interfaces** → the appliance is single-container (one process); Redis state buys nothing
+  until multi-instance, and the interfaces (CircuitBreaker/RateLimiter/LoadShedGuard) are the
+  seam for a Redis impl later → **M**
+- [Q-039] Load-shed rejection code → **rate_limited (429, Retry-After 1)** → clients already
+  handle 429 with backoff; 502 would misread as provider fault → **S**
+- [Q-040] Breaker may not open on a success sample even if the window is failure-heavy →
+  fresh evidence of health should never trip the circuit (chaos-test-caught) → **S**
+- [Q-041] Fallback on RETRYABLE failures too (after retries exhausted), not only non-retryable
+  → plan 10.1/10.3 read together: retries first, then advance; stranding the request after
+  retries when a fallback exists serves nobody → **S**

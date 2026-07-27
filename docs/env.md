@@ -21,6 +21,13 @@ Validation: `src/config/env.ts` (zod). Invalid config → the process refuses to
 | `MASTER_KEY_PREVIOUS` | no | — | previous master key during a rotation window |
 | `MASTER_KEY_PREVIOUS_VERSION` | no | `MASTER_KEY_VERSION - 1` | version of the previous key |
 | `CREDENTIAL_GRACE_HOURS` | no | `24` | demoted credentials auto-revoke after this long in grace |
+| `RATE_LIMIT_PER_TOKEN_RPM` | no | `600` | sustained requests/min per app token (0 disables) |
+| `RATE_LIMIT_PER_USER_RPM` | no | `240` | sustained requests/min per user (0 disables) |
+| `UPSTREAM_MAX_CONCURRENCY` | no | `16` | max concurrent upstream calls per provider |
+| `UPSTREAM_QUEUE_CAP` | no | `32` | waiting-queue cap per provider before shedding (429) |
+| `BREAKER_OPEN_MS` | no | `30000` | circuit-breaker open duration before half-open probe |
+| `ROUTER_TIMEOUT_TOTAL_MS` | no | `120000` | total upstream budget per request |
+| `ROUTER_TIMEOUT_STREAM_IDLE_MS` | no | `60000` | streaming idle watchdog |
 
 Test-only:
 

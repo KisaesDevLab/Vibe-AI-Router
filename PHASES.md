@@ -172,7 +172,21 @@ log-only by design (Q-033).
 
 ## Phase 10 — Resilience
 
-- [ ] 10.1 … 10.9
+- [x] 10.1 Retries: retryable codes only, exp backoff + jitter, max 2, Retry-After honored/capped
+- [x] 10.2 Per-provider breaker: rolling 30s window, open ≥50% @ ≥10 samples, half-open single
+        probe, transitions audited; in-memory (single-container correct; Redis seam Q-038)
+- [x] 10.3 Fallback chains: advance on provider failure/open breaker; EVERY hop re-passes
+        capability+sensitivity via routeForModel; hops audited (fallback_hop)
+- [x] 10.4 Streaming fallback only pre-first-chunk (generator primed in stageAdapt so pre-chunk
+        failures are real HTTP errors); post-chunk death → clean error event, no splice
+- [x] 10.5 Total timeout + streaming idle watchdog (env-tunable); composite abort signals
+- [x] 10.6 Token buckets per app-token + per user, 429 + Retry-After, 0-disables
+- [x] 10.7 Load-shed: per-provider semaphore + bounded queue → shed as 429/retry-after 1
+- [x] 10.8 Chaos suite: 5xx, 429-retry, malformed chunks, mid-stream death, hang; asserts
+        fallback serve (model = fallback), breaker short-circuit (0 upstream hits), ledger rows
+- [x] 10.9 Abort ≤1s (Phase 2 test still green under resilient path)
+
+**Acceptance met:** dead primary transparently serves via fallback with audit trail; chaos green.
 
 ## Phase 11 — Admin API + Admin UI
 

@@ -93,6 +93,10 @@ export interface PipelineDeps {
   recordHealth?: (providerId: string, firmId: string, providerLabel: string, ok: boolean) => void;
   /** fire-and-forget audit emission (Phase 8); implementations must swallow their own errors */
   audit?: (entry: AuditEntry) => void;
+  /** resilience layer (Phase 10): retries/breaker/fallbacks/timeouts/shed */
+  resilience?: import('../resilience/executor.js').ResilienceConfig;
+  /** rate limiters (Phase 10) — keyed per app token and per user */
+  rateLimits?: { perToken: import('../resilience/limiter.js').RateLimiter; perUser: import('../resilience/limiter.js').RateLimiter };
 }
 
 export function newPipelineCtx(envelope: AIRequest): PipelineCtx {
@@ -141,6 +145,24 @@ export async function stageAuth(
 ): Promise<void> {
   ctx.auth = await authenticateAppToken(deps.db, bearerToken);
   ctx.envelope.metadata.app = ctx.auth.app;
+
+  // rate limiting (10.6): per app-token, then per user when user context is present
+  if (deps.rateLimits) {
+    const tokenWait = deps.rateLimits.perToken.take(`t:${ctx.auth.tokenId}`);
+    const userWait = ctx.envelope.metadata.userId
+      ? deps.rateLimits.perUser.take(`u:${ctx.auth.firmId}:${ctx.envelope.metadata.userId}`)
+      : undefined;
+    const wait = Math.max(tokenWait ?? 0, userWait ?? 0);
+    if (wait > 0) {
+      deps.audit?.({
+        firmId: ctx.auth.firmId,
+        event: 'rate_limited',
+        app: ctx.auth.app,
+        detail: { key: tokenWait ? 'app_token' : 'user', retryAfterSeconds: wait },
+      });
+      throw new RouterError('rate_limited', 'rate limit exceeded', { retryAfterSeconds: wait });
+    }
+  }
 }
 
 // ── stage: resolve task class (fail closed on unknown — principle 3) ────────
@@ -347,6 +369,25 @@ export async function stageAdapt(ctx: PipelineCtx, deps: PipelineDeps, signal: A
   const route = ctx.route;
   const auth = ctx.auth;
   if (!route || !auth) throw new RouterError('unknown', 'pipeline ordering violation');
+
+  if (deps.resilience) {
+    // resilient path (Phase 10): retries, breaker, fallback chain, timeouts, shed
+    const { executeResilient, executeResilientStream } = await import('../resilience/executor.js');
+    if (ctx.envelope.stream) {
+      // PRIME the generator: pre-first-chunk failures must surface as HTTP errors (before
+      // headers), not as mid-stream error events. Fallback hops happen inside this await.
+      const gen = executeResilientStream(ctx, deps, deps.resilience, signal);
+      const first = await gen.next();
+      ctx.stream = (async function* (): AsyncIterable<StreamChunk> {
+        if (!first.done) yield first.value;
+        yield* gen;
+      })();
+    } else {
+      ctx.response = await executeResilient(ctx, deps, deps.resilience, signal);
+    }
+    return;
+  }
+
   const record = (ok: boolean): void =>
     deps.recordHealth?.(route.provider.id, auth.firmId, route.provider.label, ok);
   if (ctx.envelope.stream) {

@@ -67,6 +67,20 @@ const EVENT_SCHEMAS = {
     providerStatus: z.number().optional(),
     retryable: z.boolean().optional(),
   }),
+  fallback_hop: z.object({
+    from: z.string(),
+    to: z.string(),
+    reason: z.string().max(300),
+  }),
+  breaker_transition: z.object({
+    from: z.enum(['closed', 'open', 'half_open']),
+    to: z.enum(['closed', 'open', 'half_open']),
+    errorRate: z.number(),
+  }),
+  rate_limited: z.object({
+    key: z.enum(['app_token', 'user']),
+    retryAfterSeconds: z.number(),
+  }),
   budget_soft_warning: z.object({
     scope: z.string(),
     scopeRef: z.string(),
