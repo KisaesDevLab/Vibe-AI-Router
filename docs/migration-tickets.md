@@ -1,4 +1,7 @@
-# Per-app migration tickets (14.9) — schedule after Phase 15 sign-off
+# Per-app migration tickets (14.9) — **ON HOLD per operator decision (Q-059)**
+
+> 2026-07-27: Kurt — no app changes until the router has passed multiple QA rounds. QA rounds
+> A/B/C are complete (QA-REPORT.md); the hold remains until explicit operator sign-off.
 
 Template per docs/migration-playbook.md (8 steps). Effort assumes the playbook; task classes
 already exist in the default pack unless noted.

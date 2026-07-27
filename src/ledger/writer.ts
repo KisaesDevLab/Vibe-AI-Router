@@ -54,10 +54,14 @@ export class DbLedger implements LedgerWriter {
     // pre-auth failures have no firm to attribute — logged, never ledgered (Q-033)
     if (!auth) return;
 
-    const usage = ctx.response?.usage ?? EMPTY_USAGE;
+    // cache hits consumed NO provider tokens — zero usage and cost, or dashboards/budgets
+    // would double-bill replayed token counts (QA-B finding #2)
+    const usage = ctx.cacheHit ? EMPTY_USAGE : (ctx.response?.usage ?? EMPTY_USAGE);
     const model = ctx.route?.model;
-    const pricing = model && ctx.response ? await this.pricingFor(model.id, new Date(ctx.startedAt)) : null;
-    const cost = ctx.response ? computeCost(usage, pricing) : { costCents: '0', costUnknown: false };
+    const pricing =
+      model && ctx.response && !ctx.cacheHit ? await this.pricingFor(model.id, new Date(ctx.startedAt)) : null;
+    const cost =
+      ctx.response && !ctx.cacheHit ? computeCost(usage, pricing) : { costCents: '0', costUnknown: false };
 
     const inserted = await this.db
       .insert(usageLedger)

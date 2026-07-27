@@ -411,9 +411,15 @@ export async function stageAdapt(ctx: PipelineCtx, deps: PipelineDeps, signal: A
       // headers), not as mid-stream error events. Fallback hops happen inside this await.
       const gen = executeResilientStream(ctx, deps, deps.resilience, signal);
       const first = await gen.next();
-      ctx.stream = (async function* (): AsyncIterable<StreamChunk> {
-        if (!first.done) yield first.value;
-        yield* gen;
+      ctx.stream = (async function* (): AsyncGenerator<StreamChunk> {
+        try {
+          if (!first.done) yield first.value;
+          yield* gen;
+        } finally {
+          // consumer may bail (client abort) while gen is still suspended at its first yield —
+          // without this, the hop's shed slot + idle timer leak (QA-B finding #3)
+          await gen.return(undefined);
+        }
       })();
     } else {
       ctx.response = await executeResilient(ctx, deps, deps.resilience, signal);

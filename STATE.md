@@ -2,6 +2,19 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-07-27 — Post-1.0.0 QA rounds A/B/C (apps on hold per Q-059)
+
+- Round A regression: 216/216, e2e green, load PASS (+18.0ms p95), audit clean.
+- Round B adversarial: new permanent fuzz suite (test/qa-round-b.test.ts, ~6.5k cases/run) +
+  manual sweep → **5 defects found & fixed with regressions**: streaming budget-warning header
+  dropped by writeHead-after-hijack; cache-hit ledger rows billed phantom tokens/cost (High);
+  shed-slot leak when client aborts a primed stream; task-class budget SUM not firm-scoped;
+  billing period boundary double-count. Details: QA-REPORT.md.
+- Round C clean-room: image rebuilt with fixes, booted on an EMPTY database (migrations at
+  boot), seeded, black-box scripts/qa-clean-room.ts 22/22 — kept as the standing appliance
+  acceptance script.
+- Migration tickets marked ON HOLD (Q-059). Rig torn down (qa db dropped, mock stopped).
+
 ## 2026-07-27 — Phase 15B+15C complete → v1.0.0
 
 - 15B: Kurt answered the full agenda in interactive Q&A (verdict table at the top of

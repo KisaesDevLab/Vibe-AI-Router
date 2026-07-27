@@ -219,3 +219,7 @@ Grouped by phase. This file is the Phase 15 review agenda.
   scheduled ticket** → 1.0.0 ships without it; trial-balance-app keeps its direct path until
   MIG-1 lands (direct-path flag removal, plan 15.8, moves with MIG-1) → **S**
 - All other agenda items: **KEEP as built** (recorded in REVIEW-PACKET.md verdict table).
+- [Q-059] Post-1.0.0 operator directive: **all app migrations ON HOLD until the router passes
+  multiple QA rounds** → QA rounds A/B/C executed 2026-07-27 (QA-REPORT.md: 5 findings found
+  and fixed, incl. one High money-correctness defect in cache-hit ledger rows); hold remains
+  until explicit sign-off → **S**

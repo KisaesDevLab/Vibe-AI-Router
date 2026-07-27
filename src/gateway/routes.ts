@@ -77,11 +77,16 @@ export function registerGateway(app: FastifyInstance, opts: GatewayOptions): voi
         // ── SSE relay (2.7) ──────────────────────────────────────────────────
         if (!ctx.stream) throw new RouterError('unknown', 'pipeline produced no stream');
         reply.hijack(); // raw-socket mode: the relay owns the response from here
+        // NB: writeHead replaces the header set — anything set via reply.header() before the
+        // hijack is dropped, so budget warnings must be re-added here (QA-B finding #1)
         reply.raw.writeHead(200, {
           'content-type': 'text/event-stream; charset=utf-8',
           'cache-control': 'no-cache, no-transform',
           connection: 'keep-alive',
           'x-request-id': ctx.requestId,
+          ...(ctx.budgetWarnings?.length
+            ? { 'x-vibe-budget-warning': ctx.budgetWarnings.join(',') }
+            : {}),
         });
         reply.raw.flushHeaders?.();
 

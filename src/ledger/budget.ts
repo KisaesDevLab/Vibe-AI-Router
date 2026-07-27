@@ -106,7 +106,13 @@ export async function checkBudgets(
     const [row] = await db
       .select({ total: dsql<string>`COALESCE(SUM(${usageLedger.costCents}), 0)` })
       .from(usageLedger)
-      .where(and(eq(usageLedger.taskClassId, params.taskClassId), gte(usageLedger.ts, monthStart)));
+      .where(
+        and(
+          eq(usageLedger.firmId, params.firmId), // firm-scoped (QA-B finding #4)
+          eq(usageLedger.taskClassId, params.taskClassId),
+          gte(usageLedger.ts, monthStart),
+        ),
+      );
     evaluate({
       scope: 'task_class',
       scopeRef: params.taskClassId,

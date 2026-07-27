@@ -1,7 +1,7 @@
 /**
  * Dashboard aggregation queries (9.7) + billing feed (9.9) + CSV shaping (9.8).
  */
-import { and, eq, gte, lte, sql as dsql } from 'drizzle-orm';
+import { and, eq, gte, lt, lte, sql as dsql } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
 import { taskClasses, usageLedger } from '../../db/schema.js';
 
@@ -97,7 +97,7 @@ export async function billingUsage(
   const list = [
     eq(usageLedger.firmId, firmId),
     gte(usageLedger.ts, start),
-    lte(usageLedger.ts, end),
+    lt(usageLedger.ts, end), // half-open period — boundary rows never double-bill (QA-B #5)
     dsql`${usageLedger.clientRef} IS NOT NULL`,
   ];
   if (clientRef) list.push(eq(usageLedger.clientRef, clientRef));
