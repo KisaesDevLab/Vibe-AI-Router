@@ -5,6 +5,7 @@ import { VERSION } from '../version.js';
 import { registerGateway } from '../gateway/routes.js';
 import type { PipelineDeps } from '../gateway/pipeline.js';
 import { registerTaskClassRegistration } from '../policy/registration.js';
+import { registerBillingFeed } from '../ledger/billing-route.js';
 
 export interface BuildAppOptions {
   env: Env;
@@ -48,6 +49,7 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
       db: opts.gateway.deps.db,
       engine: opts.gateway.deps.engine,
     });
+    registerBillingFeed(app, { db: opts.gateway.deps.db });
   }
 
   return app;

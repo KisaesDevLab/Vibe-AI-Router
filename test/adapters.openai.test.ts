@@ -102,8 +102,9 @@ describe('response translation fixtures', () => {
       META,
     );
     expect(res.message.content).toBe('hello');
+    // disjoint semantics (9.1): OpenAI prompt_tokens INCLUDES cached — adapter subtracts
     expect(res.usage).toEqual({
-      promptTokens: 12,
+      promptTokens: 8,
       completionTokens: 3,
       cachedReadTokens: 4,
       cacheWriteTokens: 0,
@@ -141,6 +142,7 @@ describe('response translation fixtures', () => {
       META,
     );
     expect(res.usage.cachedReadTokens).toBe(64);
+    expect(res.usage.promptTokens).toBe(36); // 100 total − 64 cached (disjoint semantics)
   });
 
   it('ollama response without usage → estimated flag path', () => {

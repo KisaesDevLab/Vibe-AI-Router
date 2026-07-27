@@ -1,7 +1,7 @@
 import { loadEnv } from '../config/env.js';
 import { createDb } from '../db/client.js';
 import { createLogger } from '../lib/logger.js';
-import { NoopLedger } from '../gateway/pipeline.js';
+import { DbLedger } from '../ledger/writer.js';
 import { createAdapterRegistry } from '../adapters/registry.js';
 import { keyringFromEnv } from '../vault/crypto.js';
 import { CredentialVault } from '../vault/service.js';
@@ -34,7 +34,7 @@ async function main(): Promise<void> {
       deps: {
         db: handle.db,
         adapters,
-        ledger: new NoopLedger(),
+        ledger: new DbLedger(handle.db),
         log,
         engine,
         ...(vault ? { getApiKey: (providerId: string) => vault.getActiveApiKey(providerId) } : {}),

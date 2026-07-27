@@ -2,6 +2,19 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-07-26 — Phase 9 complete
+
+- Cost engine (ledger/cost.ts): $/MTok → cents(6dp); unknown pricing → cost_unknown never 0;
+  cache savings; missing cache rates fall back to input rate. Usage semantics normalized
+  DISJOINT across adapters (Q-034) — OpenAI wire shapes re-add cached on the way out.
+- DbLedger: one row per authed request incl. failures (status mapping), idempotent on
+  request_id, budget increment gated on first insert. Pre-auth failures: no row (Q-033).
+- Budgets: firm/app/user via budgets_state fast path (atomic upsert += ), per-task-class via
+  indexed SUM; soft warnings → X-Vibe-Budget-Warning header + audit; hard → 402.
+- Aggregates: spendBy 5 dimensions, p50/p95; /admin/ledger.csv + aggregate endpoint; billing
+  feed /v1/billing/usage grouped by client/engagement/app/class; recompute script.
+- Verified: 162/162 incl. 100-parallel concurrency (100 rows, unique ids, budget == Σ costs).
+
 ## 2026-07-26 — Phase 8 complete
 
 - Scrubber (src/protect/scrub.ts): SSN (area/group/serial validation, keyword-gated bare

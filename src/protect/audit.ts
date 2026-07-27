@@ -67,6 +67,13 @@ const EVENT_SCHEMAS = {
     providerStatus: z.number().optional(),
     retryable: z.boolean().optional(),
   }),
+  budget_soft_warning: z.object({
+    scope: z.string(),
+    scopeRef: z.string(),
+    period: z.string(),
+    spentCents: z.number(),
+    limitCents: z.number(),
+  }),
 } as const;
 
 export type AuditEvent = keyof typeof EVENT_SCHEMAS;

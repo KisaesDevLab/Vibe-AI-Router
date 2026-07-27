@@ -182,10 +182,13 @@ export function extractUsage(raw: z.infer<typeof usageSchema>): AIUsage {
   if (!raw || (raw.prompt_tokens === undefined && raw.completion_tokens === undefined)) {
     return { ...EMPTY_USAGE, estimated: true }; // provider omitted usage — caller estimates (3.6)
   }
+  // NORMALIZED SEMANTICS (9.1): promptTokens and cachedReadTokens are DISJOINT. OpenAI-family
+  // prompt_tokens INCLUDES cached tokens, so subtract; Anthropic reports disjoint natively.
+  const cached = raw.prompt_tokens_details?.cached_tokens ?? raw.prompt_cache_hit_tokens ?? 0;
   return {
-    promptTokens: raw.prompt_tokens ?? 0,
+    promptTokens: Math.max(0, (raw.prompt_tokens ?? 0) - cached),
     completionTokens: raw.completion_tokens ?? 0,
-    cachedReadTokens: raw.prompt_tokens_details?.cached_tokens ?? raw.prompt_cache_hit_tokens ?? 0,
+    cachedReadTokens: cached,
     cacheWriteTokens: 0,
     estimated: false,
   };

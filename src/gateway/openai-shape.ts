@@ -12,10 +12,12 @@ interface OpenAiUsage {
 }
 
 function toOpenAiUsage(u: AIUsage): OpenAiUsage {
+  // internal semantics are disjoint (9.1); OpenAI wire format includes cached in prompt_tokens
+  const promptWire = u.promptTokens + u.cachedReadTokens;
   return {
-    prompt_tokens: u.promptTokens,
+    prompt_tokens: promptWire,
     completion_tokens: u.completionTokens,
-    total_tokens: u.promptTokens + u.completionTokens,
+    total_tokens: promptWire + u.completionTokens,
     ...(u.cachedReadTokens > 0 ? { prompt_tokens_details: { cached_tokens: u.cachedReadTokens } } : {}),
   };
 }

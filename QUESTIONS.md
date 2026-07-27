@@ -120,3 +120,20 @@ Grouped by phase. This file is the Phase 15 review agenda.
 - [Q-032] Scrub-vs-route ordering (scrub needs to know cloud-bound before route runs) →
   **stageScrub runs the same pure selectModel() the route stage uses** → keeps plan order
   auth→policy→scrub→route while deciding exemption on the true selected target → **S**
+
+## Phase 9
+
+- [Q-033] Ledger rows for pre-auth failures? → **no row (firm unattributable); logs + Phase 10
+  rate limiting cover the surface** → firm_id is NOT NULL by design; "exactly one row per
+  request" reads as per *authenticated* request → **S**
+- [Q-034] Usage token semantics → **normalized DISJOINT (promptTokens excludes cached);
+  OpenAI-family adapters subtract, wire responses re-add** → cost math needs one convention;
+  Anthropic is natively disjoint → **S**
+- [Q-035] Missing cache pricing rates → **fall back to full input rate (conservative
+  over-charge, never under)** → deterministic-cost principle prefers overstatement to silent
+  discounts → **S**
+- [Q-036] Task-class budgets (policy.monthly_budget_cents) → **indexed ledger SUM at request
+  time, not budgets_state** → budgets_state enum has firm/app/user; adding a 4th scope is a
+  migration; (task_class_id, ts) index keeps the SUM cheap → **M**
+- [Q-037] Monthly rollover job (9.4) → **not needed: budgets_state rows are keyed by period
+  (yyyymm); a new month naturally starts at zero** → **S**

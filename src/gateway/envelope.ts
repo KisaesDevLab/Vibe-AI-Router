@@ -79,6 +79,7 @@ export interface AIRequest {
 export type FinishReason = 'stop' | 'length' | 'tool_calls' | 'content_filter' | 'error';
 
 export interface AIUsage {
+  /** DISJOINT from cachedReadTokens/cacheWriteTokens (9.1): uncached input tokens only */
   promptTokens: number;
   completionTokens: number;
   cachedReadTokens: number;

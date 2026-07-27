@@ -26,6 +26,7 @@ import {
 } from '../policy/engine.js';
 import { redactEnvelope, scanEnvelope, type MatchType, type ScrubReport } from '../protect/scrub.js';
 import type { AuditEntry } from '../protect/audit.js';
+import { checkBudgets, currentPeriod, type BudgetSettings } from '../ledger/budget.js';
 
 // row types inferred from schema
 type TaskClassRow = typeof taskClasses.$inferSelect;
@@ -60,6 +61,8 @@ export interface PipelineCtx {
   error?: RouterError;
   /** set when the scrubber matched (redact/warn modes) — counts only, never values */
   scrubbed?: { mode: 'redact' | 'warn' | 'block'; counts: Partial<Record<MatchType, number>> };
+  /** soft budget warnings for the response header (9.4) */
+  budgetWarnings?: string[];
 }
 
 export interface AdapterRegistry {
@@ -162,6 +165,43 @@ export async function stagePolicy(ctx: PipelineCtx, deps: PipelineDeps): Promise
   checkRole(effective, ctx.envelope.metadata.userRole); // 7.7
   applyLimits(effective, ctx.envelope); // 7.6 temperature clamps + 7.8 max_tokens
   ctx.effective = effective;
+}
+
+// ── stage: budget fast-path (9.4/9.5) ────────────────────────────────────────
+
+export async function stageBudget(ctx: PipelineCtx, deps: PipelineDeps): Promise<void> {
+  const auth = ctx.auth;
+  const effective = ctx.effective;
+  if (!auth || !effective) throw new RouterError('unknown', 'pipeline ordering violation');
+  const settings = (effective.firmSettings as { budgets?: BudgetSettings }).budgets ?? {};
+  const result = await checkBudgets(deps.db, {
+    firmId: auth.firmId,
+    app: auth.app,
+    ...(ctx.envelope.metadata.userId ? { userId: ctx.envelope.metadata.userId } : {}),
+    taskClassId: effective.taskClass.id,
+    settings,
+    policyMonthlyCents: effective.policy.monthlyBudgetCents,
+  });
+  if (result.softWarnings.length > 0) {
+    ctx.budgetWarnings = result.softWarnings.map(
+      (w) => `${w.scope}:${Math.round((w.spentCents / w.limitCents) * 100)}%`,
+    );
+    for (const w of result.softWarnings) {
+      deps.audit?.({
+        firmId: auth.firmId,
+        event: 'budget_soft_warning',
+        app: auth.app,
+        taskClass: effective.taskClass.key,
+        detail: {
+          scope: w.scope,
+          scopeRef: w.scopeRef,
+          period: currentPeriod(),
+          spentCents: w.spentCents,
+          limitCents: w.limitCents,
+        },
+      });
+    }
+  }
 }
 
 // ── stage: scrub (8.2/8.3/8.4) ───────────────────────────────────────────────
@@ -387,6 +427,7 @@ export async function runPipeline(
     await stageAuth(ctx, deps, bearerToken);
     await stageResolveTaskClass(ctx, deps);
     await stagePolicy(ctx, deps);
+    await stageBudget(ctx, deps);
     await stageScrub(ctx, deps);
     await stageRoute(ctx, deps);
     await stageAdapt(ctx, deps, signal);

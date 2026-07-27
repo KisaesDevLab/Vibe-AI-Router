@@ -16,6 +16,7 @@ import type { ProviderAdapter } from '../adapters/contract.js';
 import type { PolicyEngine } from '../policy/engine.js';
 import { exportPolicies, importPolicies } from '../policy/save.js';
 import { auditToCsv, queryAudit } from '../protect/audit.js';
+import { latencyStats, ledgerRows, rowsToCsv, spendBy } from '../ledger/aggregate.js';
 import { firms } from '../../db/schema.js';
 import { RouterError, errorBody, toRouterError } from '../gateway/errors.js';
 
@@ -244,5 +245,52 @@ export function registerBootstrapAdmin(app: FastifyInstance, opts: BootstrapAdmi
       .header('content-type', 'text/csv; charset=utf-8')
       .header('content-disposition', 'attachment; filename="audit.csv"')
       .send(auditToCsv(rows));
+  });
+
+  // ── ledger exports + aggregates (9.7/9.8) ─────────────────────────────────
+  const rangeSchema = z.object({
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
+    by: z.enum(['day', 'model', 'app', 'task_class', 'client']).optional(),
+  });
+
+  app.get('/admin/ledger.csv', async (req, reply) => {
+    if (!guard(req, reply)) return reply;
+    const id = await firmId();
+    const parsed = rangeSchema.safeParse(req.query);
+    if (!id || !parsed.success)
+      return reply.code(400).send(errorBody(new RouterError('invalid_request', 'bad query')));
+    const rows = await ledgerRows(opts.db, {
+      firmId: id,
+      ...(parsed.data.from ? { from: parsed.data.from } : {}),
+      ...(parsed.data.to ? { to: parsed.data.to } : {}),
+    });
+    const cols = [
+      'ts', 'requestId', 'app', 'taskClassId', 'modelRequested', 'modelServed', 'promptTokens',
+      'completionTokens', 'cachedReadTokens', 'cacheWriteTokens', 'costCents', 'costUnknown',
+      'costEstimated', 'latencyMs', 'status', 'engagementRef', 'clientRef', 'requestHash',
+    ];
+    return reply
+      .header('content-type', 'text/csv; charset=utf-8')
+      .header('content-disposition', 'attachment; filename="ledger.csv"')
+      .send(rowsToCsv(rows, cols));
+  });
+
+  app.get('/admin/ledger/aggregate', async (req, reply) => {
+    if (!guard(req, reply)) return reply;
+    const id = await firmId();
+    const parsed = rangeSchema.safeParse(req.query);
+    if (!id || !parsed.success)
+      return reply.code(400).send(errorBody(new RouterError('invalid_request', 'bad query')));
+    const filter = {
+      firmId: id,
+      ...(parsed.data.from ? { from: parsed.data.from } : {}),
+      ...(parsed.data.to ? { to: parsed.data.to } : {}),
+    };
+    const [spend, latency] = await Promise.all([
+      spendBy(opts.db, parsed.data.by ?? 'day', filter),
+      latencyStats(opts.db, filter),
+    ]);
+    return reply.send({ by: parsed.data.by ?? 'day', spend, latency });
   });
 }

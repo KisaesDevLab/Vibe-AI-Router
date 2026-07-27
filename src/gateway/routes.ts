@@ -65,6 +65,10 @@ export function registerGateway(app: FastifyInstance, opts: GatewayOptions): voi
 
         await runPipeline(ctx, deps, bearer, abort.signal);
 
+        if (ctx.budgetWarnings?.length) {
+          void reply.header('x-vibe-budget-warning', ctx.budgetWarnings.join(','));
+        }
+
         if (!envelope.stream) {
           if (!ctx.response) throw new RouterError('unknown', 'pipeline produced no response');
           return await reply.code(200).send(toChatCompletion(ctx.requestId, ctx.response));

@@ -151,7 +151,24 @@ mode (no MASTER_KEY) keeps serving keyless providers.
 
 ## Phase 9 — Cost Ledger & Budgets
 
-- [ ] 9.1 … 9.11
+- [x] 9.1 Cost from effective pricing history; disjoint usage semantics normalized in adapters;
+        cache rates with conservative input-rate fallback
+- [x] 9.2 DbLedger: one row per authed request (success or failure), on-conflict-do-nothing on
+        request_id; budget increments only on first write
+- [x] 9.3 Streaming usage from final chunk (Phase 2 relay); estimated usage → cost_estimated
+- [x] 9.4 Budget engine: pre-request fast path, soft header X-Vibe-Budget-Warning + audit,
+        hard 402, atomic upsert increments
+- [x] 9.5 Scopes firm/app/user (+ per-task-class via policy.monthly_budget_cents SUM); most
+        restrictive wins
+- [x] 9.6 Cache savings computed alongside cost
+- [x] 9.7 spendBy(day/model/app/task_class/client) + p50/p95 latency
+- [x] 9.8 /admin/ledger.csv + /admin/ledger/aggregate
+- [x] 9.9 /v1/billing/usage?period=&client_ref= (app-token authed)
+- [x] 9.10 scripts/recompute-ledger.ts (--dry supported)
+- [x] 9.11 100-parallel concurrency test: 100 rows, unique ids, budget total = Σ batch costs
+
+**Acceptance met:** spend visible per dimension; hard stop verified; pre-auth failures are
+log-only by design (Q-033).
 
 ## Phase 10 — Resilience
 
