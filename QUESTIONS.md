@@ -181,3 +181,15 @@ Grouped by phase. This file is the Phase 15 review agenda.
 - [Q-048] Shadow harness normalization → **JSON-parse + key-sort before comparing; raw text
   otherwise** → whitespace/key-order noise is not divergence for structured-output classes;
   report records hashes only → **S**
+
+## Phase 13
+
+- [Q-049] Cache hits and the one-row-per-request invariant → **cache hits WRITE a ledger row**
+  (zero-ish usage from the cached response's serve, cost recomputed) → invariant (d) stays
+  absolute; dashboards see true request volume → **S**
+- [Q-050] Audit retention → **immutable forever; the retention setting covers usage_ledger
+  only** → the DB trigger blocks audit deletes by design; purging compliance evidence should
+  require a deliberate future migration, not an env var → **S**
+- [Q-051] /metrics auth → **unauthenticated, internal-network only, never routed via Caddy**
+  → standard Prometheus posture; documented in appliance.md with an explicit "do not expose"
+  note; contains no message content by construction → **S**

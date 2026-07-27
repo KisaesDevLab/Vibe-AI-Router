@@ -39,6 +39,10 @@ export interface TaskClassRequires {
   /** per-task-class Anthropic knobs (4.2/4.3) */
   caching?: boolean;
   thinking_budget?: number;
+  /** response cache opt-in (13.2): TTL seconds; 0/absent = no caching */
+  cache_ttl_s?: number;
+  /** allow caching for cloud-served responses too (default: local tier only) */
+  cache_cloud?: boolean;
 }
 
 export function classRequires(tc: TaskClassRow): TaskClassRequires {

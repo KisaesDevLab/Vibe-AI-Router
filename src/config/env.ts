@@ -47,6 +47,12 @@ const envSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  /**
+   * Ledger retention (13.7). Default: retain indefinitely (metadata only, cheap). When set,
+   * a daily job purges usage_ledger rows older than N days. audit_log is append-only by DB
+   * trigger and is deliberately NOT purgeable (compliance evidence, Q-050).
+   */
+  LEDGER_RETENTION_DAYS: z.coerce.number().int().positive().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

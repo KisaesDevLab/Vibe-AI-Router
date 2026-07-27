@@ -35,6 +35,7 @@ function compositeSignal(client: AbortSignal, totalMs: number): { signal: AbortS
 }
 
 function auditHop(ctx: PipelineCtx, deps: PipelineDeps, from: string, to: string, reason: string): void {
+  deps.metrics?.fallbackHopsTotal.inc();
   if (!ctx.auth) return;
   deps.audit?.({
     firmId: ctx.auth.firmId,

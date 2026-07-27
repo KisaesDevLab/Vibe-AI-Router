@@ -37,6 +37,14 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
 
   app.get('/healthz', () => ({ status: 'ok' }));
 
+  if (opts.gateway?.deps.metrics) {
+    const metrics = opts.gateway.deps.metrics;
+    // internal-network only — never route through Caddy (docs/appliance.md)
+    app.get('/metrics', async (_req, reply) => {
+      return reply.header('content-type', 'text/plain; version=0.0.4').send(await metrics.render());
+    });
+  }
+
   app.get('/version', () => ({
     name: 'vibe-ai-router',
     version: VERSION,

@@ -63,6 +63,8 @@ export interface PipelineCtx {
   scrubbed?: { mode: 'redact' | 'warn' | 'block'; counts: Partial<Record<MatchType, number>> };
   /** soft budget warnings for the response header (9.4) */
   budgetWarnings?: string[];
+  /** served from the response cache (13.2) */
+  cacheHit?: boolean;
 }
 
 export interface AdapterRegistry {
@@ -97,6 +99,10 @@ export interface PipelineDeps {
   resilience?: import('../resilience/executor.js').ResilienceConfig;
   /** rate limiters (Phase 10) — keyed per app token and per user */
   rateLimits?: { perToken: import('../resilience/limiter.js').RateLimiter; perUser: import('../resilience/limiter.js').RateLimiter };
+  /** Prometheus metrics (13.1) */
+  metrics?: import('../ops/metrics.js').Metrics;
+  /** opt-in response cache (13.2) */
+  responseCache?: import('../ops/cache.js').ResponseCache;
 }
 
 export function newPipelineCtx(envelope: AIRequest): PipelineCtx {
@@ -370,6 +376,28 @@ export async function stageAdapt(ctx: PipelineCtx, deps: PipelineDeps, signal: A
   const auth = ctx.auth;
   if (!route || !auth) throw new RouterError('unknown', 'pipeline ordering violation');
 
+  // response cache (13.2): non-streaming, opt-in per task class, local tier unless cache_cloud
+  const req = ctx.effective ? classRequires(ctx.effective.taskClass) : {};
+  const cacheTtl = req.cache_ttl_s ?? 0;
+  const cacheable =
+    !ctx.envelope.stream &&
+    deps.responseCache !== undefined &&
+    cacheTtl > 0 &&
+    (route.model.providerKind === 'local' || req.cache_cloud === true);
+  const cacheKey = cacheable
+    ? (await import('../ops/cache.js')).ResponseCache.key(ctx.requestHash, route.model.canonicalId)
+    : undefined;
+  if (cacheable && cacheKey) {
+    const hit = deps.responseCache!.get(cacheKey);
+    if (hit) {
+      ctx.response = { ...hit, served: { ...hit.served, latencyMs: Date.now() - ctx.startedAt } };
+      ctx.cacheHit = true;
+      deps.metrics?.cacheEvents.inc({ outcome: 'hit' });
+      return;
+    }
+    deps.metrics?.cacheEvents.inc({ outcome: 'miss' });
+  }
+
   if (deps.resilience) {
     // resilient path (Phase 10): retries, breaker, fallback chain, timeouts, shed
     const { executeResilient, executeResilientStream } = await import('../resilience/executor.js');
@@ -384,6 +412,9 @@ export async function stageAdapt(ctx: PipelineCtx, deps: PipelineDeps, signal: A
       })();
     } else {
       ctx.response = await executeResilient(ctx, deps, deps.resilience, signal);
+      if (cacheable && cacheKey && ctx.response) {
+        deps.responseCache!.set(cacheKey, ctx.response, cacheTtl);
+      }
     }
     return;
   }
@@ -397,6 +428,9 @@ export async function stageAdapt(ctx: PipelineCtx, deps: PipelineDeps, signal: A
     try {
       ctx.response = await route.adapter.execute(ctx.envelope, route.executeCtx, signal);
       record(true);
+      if (cacheable && cacheKey && ctx.response) {
+        deps.responseCache!.set(cacheKey, ctx.response, cacheTtl);
+      }
     } catch (err) {
       record(false);
       throw err;
@@ -411,8 +445,28 @@ export async function stageAdapt(ctx: PipelineCtx, deps: PipelineDeps, signal: A
  * the ledger write. For streaming, the ledger stage runs from the route layer once the stream
  * finishes (usage arrives in the final chunk).
  */
-/** Terminal audit emission (8.5) — one decision event per finished request. */
+/** Terminal audit emission (8.5) + metrics (13.1) — once per finished request. */
 export function emitTerminalAudit(ctx: PipelineCtx, deps: PipelineDeps): void {
+  // metrics fire even without audit wiring
+  if (deps.metrics) {
+    const taskClass = ctx.taskClass?.key ?? '(none)';
+    const provider = ctx.route?.provider.label ?? '(none)';
+    const status = ctx.error?.code ?? 'ok';
+    deps.metrics.requestsTotal.inc({ task_class: taskClass, provider, status });
+    if (!ctx.error) {
+      deps.metrics.requestDuration.observe(
+        { task_class: taskClass, provider },
+        (Date.now() - ctx.startedAt) / 1000,
+      );
+    }
+    if (ctx.error?.code === 'scrubber_blocked') deps.metrics.scrubberBlocksTotal.inc({ task_class: taskClass });
+    if (ctx.error?.code === 'budget_exceeded') {
+      const scope = ctx.error.detail?.['scope'];
+      deps.metrics.budgetRejectionsTotal.inc({ scope: typeof scope === 'string' ? scope : 'unknown' });
+    }
+    if (ctx.error?.code === 'rate_limited' && !ctx.route) deps.metrics.rateLimitedTotal.inc();
+  }
+
   const auth = ctx.auth;
   if (!auth || !deps.audit) return; // pre-auth failures have no firm to attribute to
   const base = {

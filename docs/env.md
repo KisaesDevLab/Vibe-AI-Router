@@ -30,6 +30,7 @@ Validation: `src/config/env.ts` (zod). Invalid config → the process refuses to
 | `ROUTER_TIMEOUT_STREAM_IDLE_MS` | no | `60000` | streaming idle watchdog |
 | `SESSION_SECRET` | no | random per boot | admin-UI session signing (≥16 chars); unset → sessions reset on restart |
 | `SECURE_COOKIES` | no | `false` | set `true` behind HTTPS (Caddy) — marks session cookies Secure |
+| `LEDGER_RETENTION_DAYS` | no | — (retain forever) | daily purge of usage_ledger rows older than N days; audit_log is never purged |
 
 Test-only:
 

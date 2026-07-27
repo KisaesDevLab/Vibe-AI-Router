@@ -16,7 +16,11 @@ async function firmIdForAudit(db: Db): Promise<string | undefined> {
   return firm?.id;
 }
 
-export async function runCatalogSync(db: Db, log: Logger): Promise<DiffReport | undefined> {
+export async function runCatalogSync(
+  db: Db,
+  log: Logger,
+  onSuccess?: () => void,
+): Promise<DiffReport | undefined> {
   const firmId = await firmIdForAudit(db);
   try {
     const { feed, sha256 } = await loadVendoredFeed();
@@ -48,6 +52,7 @@ export async function runCatalogSync(db: Db, log: Logger): Promise<DiffReport | 
       });
     }
     await runDeprecationAlerts(db, log);
+    onSuccess?.();
     return report;
   } catch (err) {
     // alert, never block serving (5.6)
@@ -88,9 +93,14 @@ export async function runDeprecationAlerts(db: Db, log: Logger): Promise<number>
   return refs.length;
 }
 
-export function startCatalogScheduler(db: Db, log: Logger, cronExpr: string): ScheduledTask {
+export function startCatalogScheduler(
+  db: Db,
+  log: Logger,
+  cronExpr: string,
+  onSuccess?: () => void,
+): ScheduledTask {
   const task = cron.schedule(cronExpr, () => {
-    void runCatalogSync(db, log);
+    void runCatalogSync(db, log, onSuccess);
   });
   log.info({ cron: cronExpr }, 'catalog sync scheduled');
   return task;

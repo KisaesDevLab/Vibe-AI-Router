@@ -2,6 +2,24 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-07-26 — Phase 13 complete
+
+- Metrics (src/ops/metrics.ts, prom-client): request totals/duration by class+provider+status,
+  scrubber/budget/rate-limit/fallback counters, cache events, breaker gauges refreshed at
+  scrape, catalog sync age; /metrics endpoint (internal-network only, Q-051). Terminal
+  recording piggybacks emitTerminalAudit so every path is covered.
+- Response cache (src/ops/cache.ts): task-class opt-in (requires.cache_ttl_s), hash+model key,
+  local-tier default (cache_cloud to widen), LRU+TTL, deep-copy isolation; cache hits still
+  write ledger rows (Q-049). Test proves 1 adapter call for 2 identical requests.
+- Packaging: image now ships server+SDK+UI+migrations+vendored data, runs migrations on start,
+  stateless (read-only fs OK). packageManager pinned (corepack pulled pnpm 11 needing Node 22 —
+  build broke; pinned 9.15.9). GHCR release workflow on v* tags.
+- docs/appliance.md (compose/Caddy/manifest/provisioning/Vault set/Prometheus) + runbook
+  completed (outage triage, budget override, sync failure, restore) + retention (13.7:
+  LEDGER_RETENTION_DAYS job; audit immutable Q-050).
+- Graceful shutdown: drain + 15s force + health flush.
+- Verified: 186/186; production image built + smoke pending note below.
+
 ## 2026-07-26 — Phase 12 complete (12.4 staged per Q-047)
 
 - SDK (packages/sdk, @kisaes/vibe-ai-client 0.1.0): dependency-free typed client — complete(),

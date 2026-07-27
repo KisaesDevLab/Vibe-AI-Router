@@ -1,0 +1,13 @@
+node_modules
+**/node_modules
+dist
+ui/dist
+packages/*/dist
+.git
+test-results
+playwright-report
+coverage
+*.log
+.env
+.env.local
+SHADOW-DIFF-REPORT.md

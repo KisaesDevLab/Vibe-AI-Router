@@ -230,7 +230,26 @@ retirement is Phase 15.8 as planned.
 
 ## Phase 13 — Ops, Metrics, Caching, Packaging
 
-- [ ] 13.1 … 13.8
+- [x] 13.1 Prometheus /metrics: requests/duration by class+provider+status, scrubber blocks,
+        budget rejections, rate-limited, fallback hops, cache events, breaker gauges
+        (scrape-time refresh), catalog sync age, node defaults
+- [x] 13.2 Response cache: opt-in via task-class requires.cache_ttl_s, key = hash+model,
+        local-tier only unless cache_cloud, LRU+TTL in-memory, hit metrics; cache hits still
+        write their ledger row (invariant d)
+- [x] 13.3 Image: multi-stage (server+SDK+UI), non-root, healthcheck, stateless/read-only-fs
+        friendly, migrations-on-start; GHCR publish workflow on v* tags
+- [x] 13.4 docs/appliance.md: compose service (read_only, no host publish), Caddy `airouter`
+        vhost (admin UI only), console manifest values, provisioning env
+- [x] 13.5 Vault backup set documented (DB only; MASTER_KEY excluded, separate custody;
+        quarterly restore-test steps)
+- [x] 13.6 Runbook complete: outage triage, budget override, sync failure, restore
+- [x] 13.7 Log rotation via compose json-file; LEDGER_RETENTION_DAYS purge job;
+        audit_log immutable by design (Q-050)
+- [x] 13.8 Graceful shutdown: drain in-flight (ledger writes inside), 15s force window,
+        health-persist flush
+
+**Acceptance:** compose/Caddy definitions ready for the Vibe-Appliance repo; image builds;
+full-appliance run happens at first deploy (same posture as 3.10/Q-011).
 
 ## Phase 14 — Security Review, Load Test, Hardening
 

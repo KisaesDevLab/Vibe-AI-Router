@@ -1,4 +1,6 @@
 import { randomBytes } from 'node:crypto';
+import { lt } from 'drizzle-orm';
+import { usageLedger } from '../../db/schema.js';
 import { loadEnv } from '../config/env.js';
 import { createDb } from '../db/client.js';
 import { SessionStore } from '../admin-api/session.js';
@@ -13,6 +15,8 @@ import { writeAudit } from '../protect/audit.js';
 import { CircuitBreaker } from '../resilience/breaker.js';
 import { LoadShedGuard } from '../resilience/shed.js';
 import { RateLimiter } from '../resilience/limiter.js';
+import { Metrics } from '../ops/metrics.js';
+import { ResponseCache } from '../ops/cache.js';
 import { buildApp } from './app.js';
 
 async function main(): Promise<void> {
@@ -59,6 +63,8 @@ async function main(): Promise<void> {
     perToken: new RateLimiter(env.RATE_LIMIT_PER_TOKEN_RPM),
     perUser: new RateLimiter(env.RATE_LIMIT_PER_USER_RPM),
   };
+  const metrics = new Metrics(() => breaker.snapshot());
+  const responseCache = new ResponseCache();
   const limiterPrune = setInterval(() => {
     rateLimits.perToken.prune();
     rateLimits.perUser.prune();
@@ -93,6 +99,8 @@ async function main(): Promise<void> {
         },
         resilience,
         rateLimits,
+        metrics,
+        responseCache,
       },
     },
   });
@@ -115,15 +123,44 @@ async function main(): Promise<void> {
     : undefined;
   autoRevoke?.unref();
 
+  // optional daily ledger retention purge (13.7); audit_log is immutable by design (Q-050)
+  if (env.LEDGER_RETENTION_DAYS) {
+    const days = env.LEDGER_RETENTION_DAYS;
+    const purge = async (): Promise<void> => {
+      const cutoff = new Date(Date.now() - days * 86_400_000);
+      const gone = await handle.db.delete(usageLedger).where(lt(usageLedger.ts, cutoff)).returning({
+        id: usageLedger.id,
+      });
+      if (gone.length > 0) log.info({ purged: gone.length, cutoff }, 'ledger retention purge');
+    };
+    const retention = setInterval(() => void purge().catch(() => {}), 86_400_000);
+    retention.unref();
+    void purge().catch(() => {});
+  }
+
   const scheduler = env.CATALOG_SYNC_CRON
-    ? (await import('../catalog/scheduler.js')).startCatalogScheduler(handle.db, log, env.CATALOG_SYNC_CRON)
+    ? (await import('../catalog/scheduler.js')).startCatalogScheduler(handle.db, log, env.CATALOG_SYNC_CRON, () =>
+        metrics.markSync(),
+      )
     : undefined;
 
+  // graceful shutdown (13.8): stop accepting, drain in-flight (incl. SSE + ledger writes),
+  // force-close stragglers after a 15s grace window.
+  let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {
-    app.log.info({ signal }, 'shutting down');
+    if (shuttingDown) return;
+    shuttingDown = true;
+    app.log.info({ signal }, 'shutting down — draining in-flight requests');
     if (scheduler) void scheduler.stop();
-    await app.close();
+    const force = setTimeout(() => {
+      app.log.warn('grace window elapsed — forcing close');
+      process.exit(1);
+    }, 15_000);
+    force.unref();
+    await app.close(); // waits for in-flight responses; ledger writes happen inside them
+    await health.flush();
     await handle.close();
+    clearTimeout(force);
     process.exit(0);
   };
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
