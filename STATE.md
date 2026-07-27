@@ -2,6 +2,20 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-07-26 — Phase 12 complete (12.4 staged per Q-047)
+
+- SDK (packages/sdk, @kisaes/vibe-ai-client 0.1.0): dependency-free typed client — complete(),
+  stream() (SSE parser incl. error events), registerTaskClasses(), billingUsage(), VibeAiError
+  with taxonomy + retryable, TASK_CLASSES constants. Builds to dist with .d.ts.
+- Contract docs frozen: integration.md (auth/registration/errors/env/versioning),
+  migration-playbook.md (8 steps + TB status).
+- Shadow harness: scripts/shadow-diff.ts + data/shadow-fixtures.json (20 TB classification
+  cases); dual-path run, normalized-JSON compare, hash-only SHADOW-DIFF-REPORT.md
+  (gitignored — the real one is generated on the appliance).
+- Verified: 183/183 incl. SDK end-to-end through real router + real adapter against mock
+  provider, ledger attribution of SDK dims, and harness spawn test (100% match).
+- TB repo swap deliberately NOT performed here (Q-047) — staged for Phase 15 window.
+
 ## 2026-07-26 — Phase 11 complete
 
 - Admin API (/admin-api): scrypt login + signed sessions (migration 0002 adds

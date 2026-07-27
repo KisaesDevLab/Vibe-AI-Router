@@ -7,3 +7,4 @@ coverage/
 .DS_Store
 ui/dist/
 packages/*/dist/
+SHADOW-DIFF-REPORT.md

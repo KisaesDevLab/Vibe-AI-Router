@@ -168,3 +168,16 @@ Grouped by phase. This file is the Phase 15 review agenda.
 - [Q-046] Test-prompt endpoint runs the pipeline with a server-side trusted auth context
   (admin session substitutes for an app token) → the wizard→policy→request→ledger smoke needs
   a first-party path; it ledgers as app "admin-ui" → **S**
+
+## Phase 12
+
+- [Q-047] 12.4 says "migrate Vibe Trial Balance" — that code lives in the separate
+  trial-balance-app repo with its own release state → **router-side migration surface built
+  completely (SDK, classes, policies, shadow harness, playbook); the TB-repo call-site swap
+  is staged as a Phase-15-gated change rather than editing a sibling production repo mid-
+  autonomous-build** → the plan itself keeps TB's direct path flagged until 15.8, so the swap
+  lands in the same window; blast radius of an unsupervised cross-repo edit outweighs the
+  sequencing gain → **M** (the swap itself is a ~2-file change per the playbook)
+- [Q-048] Shadow harness normalization → **JSON-parse + key-sort before comparing; raw text
+  otherwise** → whitespace/key-order noise is not divergence for structured-output classes;
+  report records hashes only → **S**

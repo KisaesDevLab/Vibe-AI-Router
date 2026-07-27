@@ -1,0 +1,27 @@
+{
+  "taskClass": "tb_classification",
+  "system": "You classify trial-balance accounts. Reply with JSON: {\"type\": one of asset|liability|equity|revenue|expense, \"confidence\": 0-1}. Nothing else.",
+  "temperature": 0,
+  "cases": [
+    { "id": "tb-001", "input": "Cash - Operating Account 1010" },
+    { "id": "tb-002", "input": "Accounts Receivable - Trade" },
+    { "id": "tb-003", "input": "Accumulated Depreciation - Equipment" },
+    { "id": "tb-004", "input": "Notes Payable - Long Term" },
+    { "id": "tb-005", "input": "Owner Draws" },
+    { "id": "tb-006", "input": "Consulting Revenue" },
+    { "id": "tb-007", "input": "Rent Expense - Office" },
+    { "id": "tb-008", "input": "Payroll Tax Expense" },
+    { "id": "tb-009", "input": "Prepaid Insurance" },
+    { "id": "tb-010", "input": "Sales Tax Payable" },
+    { "id": "tb-011", "input": "Retained Earnings" },
+    { "id": "tb-012", "input": "Interest Income" },
+    { "id": "tb-013", "input": "Meals & Entertainment 50%" },
+    { "id": "tb-014", "input": "Equipment - Computers" },
+    { "id": "tb-015", "input": "Line of Credit - First Bank" },
+    { "id": "tb-016", "input": "Depreciation Expense" },
+    { "id": "tb-017", "input": "Customer Deposits" },
+    { "id": "tb-018", "input": "Common Stock" },
+    { "id": "tb-019", "input": "Cost of Goods Sold" },
+    { "id": "tb-020", "input": "Utilities - Electric" }
+  ]
+}

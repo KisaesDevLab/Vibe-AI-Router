@@ -212,7 +212,21 @@ log-only by design (Q-033).
 
 ## Phase 12 — App Integration SDK & First App Migration
 
-- [ ] 12.1 … 12.8
+- [x] 12.1 @kisaes/vibe-ai-client: complete/stream, typed taxonomy errors (retryable flag),
+        task-class constants, user/engagement/client plumbing, billing feed; zero deps
+- [x] 12.2 registerTaskClasses startup helper (idempotent; local_only for new classes)
+- [x] 12.3 docs/integration.md frozen contract (auth, registration, errors-by-code, env)
+- [~] 12.4 TB migration: router side complete (classes/policies/SDK); the trial-balance-app
+        repo swap is staged via the playbook, gated to Phase 15 (Q-047)
+- [x] 12.5 Shadow harness (scripts/shadow-diff.ts + 20-case TB fixture corpus): direct vs
+        router, normalized JSON compare, hash-only report; CI-proven at 100% on mock; live
+        vibellm run is the appliance-deploy step
+- [x] 12.6 docs/migration-playbook.md (8-step per-app checklist)
+- [x] 12.7 App-token issuance: admin UI/API mint (shown once) + env convention documented
+- [x] 12.8 Versioning stance in integration.md (wire = semver-major, deprecation window)
+
+**Acceptance:** shadow-diff report machinery generates the Phase 15 artifact; direct-path
+retirement is Phase 15.8 as planned.
 
 ## Phase 13 — Ops, Metrics, Caching, Packaging
 

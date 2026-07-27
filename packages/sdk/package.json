@@ -1,0 +1,22 @@
+{
+  "name": "@kisaes/vibe-ai-client",
+  "version": "0.1.0",
+  "description": "Typed client for the Vibe AI Router — the only way Vibe apps talk to AI",
+  "license": "BUSL-1.1",
+  "author": "KisaesDevLab",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": { "node": ">=20" },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}
