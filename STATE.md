@@ -2,6 +2,21 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-07-26 — Phase 8 complete
+
+- Scrubber (src/protect/scrub.ts): SSN (area/group/serial validation, keyword-gated bare
+  9-digit), EIN (79-prefix table), ABA (checksum + FR prefix ranges), account co-occurrence
+  heuristic, card (Luhn+IIN incl. MC 2-series). Overlap precedence card→routing→ssn→ein→acct.
+  Perf: median <5ms on 100KB (test-enforced).
+- stageScrub: cloud-bound detection via the same pure selectModel as routing; block/redact/warn
+  from firm settings; scrubber errors → scrubber_blocked (fail closed); redact = outbound deep
+  copy only.
+- Audit: pipeline decision events with per-event zod detail schemas; terminal emission from
+  runPipeline + SSE relay; savePolicy config_change; query API + CSV export on bootstrap admin.
+- Invariant suite (test/invariants.test.ts) LIVE: whole-database marker scan + log scan,
+  tampered-policy cloud-escape test, 422 counts-only, exactly-one-ledger-write counting.
+- Verified: 152/152.
+
 ## 2026-07-26 — Phase 7 complete
 
 - PolicyEngine (src/policy/engine.ts): cached resolution, modelViolation (sunset/sensitivity/

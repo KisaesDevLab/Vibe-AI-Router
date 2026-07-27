@@ -12,7 +12,7 @@ import type { Db } from '../db/client.js';
 import { appTokens, firms, models, providers, taskClasses } from '../../db/schema.js';
 import type { AIRequest, AIResponse, StreamChunk } from './envelope.js';
 import { requestHash } from './envelope.js';
-import { RouterError, toRouterError } from './errors.js';
+import { RETRYABLE_CODES, RouterError, toRouterError } from './errors.js';
 import type { ExecuteContext, GatewayAdapter } from './adapter-types.js';
 import {
   applyLimits,
@@ -24,6 +24,8 @@ import {
   type FirmSettings,
   type PolicyEngine,
 } from '../policy/engine.js';
+import { redactEnvelope, scanEnvelope, type MatchType, type ScrubReport } from '../protect/scrub.js';
+import type { AuditEntry } from '../protect/audit.js';
 
 // row types inferred from schema
 type TaskClassRow = typeof taskClasses.$inferSelect;
@@ -56,6 +58,8 @@ export interface PipelineCtx {
   response?: AIResponse;
   stream?: AsyncIterable<StreamChunk>;
   error?: RouterError;
+  /** set when the scrubber matched (redact/warn modes) — counts only, never values */
+  scrubbed?: { mode: 'redact' | 'warn' | 'block'; counts: Partial<Record<MatchType, number>> };
 }
 
 export interface AdapterRegistry {
@@ -84,6 +88,8 @@ export interface PipelineDeps {
   getApiKey?: (providerId: string) => Promise<string | undefined>;
   /** passive provider health recording (Phase 6); absent → no-op */
   recordHealth?: (providerId: string, firmId: string, providerLabel: string, ok: boolean) => void;
+  /** fire-and-forget audit emission (Phase 8); implementations must swallow their own errors */
+  audit?: (entry: AuditEntry) => void;
 }
 
 export function newPipelineCtx(envelope: AIRequest): PipelineCtx {
@@ -158,10 +164,74 @@ export async function stagePolicy(ctx: PipelineCtx, deps: PipelineDeps): Promise
   ctx.effective = effective;
 }
 
-// ── stage: scrub (Phase 2 pass-through — Phase 8 implements) ─────────────────
+// ── stage: scrub (8.2/8.3/8.4) ───────────────────────────────────────────────
 
-export function stageScrub(_ctx: PipelineCtx, _deps: PipelineDeps): Promise<void> {
-  return Promise.resolve();
+/**
+ * Runs ONLY when the request is cloud-bound (selected model kind ≠ local). Firm mode:
+ * block (default) | redact | warn. Any scrubber ERROR blocks cloud egress — fail closed
+ * (principle 3). Blocking reveals match types + counts, never values.
+ */
+export async function stageScrub(ctx: PipelineCtx, deps: PipelineDeps): Promise<void> {
+  const effective = ctx.effective;
+  const auth = ctx.auth;
+  if (!effective || !auth) throw new RouterError('unknown', 'pipeline ordering violation');
+
+  let cloudBound: boolean;
+  let report: ScrubReport | undefined;
+  try {
+    const model = selectModel(effective, ctx.envelope); // same pure selection route uses
+    cloudBound = model.providerKind !== 'local';
+    if (!cloudBound) return;
+
+    const mode = effective.firmSettings.scrubber_mode ?? 'block';
+    if (mode === 'redact') {
+      const result = redactEnvelope(ctx.envelope);
+      report = result.report;
+      if (report.total > 0) {
+        // outbound copy only (8.4): original object untouched; downstream sends the copy
+        ctx.envelope = result.envelope;
+        ctx.scrubbed = { mode, counts: report.counts };
+      }
+    } else {
+      report = scanEnvelope(ctx.envelope);
+      if (report.total > 0) ctx.scrubbed = { mode, counts: report.counts };
+    }
+  } catch (err) {
+    if (err instanceof RouterError) throw err; // selection failures keep their own code
+    // scrubber failure must never fall through to "allow" (principle 3)
+    throw new RouterError('scrubber_blocked', 'scrubber error — cloud egress blocked', {
+      detail: { reason: 'scrubber_failure' },
+    });
+  }
+
+  if (!report || report.total === 0) return;
+  const counts = Object.fromEntries(
+    Object.entries(report.counts).map(([k, v]) => [k, v ?? 0]),
+  ) as Record<string, number>;
+
+  const mode = effective.firmSettings.scrubber_mode ?? 'block';
+  if (mode === 'block') {
+    deps.audit?.({
+      firmId: auth.firmId,
+      event: 'blocked_scrubber',
+      app: auth.app,
+      taskClass: effective.taskClass.key,
+      requestHash: ctx.requestHash,
+      detail: { mode: 'block', matches: counts },
+    });
+    throw new RouterError('scrubber_blocked', 'request contains protected data', {
+      detail: { matches: counts }, // types + counts only (8.3)
+    });
+  }
+  deps.audit?.({
+    firmId: auth.firmId,
+    event: mode === 'redact' ? 'scrubber_redacted' : 'scrubber_warning',
+    app: auth.app,
+    taskClass: effective.taskClass.key,
+    requestHash: ctx.requestHash,
+    detail: { matches: counts },
+  });
+  await Promise.resolve();
 }
 
 // ── stage: route ─────────────────────────────────────────────────────────────
@@ -260,6 +330,53 @@ export async function stageAdapt(ctx: PipelineCtx, deps: PipelineDeps, signal: A
  * the ledger write. For streaming, the ledger stage runs from the route layer once the stream
  * finishes (usage arrives in the final chunk).
  */
+/** Terminal audit emission (8.5) — one decision event per finished request. */
+export function emitTerminalAudit(ctx: PipelineCtx, deps: PipelineDeps): void {
+  const auth = ctx.auth;
+  if (!auth || !deps.audit) return; // pre-auth failures have no firm to attribute to
+  const base = {
+    firmId: auth.firmId,
+    app: auth.app,
+    ...(ctx.taskClass ? { taskClass: ctx.taskClass.key } : {}),
+    ...(ctx.route ? { model: ctx.route.model.canonicalId, provider: ctx.route.provider.label } : {}),
+    requestHash: ctx.requestHash,
+  };
+  if (!ctx.error) {
+    deps.audit({
+      ...base,
+      event: 'request',
+      detail: {
+        status: 'ok',
+        stream: ctx.envelope.stream,
+        ...(ctx.envelope.modelRequested ? { modelRequested: ctx.envelope.modelRequested } : {}),
+        ...(ctx.response ? { modelServed: ctx.response.served.model, latencyMs: ctx.response.served.latencyMs } : {}),
+      },
+    });
+    return;
+  }
+  if (ctx.error.code === 'scrubber_blocked') return; // already emitted by stageScrub
+  if (ctx.error.code === 'policy_blocked' || ctx.error.code === 'capability_missing') {
+    deps.audit({
+      ...base,
+      event: 'blocked_policy',
+      detail: { code: ctx.error.code, reason: ctx.error.message.slice(0, 300) },
+    });
+    return;
+  }
+  if (RETRYABLE_CODES.has(ctx.error.code) || ctx.error.code === 'context_exceeded') {
+    const providerStatus = ctx.error.detail?.['providerStatus'];
+    deps.audit({
+      ...base,
+      event: 'provider_error',
+      detail: {
+        code: ctx.error.code,
+        ...(typeof providerStatus === 'number' ? { providerStatus } : {}),
+        retryable: RETRYABLE_CODES.has(ctx.error.code),
+      },
+    });
+  }
+}
+
 export async function runPipeline(
   ctx: PipelineCtx,
   deps: PipelineDeps,
@@ -273,7 +390,10 @@ export async function runPipeline(
     await stageScrub(ctx, deps);
     await stageRoute(ctx, deps);
     await stageAdapt(ctx, deps, signal);
-    if (!ctx.envelope.stream) await deps.ledger.write(ctx);
+    if (!ctx.envelope.stream) {
+      await deps.ledger.write(ctx);
+      emitTerminalAudit(ctx, deps);
+    }
   } catch (err) {
     ctx.error = toRouterError(err);
     try {
@@ -281,6 +401,7 @@ export async function runPipeline(
     } catch (ledgerErr) {
       deps.log.error({ err: ledgerErr, requestId: ctx.requestId }, 'ledger write failed');
     }
+    emitTerminalAudit(ctx, deps);
     throw ctx.error;
   }
 }

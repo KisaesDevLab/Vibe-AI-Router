@@ -106,3 +106,17 @@ Grouped by phase. This file is the Phase 15 review agenda.
 - [Q-028] Policy cache staleness vs catalog sync capability changes → **30s TTL backstop
   (no explicit invalidation on sync)** → worst case: a request within 30s of a sync uses
   just-stale capabilities; request-time validation still blocks true violations → **S**
+
+## Phase 8
+
+- [Q-029] Does cloud_allowed get scrubbed? → **YES — every cloud-bound request is scrubbed
+  regardless of tier** → 8.2 says cloud-bound; a scrubber hit on a "no client data by
+  construction" class means the construction failed — blocking is the protective act → **S**
+- [Q-030] Bare 9-digit SSN detection → **only with ssn/social-security/taxpayer-id keyword in
+  the preceding 40 chars** → unqualified 9-digit runs are overwhelmingly invoice/order ids;
+  dashed/spaced forms always match → **S**
+- [Q-031] Phone-shaped 3-2-4 strings (e.g. 555-12-3456) → **treated as SSNs** → structural
+  determinism is the contract; block message names the TYPE so operators can react → **S**
+- [Q-032] Scrub-vs-route ordering (scrub needs to know cloud-bound before route runs) →
+  **stageScrub runs the same pure selectModel() the route stage uses** → keeps plan order
+  auth→policy→scrub→route while deciding exemption on the true selected target → **S**

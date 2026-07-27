@@ -9,6 +9,7 @@ import type { Db } from '../db/client.js';
 import { firms, models, policies, taskClasses } from '../../db/schema.js';
 import { RouterError } from '../gateway/errors.js';
 import { effectiveCapabilities, type CapabilityKey } from '../catalog/service.js';
+import { writeAudit } from '../protect/audit.js';
 import { classRequires, type PolicyEngine } from './engine.js';
 
 type TaskClassRow = typeof taskClasses.$inferSelect;
@@ -102,6 +103,32 @@ export async function savePolicy(db: Db, engine: PolicyEngine, input: SavePolicy
     id = row!.id;
   }
   engine.invalidate(input.firmId); // cache invalidation on config change (7.2)
+  // config-change audit (8.6) — metadata only
+  await writeAudit(db, {
+    firmId: input.firmId,
+    event: 'config_change',
+    taskClass: tc.key,
+    detail: {
+      entity: 'policy',
+      entityId: id,
+      action: existing ? 'update' : 'create',
+      ...(existing
+        ? {
+            before: {
+              defaultModelId: existing.defaultModelId,
+              enabled: existing.enabled,
+              maxTokensOverride: existing.maxTokensOverride,
+            },
+          }
+        : {}),
+      after: {
+        defaultModel: input.defaultModelCanonicalId,
+        allowed: (input.allowedModelCanonicalIds ?? []).join(','),
+        fallback: (input.fallbackChainCanonicalIds ?? []).join(','),
+        enabled: values.enabled,
+      },
+    },
+  });
   return id;
 }
 

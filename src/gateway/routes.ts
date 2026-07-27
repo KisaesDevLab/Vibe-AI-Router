@@ -8,7 +8,7 @@ import type { AIRequestMetadata, StreamChunk } from './envelope.js';
 import { toEnvelope } from './envelope.js';
 import { RouterError, errorBody, toRouterError } from './errors.js';
 import { toChatCompletion, toChunkObjects } from './openai-shape.js';
-import { newPipelineCtx, runPipeline, type PipelineDeps } from './pipeline.js';
+import { emitTerminalAudit, newPipelineCtx, runPipeline, type PipelineDeps } from './pipeline.js';
 
 export interface GatewayOptions {
   deps: PipelineDeps;
@@ -137,6 +137,7 @@ export function registerGateway(app: FastifyInstance, opts: GatewayOptions): voi
           } catch (ledgerErr) {
             deps.log.error({ err: ledgerErr, requestId: ctx.requestId }, 'ledger write failed');
           }
+          emitTerminalAudit(ctx, deps);
           reply.raw.end();
         }
         return reply;

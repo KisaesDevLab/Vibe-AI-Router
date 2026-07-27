@@ -15,6 +15,7 @@ import type { CredentialVault } from '../vault/service.js';
 import type { ProviderAdapter } from '../adapters/contract.js';
 import type { PolicyEngine } from '../policy/engine.js';
 import { exportPolicies, importPolicies } from '../policy/save.js';
+import { auditToCsv, queryAudit } from '../protect/audit.js';
 import { firms } from '../../db/schema.js';
 import { RouterError, errorBody, toRouterError } from '../gateway/errors.js';
 
@@ -186,5 +187,62 @@ export function registerBootstrapAdmin(app: FastifyInstance, opts: BootstrapAdmi
       const rerr = toRouterError(err);
       return reply.code(rerr.status).send(errorBody(rerr));
     }
+  });
+
+  // ── audit query + CSV export (8.7) ────────────────────────────────────────
+  const auditQuerySchema = z.object({
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
+    event: z.string().optional(),
+    app: z.string().optional(),
+    user: z.string().uuid().optional(),
+    task_class: z.string().optional(),
+    limit: z.coerce.number().int().positive().max(5000).optional(),
+    offset: z.coerce.number().int().nonnegative().optional(),
+  });
+
+  const runAuditQuery = async (
+    req: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<Awaited<ReturnType<typeof queryAudit>> | undefined> => {
+    const id = await firmId();
+    if (!id) {
+      void reply.code(400).send(errorBody(new RouterError('invalid_request', 'no firm exists')));
+      return undefined;
+    }
+    const parsed = auditQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      void reply.code(400).send(errorBody(new RouterError('invalid_request', 'bad audit query')));
+      return undefined;
+    }
+    const q = parsed.data;
+    return queryAudit(opts.db, {
+      firmId: id,
+      ...(q.from ? { from: q.from } : {}),
+      ...(q.to ? { to: q.to } : {}),
+      ...(q.event ? { event: q.event } : {}),
+      ...(q.app ? { app: q.app } : {}),
+      ...(q.user ? { userId: q.user } : {}),
+      ...(q.task_class ? { taskClass: q.task_class } : {}),
+      ...(q.limit !== undefined ? { limit: q.limit } : {}),
+      ...(q.offset !== undefined ? { offset: q.offset } : {}),
+    });
+  };
+
+  app.get('/admin/audit', async (req, reply) => {
+    if (!guard(req, reply)) return reply;
+    const rows = await runAuditQuery(req, reply);
+    if (!rows) return reply;
+    return reply.send(rows);
+  });
+
+  app.get('/admin/audit.csv', async (req, reply) => {
+    if (!guard(req, reply)) return reply;
+    const rows = await runAuditQuery(req, reply);
+    if (!rows) return reply;
+    return reply
+      .header('content-type', 'text/csv; charset=utf-8')
+      .header('content-disposition', 'attachment; filename="audit.csv"')
+      .send(auditToCsv(rows));
   });
 }

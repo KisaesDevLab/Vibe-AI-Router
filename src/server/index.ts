@@ -7,6 +7,7 @@ import { keyringFromEnv } from '../vault/crypto.js';
 import { CredentialVault } from '../vault/service.js';
 import { HealthMonitor } from '../vault/health.js';
 import { PolicyEngine } from '../policy/engine.js';
+import { writeAudit } from '../protect/audit.js';
 import { buildApp } from './app.js';
 
 async function main(): Promise<void> {
@@ -38,6 +39,11 @@ async function main(): Promise<void> {
         engine,
         ...(vault ? { getApiKey: (providerId: string) => vault.getActiveApiKey(providerId) } : {}),
         recordHealth: (providerId, firmId, label, ok) => health.record(providerId, firmId, label, ok),
+        audit: (entry) => {
+          void writeAudit(handle.db, entry).catch((err: unknown) =>
+            log.error({ err, event: entry.event }, 'audit write failed'),
+          );
+        },
       },
     },
   });

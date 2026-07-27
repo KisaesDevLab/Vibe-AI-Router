@@ -46,6 +46,27 @@ const EVENT_SCHEMAS = {
     modelStatus: z.enum(['deprecated', 'sunset']),
     role: z.enum(['default', 'allowed', 'fallback']),
   }),
+  // ── pipeline decision events (8.5) — detail schemas structurally exclude content ─────────
+  request: z.object({
+    status: z.string(),
+    modelRequested: z.string().optional(),
+    modelServed: z.string().optional(),
+    latencyMs: z.number().optional(),
+    stream: z.boolean(),
+  }),
+  blocked_scrubber: z.object({
+    mode: z.enum(['block']),
+    /** match TYPES + counts only — never matched values (8.3) */
+    matches: z.record(z.number()),
+  }),
+  scrubber_redacted: z.object({ matches: z.record(z.number()) }),
+  scrubber_warning: z.object({ matches: z.record(z.number()) }),
+  blocked_policy: z.object({ code: z.string(), reason: z.string().max(300) }),
+  provider_error: z.object({
+    code: z.string(),
+    providerStatus: z.number().optional(),
+    retryable: z.boolean().optional(),
+  }),
 } as const;
 
 export type AuditEvent = keyof typeof EVENT_SCHEMAS;
@@ -67,6 +88,55 @@ export function registerAuditEvents(events: Record<string, z.ZodType>): void {
   for (const [name, schema] of Object.entries(events)) {
     (EVENT_SCHEMAS as Record<string, z.ZodType>)[name] = schema;
   }
+}
+
+export interface AuditQuery {
+  firmId: string;
+  from?: Date;
+  to?: Date;
+  event?: string;
+  app?: string;
+  userId?: string;
+  taskClass?: string;
+  limit?: number;
+  offset?: number;
+}
+
+type AuditRow = typeof auditLog.$inferSelect;
+
+/** Filterable audit query (8.7). */
+export async function queryAudit(db: Db, q: AuditQuery): Promise<AuditRow[]> {
+  return db.query.auditLog.findMany({
+    where: (a, { and, eq, gte, lte }) => {
+      const conds = [eq(a.firmId, q.firmId)];
+      if (q.from) conds.push(gte(a.ts, q.from));
+      if (q.to) conds.push(lte(a.ts, q.to));
+      if (q.event) conds.push(eq(a.event, q.event));
+      if (q.app) conds.push(eq(a.app, q.app));
+      if (q.userId) conds.push(eq(a.userId, q.userId));
+      if (q.taskClass) conds.push(eq(a.taskClass, q.taskClass));
+      return and(...conds);
+    },
+    orderBy: (a, { desc }) => desc(a.ts),
+    limit: Math.min(q.limit ?? 200, 5000),
+    offset: q.offset ?? 0,
+  });
+}
+
+function csvEscape(v: unknown): string {
+  const s = v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/** CSV export (8.7) — same fields as the query rows; detail serialized as JSON. */
+export function auditToCsv(rows: AuditRow[]): string {
+  const header = 'ts,event,app,task_class,model,provider,user_id,request_hash,detail';
+  const lines = rows.map((r) =>
+    [r.ts.toISOString(), r.event, r.app, r.taskClass, r.model, r.provider, r.userId, r.requestHash, r.detail]
+      .map(csvEscape)
+      .join(','),
+  );
+  return [header, ...lines].join('\n') + '\n';
 }
 
 export async function writeAudit(db: Db, entry: AuditEntry): Promise<void> {

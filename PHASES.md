@@ -135,7 +135,19 @@ mode (no MASTER_KEY) keeps serving keyless providers.
 
 ## Phase 8 — Data Protection (Scrubber + Audit)
 
-- [ ] 8.1 … 8.9
+- [x] 8.1 Deterministic scrubber: SSN/EIN/ABA/account-heuristic/Luhn+IIN, exhaustive corpus incl. lookalike negatives
+- [x] 8.2 Cloud-bound only (selected model kind ≠ local); all text incl. tool args + results
+- [x] 8.3 Modes block(default)/redact/warn from firm settings; block reveals types+counts only
+- [x] 8.4 Redact = outbound deep copy; original object untouched; one-way
+- [x] 8.5 Pipeline decision events with zod-validated detail (request/blocked_*/scrubber_*/provider_error)
+- [x] 8.6 Config-change audit on policy saves (credentials already audited in Phase 6)
+- [x] 8.7 Audit query API + CSV export (/admin/audit, /admin/audit.csv)
+- [x] 8.8 Invariant suite live in CI: (a) no-body-anywhere scan of every table + logs,
+        (b) tampered-policy local_only escape blocked, (c) 422 + counts-only, (d) exactly-one
+        ledger write (interface level; Phase 9 adds row level)
+- [x] 8.9 Perf: <5ms median on 100KB, test-enforced
+
+**Acceptance met:** invariant suite green; corpus documented in docs/scrubber.md.
 
 ## Phase 9 — Cost Ledger & Budgets
 
