@@ -9,6 +9,7 @@ import { buildApp } from '../src/server/app.js';
 import { loadEnv } from '../src/config/env.js';
 import { createDb, type DbHandle } from '../src/db/client.js';
 import { NoopLedger } from '../src/gateway/pipeline.js';
+import { PolicyEngine } from '../src/policy/engine.js';
 import { StubAdapter } from '../src/gateway/stub-adapter.js';
 import { createLogger } from '../src/lib/logger.js';
 import { migrate } from '../db/migrate.js';
@@ -35,6 +36,7 @@ describe.skipIf(!url)('gateway contract (openai client ↔ router)', () => {
           adapters: { forKind: () => new StubAdapter('alpha beta gamma delta') },
           ledger: new NoopLedger(),
           log: createLogger('silent', false),
+          engine: new PolicyEngine(handle.db),
         },
         heartbeatMs: 60_000,
       },

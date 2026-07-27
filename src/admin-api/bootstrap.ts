@@ -13,6 +13,9 @@ import { providers } from '../../db/schema.js';
 import { runCatalogSync } from '../catalog/scheduler.js';
 import type { CredentialVault } from '../vault/service.js';
 import type { ProviderAdapter } from '../adapters/contract.js';
+import type { PolicyEngine } from '../policy/engine.js';
+import { exportPolicies, importPolicies } from '../policy/save.js';
+import { firms } from '../../db/schema.js';
 import { RouterError, errorBody, toRouterError } from '../gateway/errors.js';
 
 function tokenMatches(presented: string, expected: string): boolean {
@@ -28,6 +31,8 @@ export interface BootstrapAdminOptions {
   /** present only when MASTER_KEY is configured */
   vault?: CredentialVault;
   adapterFor?: (kind: string) => ProviderAdapter | undefined;
+  /** policy engine for export/import (Phase 7) */
+  engine?: PolicyEngine;
 }
 
 export function registerBootstrapAdmin(app: FastifyInstance, opts: BootstrapAdminOptions): void {
@@ -150,6 +155,33 @@ export function registerBootstrapAdmin(app: FastifyInstance, opts: BootstrapAdmi
         ...(body.data.model ? { model: body.data.model } : {}),
       });
       return await reply.send(result);
+    } catch (err) {
+      const rerr = toRouterError(err);
+      return reply.code(rerr.status).send(errorBody(rerr));
+    }
+  });
+
+  // ── policy export / import (7.9) — single-firm appliance: first firm is the firm ─────────
+  const firmId = async (): Promise<string | undefined> =>
+    (await opts.db.query.firms.findFirst({ orderBy: firms.createdAt }))?.id;
+
+  app.get('/admin/policies/export', async (req, reply) => {
+    if (!guard(req, reply)) return reply;
+    const engine = opts.engine;
+    if (!engine) return reply.code(503).send({ error: { message: 'engine unavailable', code: 'unknown' } });
+    const id = await firmId();
+    if (!id) return reply.code(400).send(errorBody(new RouterError('invalid_request', 'no firm exists')));
+    return reply.send(await exportPolicies(opts.db, id));
+  });
+
+  app.post('/admin/policies/import', async (req, reply) => {
+    if (!guard(req, reply)) return reply;
+    const engine = opts.engine;
+    if (!engine) return reply.code(503).send({ error: { message: 'engine unavailable', code: 'unknown' } });
+    const id = await firmId();
+    if (!id) return reply.code(400).send(errorBody(new RouterError('invalid_request', 'no firm exists')));
+    try {
+      return await reply.send(await importPolicies(opts.db, engine, id, req.body));
     } catch (err) {
       const rerr = toRouterError(err);
       return reply.code(rerr.status).send(errorBody(rerr));

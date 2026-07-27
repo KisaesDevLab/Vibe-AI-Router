@@ -116,7 +116,22 @@ mode (no MASTER_KEY) keeps serving keyless providers.
 
 ## Phase 7 — Task-Class Policy Engine
 
-- [ ] 7.1 … 7.11
+- [x] 7.1 Registration endpoint: idempotent, version-stamped; new classes forced local_only;
+        registration can never change existing sensitivity
+- [x] 7.2 PolicyEngine resolution cache (30s TTL) + invalidate on every config mutation
+- [x] 7.3 Config-time gating in savePolicy — rejects with the specific missing capability
+- [x] 7.4 Request-time re-validation (modelViolation) incl. request-derived requirements
+- [x] 7.5 local_only → local kind, enforced at select AND per fallback hop (routeForModel)
+- [x] 7.6 Firm overrides: banned kinds, banned model patterns (wildcards), global temp max
+- [x] 7.7 Role gating (explicit deny wins; absent rule allows)
+- [x] 7.8 max_tokens inject + clamp; never unset (Anthropic requires it anyway)
+- [x] 7.9 Export/import JSON with zod validation; import never widens sensitivity
+- [x] 7.10 Default policy pack (14 classes, 8 apps) local-first; capability-orphans left
+        unresolved = fail closed
+- [x] 7.11 Property tests (fast-check, 700 runs): no cloud route for local_only, no
+        capability-lacking selection — rejection always counts as safe
+
+**Acceptance met:** default pack + SENSITIVITY-REVIEW.md generated (Phase 15 item #1).
 
 ## Phase 8 — Data Protection (Scrubber + Audit)
 

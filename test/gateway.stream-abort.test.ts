@@ -8,6 +8,7 @@ import { buildApp } from '../src/server/app.js';
 import { loadEnv } from '../src/config/env.js';
 import { createDb, type DbHandle } from '../src/db/client.js';
 import { NoopLedger } from '../src/gateway/pipeline.js';
+import { PolicyEngine } from '../src/policy/engine.js';
 import type { GatewayAdapter } from '../src/gateway/adapter-types.js';
 import type { StreamChunk } from '../src/gateway/envelope.js';
 import { createLogger } from '../src/lib/logger.js';
@@ -52,6 +53,7 @@ describe.skipIf(!url)('stream abort propagation', () => {
           adapters: { forKind: () => slowAdapter },
           ledger: new NoopLedger(),
           log: createLogger('silent', false),
+          engine: new PolicyEngine(handle.db),
         },
         heartbeatMs: 60_000,
       },

@@ -9,15 +9,24 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import type { Db } from '../db/client.js';
-import { appTokens, models, policies, providers, taskClasses } from '../../db/schema.js';
+import { appTokens, firms, models, providers, taskClasses } from '../../db/schema.js';
 import type { AIRequest, AIResponse, StreamChunk } from './envelope.js';
 import { requestHash } from './envelope.js';
 import { RouterError, toRouterError } from './errors.js';
 import type { ExecuteContext, GatewayAdapter } from './adapter-types.js';
+import {
+  applyLimits,
+  checkRole,
+  classRequires,
+  modelViolation,
+  selectModel,
+  type EffectivePolicy,
+  type FirmSettings,
+  type PolicyEngine,
+} from '../policy/engine.js';
 
 // row types inferred from schema
 type TaskClassRow = typeof taskClasses.$inferSelect;
-type PolicyRow = typeof policies.$inferSelect;
 type ProviderRow = typeof providers.$inferSelect;
 type ModelRow = typeof models.$inferSelect;
 
@@ -41,7 +50,7 @@ export interface PipelineCtx {
   startedAt: number;
   auth?: AuthContext;
   taskClass?: TaskClassRow;
-  policy?: PolicyRow;
+  effective?: EffectivePolicy;
   envelope: AIRequest;
   route?: RouteDecision;
   response?: AIResponse;
@@ -69,6 +78,8 @@ export interface PipelineDeps {
   adapters: AdapterRegistry;
   ledger: LedgerWriter;
   log: Logger;
+  /** policy engine (Phase 7) — resolution cache + validation */
+  engine: PolicyEngine;
   /** decrypted API key lookup (Phase 6 vault); absent → keyless providers only */
   getApiKey?: (providerId: string) => Promise<string | undefined>;
   /** passive provider health recording (Phase 6); absent → no-op */
@@ -90,14 +101,11 @@ export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
-export async function stageAuth(
-  ctx: PipelineCtx,
-  deps: PipelineDeps,
-  bearerToken: string | undefined,
-): Promise<void> {
+/** Reusable app-token authentication (2.5) — also used by the registration endpoint (7.1). */
+export async function authenticateAppToken(db: Db, bearerToken: string | undefined): Promise<AuthContext> {
   if (!bearerToken) throw new RouterError('auth_error', 'missing bearer token');
   const presented = hashToken(bearerToken);
-  const row = await deps.db.query.appTokens.findFirst({
+  const row = await db.query.appTokens.findFirst({
     where: and(eq(appTokens.tokenHash, presented), isNull(appTokens.revokedAt)),
   });
   // constant-time compare of the presented hash against the stored hash (2.5); the DB lookup
@@ -108,14 +116,22 @@ export async function stageAuth(
   if (!row.scopes.includes('chat')) {
     throw new RouterError('auth_error', 'token lacks required scope: chat');
   }
-  ctx.auth = { firmId: row.firmId, app: row.app, scopes: row.scopes, tokenId: row.id };
-  ctx.envelope.metadata.app = row.app;
   // fire-and-forget freshness marker; failure here must never fail the request
-  void deps.db
+  void db
     .update(appTokens)
     .set({ lastUsedAt: new Date() })
     .where(eq(appTokens.id, row.id))
     .catch(() => {});
+  return { firmId: row.firmId, app: row.app, scopes: row.scopes, tokenId: row.id };
+}
+
+export async function stageAuth(
+  ctx: PipelineCtx,
+  deps: PipelineDeps,
+  bearerToken: string | undefined,
+): Promise<void> {
+  ctx.auth = await authenticateAppToken(deps.db, bearerToken);
+  ctx.envelope.metadata.app = ctx.auth.app;
 }
 
 // ── stage: resolve task class (fail closed on unknown — principle 3) ────────
@@ -128,23 +144,18 @@ export async function stageResolveTaskClass(ctx: PipelineCtx, deps: PipelineDeps
   ctx.taskClass = row;
 }
 
-// ── stage: policy (Phase 2 minimal — Phase 7 expands to the full engine) ────
+// ── stage: policy (Phase 7 engine: resolution + role gating + limit clamps) ─
 
 export async function stagePolicy(ctx: PipelineCtx, deps: PipelineDeps): Promise<void> {
   const auth = ctx.auth;
   const tc = ctx.taskClass;
   if (!auth || !tc) throw new RouterError('unknown', 'pipeline ordering violation');
-  const row = await deps.db.query.policies.findFirst({
-    where: and(eq(policies.firmId, auth.firmId), eq(policies.taskClassId, tc.id)),
-  });
-  if (!row || !row.enabled) {
-    throw new RouterError('policy_blocked', `no enabled policy for task class ${tc.key}`);
-  }
-  ctx.policy = row;
-  // max_tokens injection baseline (7.8 refines with clamping)
-  if (ctx.envelope.maxTokens === undefined) {
-    ctx.envelope.maxTokens = row.maxTokensOverride ?? tc.defaultMaxTokens;
-  }
+  const firm = await deps.db.query.firms.findFirst({ where: eq(firms.id, auth.firmId) });
+  const firmSettings = (firm?.settings ?? {}) as FirmSettings;
+  const effective = await deps.engine.resolve(auth.firmId, tc.key, firmSettings);
+  checkRole(effective, ctx.envelope.metadata.userRole); // 7.7
+  applyLimits(effective, ctx.envelope); // 7.6 temperature clamps + 7.8 max_tokens
+  ctx.effective = effective;
 }
 
 // ── stage: scrub (Phase 2 pass-through — Phase 8 implements) ─────────────────
@@ -155,19 +166,22 @@ export function stageScrub(_ctx: PipelineCtx, _deps: PipelineDeps): Promise<void
 
 // ── stage: route ─────────────────────────────────────────────────────────────
 
-export async function stageRoute(ctx: PipelineCtx, deps: PipelineDeps): Promise<void> {
+/**
+ * Builds the RouteDecision for one MODEL candidate — request-time enforcement runs first
+ * (7.4/7.5/7.6, defense in depth). Fallback logic (Phase 10) re-invokes this per hop, so a
+ * fallback can never dodge a check the primary was subject to.
+ */
+export async function routeForModel(
+  model: ModelRow,
+  ctx: PipelineCtx,
+  deps: PipelineDeps,
+): Promise<RouteDecision> {
   const auth = ctx.auth;
-  const policy = ctx.policy;
-  const tc = ctx.taskClass;
-  if (!auth || !policy || !tc) throw new RouterError('unknown', 'pipeline ordering violation');
+  const effective = ctx.effective;
+  if (!auth || !effective) throw new RouterError('unknown', 'pipeline ordering violation');
 
-  const model = await deps.db.query.models.findFirst({ where: eq(models.id, policy.defaultModelId) });
-  if (!model) throw new RouterError('policy_blocked', 'policy default model not found in catalog');
-
-  // sensitivity enforcement, request-time (defense in depth; full engine in Phase 7)
-  if (tc.sensitivity === 'local_only' && model.providerKind !== 'local') {
-    throw new RouterError('policy_blocked', 'local_only task class cannot route to a cloud model');
-  }
+  const violation = modelViolation(model, effective, ctx.envelope);
+  if (violation) throw new RouterError(violation.code, violation.reason);
 
   const provider = await deps.db.query.providers.findFirst({
     where: and(
@@ -178,6 +192,9 @@ export async function stageRoute(ctx: PipelineCtx, deps: PipelineDeps): Promise<
   });
   if (!provider) {
     throw new RouterError('provider_unavailable', `no ${model.providerKind} provider configured`);
+  }
+  if (effective.firmSettings.banned_provider_kinds?.includes(provider.kind)) {
+    throw new RouterError('policy_blocked', `provider kind ${provider.kind} is banned by firm policy`);
   }
 
   const adapter = deps.adapters.forKind(provider.kind);
@@ -192,6 +209,7 @@ export async function stageRoute(ctx: PipelineCtx, deps: PipelineDeps): Promise<
     }
   }
 
+  const req = classRequires(effective.taskClass);
   const executeCtx: ExecuteContext = {
     providerId: provider.id,
     model: model.canonicalId,
@@ -200,8 +218,17 @@ export async function stageRoute(ctx: PipelineCtx, deps: PipelineDeps): Promise<
     ...(provider.modelMapping && typeof provider.modelMapping === 'object'
       ? { modelMapping: provider.modelMapping as Record<string, string> }
       : {}),
+    ...(req.caching ? { promptCaching: true } : {}),
+    ...(req.thinking_budget ? { thinkingBudget: req.thinking_budget } : {}),
   };
-  ctx.route = { provider, model, adapter, executeCtx };
+  return { provider, model, adapter, executeCtx };
+}
+
+export async function stageRoute(ctx: PipelineCtx, deps: PipelineDeps): Promise<void> {
+  const effective = ctx.effective;
+  if (!effective) throw new RouterError('unknown', 'pipeline ordering violation');
+  const model = selectModel(effective, ctx.envelope); // advisory model honored only if allowed+valid
+  ctx.route = await routeForModel(model, ctx, deps);
 }
 
 // ── stage: adapt ─────────────────────────────────────────────────────────────

@@ -2,6 +2,21 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-07-26 — Phase 7 complete
+
+- PolicyEngine (src/policy/engine.ts): cached resolution, modelViolation (sunset/sensitivity/
+  banned/capabilities incl. request-derived needs), selectModel (advisory honored only when
+  allowed+valid; failing default errors — never degrades), applyLimits (temp clamps both ways,
+  max_tokens inject+clamp), checkRole.
+- Pipeline rewired: stagePolicy → engine.resolve + role + limits; stageRoute → selectModel +
+  routeForModel (exported per-hop for Phase 10 fallbacks — a fallback cannot dodge checks).
+  ExecuteContext now carries promptCaching/thinkingBudget from task-class requires.
+- savePolicy config-time gate; export/import with never-widen-sensitivity rule; registration
+  endpoint with forced-local_only for unknown classes; default pack (14 classes/8 apps) +
+  SENSITIVITY-REVIEW.md flagged as Phase 15 item #1.
+- Verified: 130/130 incl. fast-check property invariants (700 runs) and endpoint tests.
+  Test-fixture lesson: fakeModel ignored its overrides — silent false-greens; fixed.
+
 ## 2026-07-26 — Phase 6 complete
 
 - Vault: AES-256-GCM envelope crypto with versioned keyring (crypto.ts), lifecycle service

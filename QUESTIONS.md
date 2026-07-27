@@ -88,3 +88,21 @@ Grouped by phase. This file is the Phase 15 review agenda.
   sane defaults pending real traffic; Phase 10 breaker consumes the same window → **S**
 - [Q-023] Active health probe interval (6.6 "optional") → **deferred to Phase 13** (metrics
   loop is the natural home; passive + manual test cover Phase 6 acceptance) → **S**
+
+## Phase 7
+
+- [Q-024] Advisory `model` in request body honored how? → **only when in the allowed set AND
+  passing validation; otherwise the policy default serves silently** (ledger records
+  requested vs served) → apps stay portable; erroring would break OpenAI-SDK ergonomics → **S**
+- [Q-025] App-registered NEW task classes → **always local_only** (pack entries keep curated
+  tier); registration NEVER changes existing sensitivity → most restrictive plausible default
+  per plan; widening is an explicit admin action → **S**
+- [Q-026] Role gating default when no role_policies row → **allowed** → the pack ships no
+  role rows; deny-by-default would brick every request until Phase 11 UI exists; explicit
+  deny rows still enforce → flag for Phase 15 → **S**
+- [Q-027] Default pack scope: 14 classes across 8 suite apps invented from app domain
+  knowledge → real apps will register their own keys in Phase 12+; pack seeds sensible tiers
+  and the SENSITIVITY-REVIEW.md table → **S**
+- [Q-028] Policy cache staleness vs catalog sync capability changes → **30s TTL backstop
+  (no explicit invalidation on sync)** → worst case: a request within 30s of a sync uses
+  just-stale capabilities; request-time validation still blocks true violations → **S**

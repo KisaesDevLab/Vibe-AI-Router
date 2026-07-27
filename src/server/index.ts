@@ -6,6 +6,7 @@ import { createAdapterRegistry } from '../adapters/registry.js';
 import { keyringFromEnv } from '../vault/crypto.js';
 import { CredentialVault } from '../vault/service.js';
 import { HealthMonitor } from '../vault/health.js';
+import { PolicyEngine } from '../policy/engine.js';
 import { buildApp } from './app.js';
 
 async function main(): Promise<void> {
@@ -24,6 +25,7 @@ async function main(): Promise<void> {
     log.warn('MASTER_KEY not set — cloud provider credentials unavailable (local-only mode)');
   }
   const health = new HealthMonitor(handle.db, log);
+  const engine = new PolicyEngine(handle.db);
 
   const app = buildApp({
     env,
@@ -33,6 +35,7 @@ async function main(): Promise<void> {
         adapters,
         ledger: new NoopLedger(),
         log,
+        engine,
         ...(vault ? { getApiKey: (providerId: string) => vault.getActiveApiKey(providerId) } : {}),
         recordHealth: (providerId, firmId, label, ok) => health.record(providerId, firmId, label, ok),
       },
@@ -47,6 +50,7 @@ async function main(): Promise<void> {
       adminToken: env.ADMIN_BOOTSTRAP_TOKEN,
       ...(vault ? { vault } : {}),
       adapterFor: (kind: string) => adapters.get(kind),
+      engine,
     });
   }
 

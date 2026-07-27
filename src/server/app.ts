@@ -4,6 +4,7 @@ import { createLogger } from '../lib/logger.js';
 import { VERSION } from '../version.js';
 import { registerGateway } from '../gateway/routes.js';
 import type { PipelineDeps } from '../gateway/pipeline.js';
+import { registerTaskClassRegistration } from '../policy/registration.js';
 
 export interface BuildAppOptions {
   env: Env;
@@ -42,6 +43,10 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
         maxJsonDepth: env.ROUTER_MAX_JSON_DEPTH,
       },
       ...(opts.gateway.heartbeatMs !== undefined ? { heartbeatMs: opts.gateway.heartbeatMs } : {}),
+    });
+    registerTaskClassRegistration(app, {
+      db: opts.gateway.deps.db,
+      engine: opts.gateway.deps.engine,
     });
   }
 
