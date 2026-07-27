@@ -1,0 +1,45 @@
+{
+  "name": "vibe-ai-router",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Vibe AI Router — sole AI egress point for the Vibe appliance suite",
+  "license": "BUSL-1.1",
+  "author": "KisaesDevLab",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/src/server/index.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "migrate": "tsx db/migrate.ts up",
+    "migrate:down": "tsx db/migrate.ts down",
+    "seed": "tsx db/seed.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.1",
+    "drizzle-orm": "^0.44.2",
+    "fastify": "^5.2.1",
+    "pino": "^9.6.0",
+    "postgres": "^3.4.5",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.12",
+    "@typescript-eslint/eslint-plugin": "^8.19.1",
+    "@typescript-eslint/parser": "^8.19.1",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^9.18.0",
+    "pino-pretty": "^13.0.0",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.2"
+  }
+}

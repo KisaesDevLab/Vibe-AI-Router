@@ -1,0 +1,49 @@
+name: CI
+on:
+  push:
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: airouter
+          POSTGRES_PASSWORD: airouter
+          POSTGRES_DB: airouter
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U airouter"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+    env:
+      DATABASE_URL: postgres://airouter:airouter@localhost:5432/airouter
+      VIBE_ROUTER_TEST_DATABASE_URL: postgres://airouter:airouter@localhost:5432/airouter
+      REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - name: Migration reversibility (up → down → up)
+        run: |
+          pnpm migrate
+          pnpm migrate:down 999
+          pnpm migrate
+      - run: pnpm test
+      - run: pnpm build
+      - name: Docker build
+        run: docker build -t vibe-ai-router:ci .

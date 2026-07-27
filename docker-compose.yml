@@ -1,0 +1,39 @@
+# Dev stack. Host ports live in the 8220–8229 suite block (+55433/56380 for db/redis,
+# offset from Vibe-1099's 55432/56379 so both dev stacks can run simultaneously).
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: airouter
+      POSTGRES_PASSWORD: airouter
+      POSTGRES_DB: airouter
+    ports:
+      - '55433:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U airouter']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '56380:6379'
+
+  router:
+    build: .
+    profiles: ['full'] # `docker compose --profile full up` — dev normally runs the router via tsx
+    environment:
+      DATABASE_URL: postgres://airouter:airouter@postgres:5432/airouter
+      REDIS_URL: redis://redis:6379/0
+      HOST: 0.0.0.0
+    ports:
+      - '8220:8220'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
