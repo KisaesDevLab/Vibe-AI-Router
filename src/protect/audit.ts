@@ -28,6 +28,17 @@ const EVENT_SCHEMAS = {
     unchanged: z.number(),
   }),
   catalog_sync_failed: z.object({ source: z.string(), reason: z.string().max(500) }),
+  credential_test: z.object({
+    ok: z.boolean(),
+    latencyMs: z.number(),
+    errorCode: z.string().optional(),
+  }),
+  provider_health_changed: z.object({
+    from: z.enum(['unknown', 'healthy', 'degraded', 'down']),
+    to: z.enum(['unknown', 'healthy', 'degraded', 'down']),
+    errorRate: z.number(),
+    samples: z.number(),
+  }),
   model_deprecation_warning: z.object({
     policyId: z.string(),
     taskClass: z.string(),

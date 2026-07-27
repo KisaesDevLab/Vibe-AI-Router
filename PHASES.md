@@ -101,7 +101,18 @@ is a no-op (test-proven, incl. jsonb key-order pitfall).
 
 ## Phase 6 — Credential Vault
 
-- [ ] 6.1 … 6.8
+- [x] 6.1 Envelope encryption: master key wraps per-credential DEK, AES-256-GCM, key_version keyring
+- [x] 6.2 Write-only API: add/list(meta)/promote/revoke/test — no read-back path exists
+- [x] 6.3 Master rotation script (scripts/rotate-master-key.ts) + runbook procedure
+- [x] 6.4 Rotation flow add→test→promote→timed grace→hourly auto-revoke
+- [x] 6.5 testConnection wired; result/latency/probe stored on provider row
+- [x] 6.6 Health monitor: passive rolling window (50), healthy/degraded/down at 20%/50%,
+        ordered persists + audit on transition; active probe deferred to Phase 13 metrics loop
+- [x] 6.7 Startup decryptability check; refuses boot on key mismatch
+- [x] 6.8 No-plaintext invariant: ciphertext/list/audit/provider-health serialization asserts
+
+**Acceptance met:** full lifecycle via API test-verified incl. rewrap on live rows; local-only
+mode (no MASTER_KEY) keeps serving keyless providers.
 
 ## Phase 7 — Task-Class Policy Engine
 

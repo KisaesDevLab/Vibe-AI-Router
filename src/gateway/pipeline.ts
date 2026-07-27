@@ -69,6 +69,10 @@ export interface PipelineDeps {
   adapters: AdapterRegistry;
   ledger: LedgerWriter;
   log: Logger;
+  /** decrypted API key lookup (Phase 6 vault); absent → keyless providers only */
+  getApiKey?: (providerId: string) => Promise<string | undefined>;
+  /** passive provider health recording (Phase 6); absent → no-op */
+  recordHealth?: (providerId: string, firmId: string, providerLabel: string, ok: boolean) => void;
 }
 
 export function newPipelineCtx(envelope: AIRequest): PipelineCtx {
@@ -179,10 +183,20 @@ export async function stageRoute(ctx: PipelineCtx, deps: PipelineDeps): Promise<
   const adapter = deps.adapters.forKind(provider.kind);
   if (!adapter) throw new RouterError('provider_unavailable', `no adapter for kind ${provider.kind}`);
 
+  // credential resolution (Phase 6): providers that need a key must have a decryptable one
+  let apiKey: string | undefined;
+  if (provider.authType === 'api_key') {
+    apiKey = deps.getApiKey ? await deps.getApiKey(provider.id) : undefined;
+    if (!apiKey) {
+      throw new RouterError('provider_unavailable', `no active credential for provider ${provider.label}`);
+    }
+  }
+
   const executeCtx: ExecuteContext = {
     providerId: provider.id,
     model: model.canonicalId,
     baseUrl: provider.baseUrl,
+    ...(apiKey ? { apiKey } : {}),
     ...(provider.modelMapping && typeof provider.modelMapping === 'object'
       ? { modelMapping: provider.modelMapping as Record<string, string> }
       : {}),
@@ -192,13 +206,23 @@ export async function stageRoute(ctx: PipelineCtx, deps: PipelineDeps): Promise<
 
 // ── stage: adapt ─────────────────────────────────────────────────────────────
 
-export async function stageAdapt(ctx: PipelineCtx, _deps: PipelineDeps, signal: AbortSignal): Promise<void> {
+export async function stageAdapt(ctx: PipelineCtx, deps: PipelineDeps, signal: AbortSignal): Promise<void> {
   const route = ctx.route;
-  if (!route) throw new RouterError('unknown', 'pipeline ordering violation');
+  const auth = ctx.auth;
+  if (!route || !auth) throw new RouterError('unknown', 'pipeline ordering violation');
+  const record = (ok: boolean): void =>
+    deps.recordHealth?.(route.provider.id, auth.firmId, route.provider.label, ok);
   if (ctx.envelope.stream) {
     ctx.stream = route.adapter.executeStream(ctx.envelope, route.executeCtx, signal);
+    // stream outcome is recorded by the SSE relay when the stream ends
   } else {
-    ctx.response = await route.adapter.execute(ctx.envelope, route.executeCtx, signal);
+    try {
+      ctx.response = await route.adapter.execute(ctx.envelope, route.executeCtx, signal);
+      record(true);
+    } catch (err) {
+      record(false);
+      throw err;
+    }
   }
 }
 

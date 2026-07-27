@@ -2,6 +2,20 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-07-26 — Phase 6 complete
+
+- Vault: AES-256-GCM envelope crypto with versioned keyring (crypto.ts), lifecycle service
+  (add→test→promote→grace→auto-revoke), write-only bootstrap admin endpoints, startup
+  decryptability check wired into boot, master rotation script + runbook.
+- Pipeline: stageRoute resolves decrypted keys via injected getApiKey; api_key providers with
+  no credential → provider_unavailable. stageAdapt + SSE relay feed the passive HealthMonitor
+  (client aborts excluded from provider blame).
+- Health monitor: 50-outcome window, ordered persist chain per provider (race caught by test:
+  parallel persists landed degraded after down), transition audits.
+- Local-only mode: MASTER_KEY unset → warn + serve keyless providers; credential endpoints 503.
+- Verified: 108/108. No-plaintext assertions across ciphertext blob, listings, audit rows,
+  provider.health JSON.
+
 ## 2026-07-26 — Phase 5 complete
 
 - Vendored LiteLLM feed (291 chat models across openai/azure/anthropic/groq/deepseek/ollama;

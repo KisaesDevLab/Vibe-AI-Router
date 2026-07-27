@@ -15,7 +15,12 @@ Validation: `src/config/env.ts` (zod). Invalid config → the process refuses to
 | `ROUTER_MAX_MESSAGES` | no | `200` | max messages per request |
 | `ROUTER_MAX_JSON_DEPTH` | no | `24` | JSON nesting cap, checked before schema parse |
 | `CATALOG_SYNC_CRON` | no | `15 3 * * *` | nightly catalog sync schedule; empty string disables |
-| `ADMIN_BOOTSTRAP_TOKEN` | no | — | ≥16 chars; enables pre-UI admin endpoints (`/admin/catalog/sync`); unset → routes not registered |
+| `ADMIN_BOOTSTRAP_TOKEN` | no | — | ≥16 chars; enables pre-UI admin endpoints (`/admin/*`); unset → routes not registered |
+| `MASTER_KEY` | no | — | 32B base64 vault master key; unset → cloud credentials unavailable, local-only mode still serves |
+| `MASTER_KEY_VERSION` | no | `1` | keyring version of `MASTER_KEY` |
+| `MASTER_KEY_PREVIOUS` | no | — | previous master key during a rotation window |
+| `MASTER_KEY_PREVIOUS_VERSION` | no | `MASTER_KEY_VERSION - 1` | version of the previous key |
+| `CREDENTIAL_GRACE_HOURS` | no | `24` | demoted credentials auto-revoke after this long in grace |
 
 Test-only:
 

@@ -75,3 +75,16 @@ Grouped by phase. This file is the Phase 15 review agenda.
 - [Q-019] Audit writer needed before Phase 8 → **minimal registry-based writer in
   src/protect/audit.ts (zod-validated detail per event type)** → catalog events land in the
   real audit_log from day one; Phase 8 extends the registry rather than rewriting → **S**
+
+## Phase 6
+
+- [Q-020] Staged-credential representation → **`grace` + grace_until NULL = staged; grace_until
+  set = demoted/expiring** → avoids a 4th enum value + migration; semantics documented in
+  service.ts and runbook → **S**
+- [Q-021] MASTER_KEY unset behavior → **boot continues in local-only mode (cloud credential
+  ops 503, keyless providers serve)** → zero-cloud mode must never regress (principle 2);
+  requiring a master key for a fully local appliance would do exactly that → **S**
+- [Q-022] Health thresholds → **window 50, min 10 samples, degraded ≥20%, down ≥50%** →
+  sane defaults pending real traffic; Phase 10 breaker consumes the same window → **S**
+- [Q-023] Active health probe interval (6.6 "optional") → **deferred to Phase 13** (metrics
+  loop is the natural home; passive + manual test cover Phase 6 acceptance) → **S**

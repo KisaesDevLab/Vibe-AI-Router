@@ -123,6 +123,15 @@ export function registerGateway(app: FastifyInstance, opts: GatewayOptions): voi
             };
           }
           if (abort.signal.aborted && !ctx.error) ctx.error = new RouterError('unknown', 'client aborted');
+          // stream outcome for passive health monitoring (client abort is not a provider fault)
+          if (ctx.route && ctx.auth && !abort.signal.aborted) {
+            deps.recordHealth?.(
+              ctx.route.provider.id,
+              ctx.auth.firmId,
+              ctx.route.provider.label,
+              ctx.error === undefined,
+            );
+          }
           try {
             await deps.ledger.write(ctx);
           } catch (ledgerErr) {

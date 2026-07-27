@@ -24,6 +24,14 @@ const envSchema = z.object({
   CATALOG_SYNC_CRON: z.string().default('15 3 * * *'),
   /** Pre-Phase-11 admin surface; unset → bootstrap admin routes are not registered (Q-018) */
   ADMIN_BOOTSTRAP_TOKEN: z.string().min(16).optional(),
+  /** Vault master key, 32B base64. Unset → cloud credentials unavailable; local-only still works. */
+  MASTER_KEY: z.string().optional(),
+  MASTER_KEY_VERSION: z.coerce.number().int().positive().default(1),
+  /** previous key during a rotation window */
+  MASTER_KEY_PREVIOUS: z.string().optional(),
+  MASTER_KEY_PREVIOUS_VERSION: z.coerce.number().int().positive().optional(),
+  /** demoted credentials auto-revoke after this many hours in grace (6.4) */
+  CREDENTIAL_GRACE_HOURS: z.coerce.number().positive().default(24),
 });
 
 export type Env = z.infer<typeof envSchema>;
