@@ -33,7 +33,21 @@ function statusFor(ctx: PipelineCtx): RequestStatus {
 }
 
 export class DbLedger implements LedgerWriter {
+  /** pricing rows are effectively static within a minute — hot-path cache (14.4) */
+  private readonly pricingCache = new Map<
+    string,
+    { row: Awaited<ReturnType<typeof pricingAt>>; expires: number }
+  >();
+
   constructor(private readonly db: Db) {}
+
+  private async pricingFor(modelId: string, ts: Date): Promise<Awaited<ReturnType<typeof pricingAt>>> {
+    const hit = this.pricingCache.get(modelId);
+    if (hit && hit.expires > Date.now()) return hit.row;
+    const row = await pricingAt(this.db, modelId, ts);
+    this.pricingCache.set(modelId, { row, expires: Date.now() + 60_000 });
+    return row;
+  }
 
   async write(ctx: PipelineCtx): Promise<void> {
     const auth = ctx.auth;
@@ -42,7 +56,7 @@ export class DbLedger implements LedgerWriter {
 
     const usage = ctx.response?.usage ?? EMPTY_USAGE;
     const model = ctx.route?.model;
-    const pricing = model && ctx.response ? await pricingAt(this.db, model.id, new Date(ctx.startedAt)) : null;
+    const pricing = model && ctx.response ? await this.pricingFor(model.id, new Date(ctx.startedAt)) : null;
     const cost = ctx.response ? computeCost(usage, pricing) : { costCents: '0', costUnknown: false };
 
     const inserted = await this.db

@@ -253,7 +253,22 @@ full-appliance run happens at first deploy (same posture as 3.10/Q-011).
 
 ## Phase 14 — Security Review, Load Test, Hardening
 
-- [ ] 14.1 … 14.9
+- [x] 14.1 STRIDE-lite threat model (docs/threat-model.md): T1 token theft … T6 DoS/cost
+- [x] 14.2 SSRF gates: src/lib/ssrf.ts — cloud kinds https+public-only (pattern + DNS at
+        config time, pattern at request time, toggle SSRF_DENY_PRIVATE_CLOUD default on);
+        local kind pinned to LAN/docker (public hosts rejected as covert cloud routes)
+- [x] 14.3 pnpm audit gate in CI (drizzle-orm advisory found+fixed by upgrade to 0.45.x);
+        frozen lockfile policy; SBOM (syft) attached in the release workflow
+- [x] 14.4 Load test 50 rps × 60s mixed: 0 errors, ADDED p95 19.6ms (<25ms budget) vs
+        direct-to-mock baseline; hot-path caches added (firm/provider/pricing lookups) after
+        first run measured 31.7ms. 1-hour soak deferred to appliance hardware (Q-054)
+- [x] 14.5 All suites green: 206 unit/integration/invariant/chaos + Playwright e2e
+- [x] 14.6 Firm docs: setup-guide, where-your-data-goes one-pager, peer-review/insurer FAQ
+- [x] 14.7 §7216 engagement-letter draft (attorney handoff, provider-named, no intermediary)
+- [x] 14.8 CHANGELOG + README complete; version 1.0.0-rc.1
+- [x] 14.9 docs/migration-tickets.md — 8 tickets ready to schedule post-Phase-15
+
+**Acceptance met:** release candidate tagged v1.0.0-rc.1; production + 1.0.0 wait on Phase 15.
 
 ## Phase 15 — Human Review
 

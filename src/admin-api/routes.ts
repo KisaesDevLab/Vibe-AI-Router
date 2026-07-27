@@ -23,6 +23,7 @@ import {
 } from '../gateway/pipeline.js';
 import { toEnvelope } from '../gateway/envelope.js';
 import { verifyPassword } from '../lib/password.js';
+import { checkBaseUrlWithDns } from '../lib/ssrf.js';
 import { queryAudit, auditToCsv } from '../protect/audit.js';
 import { savePolicy, exportPolicies, importPolicies } from '../policy/save.js';
 import {
@@ -155,6 +156,9 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
     const body = providerBody.safeParse(req.body);
     if (!body.success)
       return fail(reply, new RouterError('invalid_request', body.error.issues[0]?.message ?? 'bad body'));
+    // SSRF config-time gate (14.2): pattern + DNS resolution
+    const verdict = await checkBaseUrlWithDns(body.data.kind, body.data.baseUrl);
+    if (!verdict.ok) return fail(reply, new RouterError('invalid_request', `base_url rejected: ${verdict.reason}`));
     const [row] = await db
       .insert(providers)
       .values({ firmId: session.firmId, ...body.data })
@@ -176,6 +180,11 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
       return fail(reply, new RouterError('invalid_request', 'bad request'));
     const before = await db.query.providers.findFirst({ where: eq(providers.id, params.data.id) });
     if (!before || before.deletedAt) return fail(reply, new RouterError('invalid_request', 'provider not found'));
+    if (body.data.baseUrl || body.data.kind) {
+      const verdict = await checkBaseUrlWithDns(body.data.kind ?? before.kind, body.data.baseUrl ?? before.baseUrl);
+      if (!verdict.ok)
+        return fail(reply, new RouterError('invalid_request', `base_url rejected: ${verdict.reason}`));
+    }
     const [row] = await db.update(providers).set(body.data).where(eq(providers.id, params.data.id)).returning();
     auditConfig(
       session,

@@ -53,6 +53,11 @@ const envSchema = z.object({
    * trigger and is deliberately NOT purgeable (compliance evidence, Q-050).
    */
   LEDGER_RETENTION_DAYS: z.coerce.number().int().positive().optional(),
+  /** SSRF request-time toggle (14.2): deny cloud kinds on private hosts. Leave on. */
+  SSRF_DENY_PRIVATE_CLOUD: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
 });
 
 export type Env = z.infer<typeof envSchema>;

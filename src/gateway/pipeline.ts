@@ -9,7 +9,7 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import type { Db } from '../db/client.js';
-import { appTokens, firms, models, providers, taskClasses } from '../../db/schema.js';
+import { appTokens, models, providers, taskClasses } from '../../db/schema.js';
 import type { AIRequest, AIResponse, StreamChunk } from './envelope.js';
 import { requestHash } from './envelope.js';
 import { RETRYABLE_CODES, RouterError, toRouterError } from './errors.js';
@@ -21,12 +21,12 @@ import {
   modelViolation,
   selectModel,
   type EffectivePolicy,
-  type FirmSettings,
   type PolicyEngine,
 } from '../policy/engine.js';
 import { redactEnvelope, scanEnvelope, type MatchType, type ScrubReport } from '../protect/scrub.js';
 import type { AuditEntry } from '../protect/audit.js';
 import { checkBudgets, currentPeriod, type BudgetSettings } from '../ledger/budget.js';
+import { checkBaseUrl } from '../lib/ssrf.js';
 
 // row types inferred from schema
 type TaskClassRow = typeof taskClasses.$inferSelect;
@@ -103,6 +103,8 @@ export interface PipelineDeps {
   metrics?: import('../ops/metrics.js').Metrics;
   /** opt-in response cache (13.2) */
   responseCache?: import('../ops/cache.js').ResponseCache;
+  /** SSRF request-time toggle (14.2): deny cloud providers on private hosts. Default TRUE. */
+  ssrfDenyPrivateCloud?: boolean;
 }
 
 export function newPipelineCtx(envelope: AIRequest): PipelineCtx {
@@ -173,23 +175,23 @@ export async function stageAuth(
 
 // ── stage: resolve task class (fail closed on unknown — principle 3) ────────
 
-export async function stageResolveTaskClass(ctx: PipelineCtx, deps: PipelineDeps): Promise<void> {
-  const key = ctx.envelope.taskClass;
-  if (!key) throw new RouterError('policy_blocked', 'missing X-Vibe-Task-Class header');
-  const row = await deps.db.query.taskClasses.findFirst({ where: eq(taskClasses.key, key) });
-  if (!row) throw new RouterError('policy_blocked', `unknown task class: ${key}`);
-  ctx.taskClass = row;
+export function stageResolveTaskClass(ctx: PipelineCtx, _deps: PipelineDeps): Promise<void> {
+  // presence check only — the row itself comes from the (cached) engine resolve in stagePolicy;
+  // an unknown key fails closed there with the same policy_blocked code (hot-path: one less query)
+  if (!ctx.envelope.taskClass) {
+    throw new RouterError('policy_blocked', 'missing X-Vibe-Task-Class header');
+  }
+  return Promise.resolve();
 }
 
 // ── stage: policy (Phase 7 engine: resolution + role gating + limit clamps) ─
 
 export async function stagePolicy(ctx: PipelineCtx, deps: PipelineDeps): Promise<void> {
   const auth = ctx.auth;
-  const tc = ctx.taskClass;
-  if (!auth || !tc) throw new RouterError('unknown', 'pipeline ordering violation');
-  const firm = await deps.db.query.firms.findFirst({ where: eq(firms.id, auth.firmId) });
-  const firmSettings = (firm?.settings ?? {}) as FirmSettings;
-  const effective = await deps.engine.resolve(auth.firmId, tc.key, firmSettings);
+  if (!auth) throw new RouterError('unknown', 'pipeline ordering violation');
+  const firmSettings = await deps.engine.firmSettings(auth.firmId); // cached, 10s TTL
+  const effective = await deps.engine.resolve(auth.firmId, ctx.envelope.taskClass, firmSettings);
+  ctx.taskClass = effective.taskClass;
   checkRole(effective, ctx.envelope.metadata.userRole); // 7.7
   applyLimits(effective, ctx.envelope); // 7.6 temperature clamps + 7.8 max_tokens
   ctx.effective = effective;
@@ -321,18 +323,21 @@ export async function routeForModel(
   const violation = modelViolation(model, effective, ctx.envelope);
   if (violation) throw new RouterError(violation.code, violation.reason);
 
-  const provider = await deps.db.query.providers.findFirst({
-    where: and(
-      eq(providers.firmId, auth.firmId),
-      eq(providers.kind, model.providerKind),
-      isNull(providers.deletedAt),
-    ),
-  });
+  const provider = await deps.engine.providerFor(auth.firmId, model.providerKind); // cached, 10s TTL
   if (!provider) {
     throw new RouterError('provider_unavailable', `no ${model.providerKind} provider configured`);
   }
   if (effective.firmSettings.banned_provider_kinds?.includes(provider.kind)) {
     throw new RouterError('policy_blocked', `provider kind ${provider.kind} is banned by firm policy`);
+  }
+
+  // SSRF re-check at request time (14.2) — config-time validation is the deep gate; this
+  // pattern check catches rows written around the admin API. Toggle default ON.
+  if (deps.ssrfDenyPrivateCloud !== false) {
+    const verdict = checkBaseUrl(provider.kind, provider.baseUrl);
+    if (!verdict.ok) {
+      throw new RouterError('policy_blocked', `provider base_url rejected: ${verdict.reason}`);
+    }
   }
 
   const adapter = deps.adapters.forKind(provider.kind);

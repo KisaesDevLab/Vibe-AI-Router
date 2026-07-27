@@ -5,7 +5,7 @@
  */
 import { and, eq } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
-import { models, policies, rolePolicies, taskClasses } from '../../db/schema.js';
+import { firms, models, policies, providers, rolePolicies, taskClasses } from '../../db/schema.js';
 import { RouterError } from '../gateway/errors.js';
 import type { AIRequest } from '../gateway/envelope.js';
 import { effectiveCapabilities, type CapabilityKey } from '../catalog/service.js';
@@ -13,6 +13,7 @@ import { effectiveCapabilities, type CapabilityKey } from '../catalog/service.js
 type TaskClassRow = typeof taskClasses.$inferSelect;
 type PolicyRow = typeof policies.$inferSelect;
 type ModelRow = typeof models.$inferSelect;
+type ProviderRow = typeof providers.$inferSelect;
 type Role = 'admin' | 'partner' | 'staff';
 
 export interface FirmSettings {
@@ -121,6 +122,9 @@ export function modelViolation(
 /** Policy cache with explicit invalidation on config change + TTL backstop (7.2). */
 export class PolicyEngine {
   private readonly cache = new Map<string, { value: EffectivePolicy; expires: number }>();
+  /** hot-path caches (14.4 latency budget): firm settings + provider rows, short TTL */
+  private readonly firmCache = new Map<string, { settings: FirmSettings; expires: number }>();
+  private readonly providerCache = new Map<string, { row: ProviderRow | undefined; expires: number }>();
 
   constructor(
     private readonly db: Db,
@@ -128,11 +132,36 @@ export class PolicyEngine {
   ) {}
 
   invalidate(firmId?: string): void {
+    this.firmCache.clear();
+    this.providerCache.clear();
     if (!firmId) {
       this.cache.clear();
       return;
     }
     for (const key of this.cache.keys()) if (key.startsWith(`${firmId}:`)) this.cache.delete(key);
+  }
+
+  /** firm settings with a short TTL — invalidated on any config change */
+  async firmSettings(firmId: string): Promise<FirmSettings> {
+    const hit = this.firmCache.get(firmId);
+    if (hit && hit.expires > Date.now()) return hit.settings;
+    const firm = await this.db.query.firms.findFirst({ where: eq(firms.id, firmId) });
+    const settings = (firm?.settings ?? {}) as FirmSettings;
+    this.firmCache.set(firmId, { settings, expires: Date.now() + Math.min(this.ttlMs, 10_000) });
+    return settings;
+  }
+
+  /** first non-deleted provider of a kind for a firm — request-time hot path */
+  async providerFor(firmId: string, kind: ProviderRow['kind']): Promise<ProviderRow | undefined> {
+    const key = `${firmId}:${kind}`;
+    const hit = this.providerCache.get(key);
+    if (hit && hit.expires > Date.now()) return hit.row;
+    const row = await this.db.query.providers.findFirst({
+      where: (p, { and: and_, eq: eq_, isNull }) =>
+        and_(eq_(p.firmId, firmId), eq_(p.kind, kind), isNull(p.deletedAt)),
+    });
+    this.providerCache.set(key, { row, expires: Date.now() + Math.min(this.ttlMs, 10_000) });
+    return row;
   }
 
   async resolve(firmId: string, taskClassKey: string, firmSettings: FirmSettings): Promise<EffectivePolicy> {

@@ -72,6 +72,7 @@ describe.skipIf(!url)('invariant suite', () => {
           ledger,
           log: createLogger('debug', false, logStream),
           engine: new PolicyEngine(handle.db, 10),
+          ssrfDenyPrivateCloud: false, // tests use loopback cloud mocks (14.2 toggle)
           audit: (entry: AuditEntry) => void writeAudit(handle.db, entry).catch(() => {}),
         },
       },
@@ -204,6 +205,7 @@ describe.skipIf(!url)('invariant suite', () => {
           ledger,
           log: createLogger('silent', false),
           engine: new PolicyEngine(handle.db, 10),
+          ssrfDenyPrivateCloud: false, // tests use loopback cloud mocks (14.2 toggle)
         },
       },
     });

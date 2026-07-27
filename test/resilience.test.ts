@@ -222,6 +222,7 @@ describe.skipIf(!url)('chaos: fault-injecting provider through the full pipeline
           ledger: new DbLedger(handle.db),
           log: createLogger('silent', false),
           engine,
+          ssrfDenyPrivateCloud: false, // loopback chaos server (14.2 toggle)
           audit: (entry) => {
             audits.push(entry);
             void writeAudit(handle.db, entry).catch(() => {});

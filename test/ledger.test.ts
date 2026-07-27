@@ -122,6 +122,7 @@ describe.skipIf(!url)('ledger + budgets end-to-end', () => {
           ledger: new DbLedger(handle.db),
           log: createLogger('silent', false),
           engine,
+          ssrfDenyPrivateCloud: false, // loopback cloud mock (14.2 toggle)
         },
       },
     });

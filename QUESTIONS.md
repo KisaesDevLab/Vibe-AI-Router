@@ -193,3 +193,17 @@ Grouped by phase. This file is the Phase 15 review agenda.
 - [Q-051] /metrics auth → **unauthenticated, internal-network only, never routed via Caddy**
   → standard Prometheus posture; documented in appliance.md with an explicit "do not expose"
   note; contains no message content by construction → **S**
+
+## Phase 14
+
+- [Q-052] Admin login throttling/lockout → **not implemented** → LAN-only vhost behind Caddy;
+  scrypt cost already slows brute force; flagged for review — a token-bucket on /auth/login
+  is a 20-line add if wanted → **S**
+- [Q-053] Load-test methodology → **added-latency delta vs direct-to-mock baseline, uniformly
+  paced in-process harness** → burst-firing 50 simultaneous requests measured queueing (first
+  run "604ms p95" was harness artifact); the 25ms budget explicitly excludes upstream → **S**
+- [Q-054] 1-hour memory-stability soak (14.4) → **60s run on dev box (rss +89MB incl. harness
+  allocations, 0 errors); full soak scheduled for first appliance deploy alongside the live
+  vibellm smoke (Q-011)** → dev-box hour-long soak measures the wrong hardware anyway → **S**
+- [Q-055] drizzle-orm high advisory (GHSA-gpj5-g38j-94v9, SQL-identifier escaping) → upgraded
+  0.44→0.45.2, full suite green; CI now gates on `pnpm audit --audit-level high` → **S**

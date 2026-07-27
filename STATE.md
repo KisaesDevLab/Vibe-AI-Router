@@ -2,6 +2,22 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-07-26 — Phase 14 complete → v1.0.0-rc.1
+
+- Threat model docs/threat-model.md (T1–T6 + accepted residuals).
+- SSRF (14.2): lib/ssrf.ts host classification; cloud kinds https+public (DNS-checked at
+  config time via admin API, pattern-checked per request behind SSRF_DENY_PRIVATE_CLOUD);
+  local kind rejects public hosts. Tests updated (loopback mocks set the toggle off).
+- Deps: drizzle-orm 0.45.2 (high advisory fixed), pnpm audit clean + gated in CI; SBOM step
+  in release workflow.
+- Load test (scripts/load-test.ts): 50 rps × 60s mixed, 0 errors, ADDED p95 19.6ms < 25ms.
+  Required hot-path work: engine-level firm/provider caches (10s TTL, invalidated on config
+  change), task-class resolve folded into engine (one query less), ledger pricing cache (60s).
+  First naive harness burst-fired and read 604ms — documented in Q-053.
+- Firm docs (docs/firm/): setup guide, where-your-data-goes, FAQ, §7216 draft. README,
+  CHANGELOG, migration tickets (8). Version 1.0.0-rc.1.
+- Verified: 206/206 + e2e; image smoke earlier.
+
 ## 2026-07-26 — Phase 13 complete
 
 - Metrics (src/ops/metrics.ts, prom-client): request totals/duration by class+provider+status,

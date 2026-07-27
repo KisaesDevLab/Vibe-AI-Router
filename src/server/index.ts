@@ -101,6 +101,7 @@ async function main(): Promise<void> {
         rateLimits,
         metrics,
         responseCache,
+        ssrfDenyPrivateCloud: env.SSRF_DENY_PRIVATE_CLOUD,
       },
     },
   });

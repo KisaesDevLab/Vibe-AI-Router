@@ -31,3 +31,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+      - name: SBOM (14.3)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/kisaesdevlab/vibe-ai-router:${{ steps.meta.outputs.version }}
+          format: spdx-json
+          artifact-name: vibe-ai-router-sbom.spdx.json

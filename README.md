@@ -1,0 +1,59 @@
+# Vibe AI Router
+
+The sole AI egress point for the Vibe appliance suite. Firms configure their own provider API
+keys; the router enforces task-class policy, deterministic data protection, and cost
+accounting. Apps never hold provider keys and never call AI providers directly.
+
+**Port 8220** · image `ghcr.io/kisaesdevlab/vibe-ai-router` · License BSL 1.1 (Apache 2.0 at
+the 4-year change date) · © 2026 KisaesDevLab
+
+## What it does
+
+- **One OpenAI-compatible endpoint** (`POST /v1/chat/completions` + `X-Vibe-Task-Class`) for
+  every Vibe app, served by two adapter families: OpenAI-compatible (OpenAI, Azure, Ollama,
+  Groq, DeepSeek) and Anthropic native (with prompt caching + extended thinking).
+- **Data boundary tiers** per task class — `local_only` / `cloud_deidentified` /
+  `cloud_allowed` — enforced server-side on every request, with a deterministic scrubber
+  (SSN/EIN/ABA/account/card) in front of all cloud egress. Fail closed, always.
+- **Firm-owned keys** in a write-only encrypted vault (AES-256-GCM envelope, master-key
+  rotation, staged credential rotation).
+- **Deterministic cost**: exactly one ledger row per request, priced from an append-only
+  pricing history; budgets (firm/app/user/task-class) with soft warnings and hard stops;
+  T&B cost-recovery billing feed.
+- **Resilience**: retries, per-provider circuit breakers, policy fallback chains that re-pass
+  every capability/sensitivity check per hop, rate limits, load shedding, strict streaming
+  fallback semantics.
+- **Admin console** (React) — provider wizard, capability-gated policy editor, dashboards,
+  immutable audit trail — plus Prometheus metrics and a typed app SDK
+  (`@kisaes/vibe-ai-client`).
+
+## Develop
+
+```bash
+docker compose up -d postgres redis   # dev stack (pg :55433, redis :56380)
+pnpm install
+pnpm migrate && pnpm seed             # demo firm; admin admin@demo.firm / vibe-router-demo-password
+pnpm dev                              # router on :8220
+pnpm --filter @vibe-ai-router/ui dev  # admin UI on :8221 (proxies to 8220)
+
+pnpm typecheck && pnpm lint && pnpm test   # DB suites need VIBE_ROUTER_TEST_DATABASE_URL
+pnpm --filter @vibe-ai-router/ui exec playwright test   # e2e smoke
+pnpm tsx scripts/load-test.ts              # perf budget check
+```
+
+## Documentation
+
+| Doc | Contents |
+| --- | --- |
+| `docs/envelope.md`, `docs/adapter-contract.md`, `docs/integration.md` | frozen contracts (wire, adapters, apps) |
+| `docs/schema.md`, `docs/env.md` | data model, every env var |
+| `docs/scrubber.md`, `docs/threat-model.md` | data protection + STRIDE-lite |
+| `docs/runbook.md`, `docs/appliance.md` | operations, deployment |
+| `docs/firm/*` | firm-facing: setup, where-your-data-goes, FAQ, §7216 draft |
+| `docs/migration-playbook.md`, `docs/migration-tickets.md` | app onboarding |
+| `PHASES.md` / `STATE.md` / `QUESTIONS.md` / `DECISIONS.md` / `SENSITIVITY-REVIEW.md` | build record + Phase 15 review agenda |
+
+## Status
+
+`1.0.0-rc.1` — all build phases complete; pending the Phase 15 human review (agenda item #1:
+SENSITIVITY-REVIEW.md) before production deployment and `1.0.0`.
