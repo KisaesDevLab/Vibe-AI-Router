@@ -46,6 +46,42 @@ class 403), non-streaming + streaming completions, local-tier scrubber exemption
 ledger evidence with request-id + client-ref dimensions and **no prompt bodies anywhere**,
 billing feed.
 
+## Round D — security pass on the admin + auth surface
+
+New permanent suite: `test/qa-round-d-security.test.ts` — 13 checks, every one an attack that
+must fail or a leak check that must come up empty. Probes: privilege escalation with a real
+non-admin session, CSRF coverage across **all 12** mutating routes, session-cookie forgery
+(bad signature / swapped id / stripped signature), credential-disclosure sweep over every
+readable endpoint, mint-once app tokens, revoked + unscoped token rejection, prototype
+pollution, SQL/traversal-shaped params, SSRF via the admin API (both directions), gateway
+error disclosure, login user-enumeration timing, session-store growth.
+
+**Findings — 4, all fixed:**
+
+| # | Severity | Defect | Fix |
+| --- | --- | --- | --- |
+| 1 | **High** (information disclosure) | Any unhandled route error returned Fastify's default body, which echoes `err.message`. A DB driver error therefore returned **the full SQL statement plus bound parameter values** (including firm UUIDs) to the caller. Triggered here by a NUL byte in a query param | global `setErrorHandler`: 5xx → generic `{message:'internal error', code:'unknown'}`, real error logged server-side only; 4xx keep their message. Protects every current and future route |
+| 2 | Medium | A NUL byte (or any C0 control char) in an admin query param reached Postgres, which rejects it — producing that 500 instead of a clean 400 | `safeString()` zod guard on all DB-bound filter params (`event`, `app`, `search`, `status`) → 400 |
+| 3 | Medium | Login user-enumeration oracle: unknown email returned **~17× faster** (1.7 ms) than a wrong password for a known one (28.8 ms), because the scrypt verify was skipped entirely | unknown emails now verify against a pre-computed dummy hash; the hash is warmed at registration so the first request doesn't leak the same signal by another route. Measured ratio now < 3× |
+| 4 | Medium (DoS) | `SessionStore` grew without bound — and login has no throttle by decision (Q-052), so repeated logins were an unauthenticated slow memory-exhaustion vector | hard cap (1000) with expired-entry sweep + soonest-to-expire eviction on insert; `size` exposed for assertions |
+
+Checks that passed first time (no change needed): role-based authorization on all 11 read
+endpoints, CSRF header enforcement on all 12 mutations, cookie forgery resistance, zero
+credential/ciphertext/password-hash disclosure across every endpoint including a failing
+provider test, mint-once tokens, revoked/unscoped token rejection, prototype-pollution
+immunity, SQL-injection immunity (parameterized throughout), SSRF gates in both directions,
+and no provider labels/hostnames/stack frames in app-facing gateway errors.
+
+## Round E — extended soak
+
+25-minute continuous run at 25 rps (~37,500 requests) against an **isolated database**, with
+RSS/heap sampled every 60 s. Budget: post-warm-up drift < 50 MB and the same p95 added-latency
+gate. Results in the table below.
+
+> Method note: the first soak attempt was discarded — Round D's suite calls `resetDb`, which
+> drops every table, against the database the soak was using. Isolating the soak DB was the
+> fix; a contaminated run would have reported failures that say nothing about the router.
+
 ## Standing QA assets (run these every round)
 
 ```bash

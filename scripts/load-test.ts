@@ -86,6 +86,24 @@ async function main(): Promise<void> {
 
   const memStart = process.memoryUsage().rss;
 
+  // soak mode (LOAD_SAMPLE_EVERY_S): periodic memory samples so drift is visible, not inferred
+  const sampleEvery = Number(process.env['LOAD_SAMPLE_EVERY_S'] ?? 0);
+  const samples: { t: number; rssMb: number; heapMb: number; cache: number }[] = [];
+  const sampler = sampleEvery
+    ? setInterval(() => {
+        const m = process.memoryUsage();
+        const s = {
+          t: samples.length * sampleEvery,
+          rssMb: Math.round(m.rss / 1e6),
+          heapMb: Math.round(m.heapUsed / 1e6),
+          cache: 0,
+        };
+        samples.push(s);
+        out(`  t+${s.t}s rss=${s.rssMb}MB heap=${s.heapMb}MB`);
+      }, sampleEvery * 1000)
+    : undefined;
+  sampler?.unref();
+
   /**
    * Uniformly paced run (no bursts — burst firing measures queueing, not the router).
    * target 'direct' hits the mock itself; 'router' goes through the full pipeline. The
@@ -160,8 +178,26 @@ async function main(): Promise<void> {
   );
   out(`added latency (router − direct): p50=${overheadP50.toFixed(1)}ms p95=${overheadP95.toFixed(1)}ms`);
   out(`rss: start=${(memStart / 1e6).toFixed(0)}MB end=${(memEnd / 1e6).toFixed(0)}MB delta=${((memEnd - memStart) / 1e6).toFixed(0)}MB`);
-  const pass = overheadP95 < 25 && router.errors <= router.sent * 0.01;
+  let pass = overheadP95 < 25 && router.errors <= router.sent * 0.01;
   out(`p95 added-latency budget (<25ms excl. upstream): ${pass ? 'PASS' : 'FAIL'}`);
+
+  if (sampler) {
+    clearInterval(sampler);
+    // memory stability: compare the last third of samples against the first third once the
+    // process is warm — a leak shows as monotonic growth, not as warm-up allocation.
+    const third = Math.max(1, Math.floor(samples.length / 3));
+    const early = samples.slice(third, third * 2);
+    const late = samples.slice(-third);
+    const avg = (xs: typeof samples): number => xs.reduce((s, x) => s + x.rssMb, 0) / Math.max(1, xs.length);
+    const drift = avg(late) - avg(early);
+    const peak = Math.max(...samples.map((s) => s.rssMb));
+    out(
+      `soak memory: mid-run avg=${avg(early).toFixed(0)}MB late avg=${avg(late).toFixed(0)}MB drift=${drift.toFixed(0)}MB peak=${peak}MB over ${samples.length} samples`,
+    );
+    const stable = drift < 50;
+    out(`memory-stability budget (<50MB drift after warm-up): ${stable ? 'PASS' : 'FAIL'}`);
+    pass = pass && stable;
+  }
 
   await app.close();
   mock.close();

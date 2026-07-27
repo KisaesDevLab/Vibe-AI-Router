@@ -22,8 +22,9 @@ import {
   type PipelineDeps,
 } from '../gateway/pipeline.js';
 import { toEnvelope } from '../gateway/envelope.js';
-import { verifyPassword } from '../lib/password.js';
+import { hashPassword, verifyPassword } from '../lib/password.js';
 import { checkBaseUrlWithDns } from '../lib/ssrf.js';
+import { safeString } from '../lib/safe-string.js';
 import { queryAudit, auditToCsv } from '../protect/audit.js';
 import { savePolicy, exportPolicies, importPolicies } from '../policy/save.js';
 import {
@@ -55,8 +56,21 @@ export interface AdminApiOptions {
   breakerSnapshot?: () => BreakerSnapshot[];
 }
 
+/**
+ * A real scrypt hash of a random secret, computed once and reused, so failed logins for
+ * unknown emails cost the same as failed logins for known ones (timing-oracle defense).
+ */
+let dummyHashPromise: Promise<string> | undefined;
+function dummyPasswordHash(): Promise<string> {
+  dummyHashPromise ??= hashPassword(randomBytes(24).toString('base64'));
+  return dummyHashPromise;
+}
+
 export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): void {
   const db: Db = opts.deps.db;
+  // warm the dummy hash at boot — computing it lazily inside the first unknown-email login
+  // would itself be a timing signal (the very oracle we are closing)
+  void dummyPasswordHash();
 
   const sessionOf = (req: FastifyRequest): SessionData | undefined =>
     opts.sessions.get(parseCookies(req)[SESSION_COOKIE]);
@@ -100,7 +114,11 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
     const body = z.object({ email: z.string().email(), password: z.string().min(1) }).safeParse(req.body);
     if (!body.success) return fail(reply, new RouterError('invalid_request', 'email + password required'));
     const user = await db.query.users.findFirst({ where: eq(users.email, body.data.email) });
-    if (!user?.passwordHash || !(await verifyPassword(body.data.password, user.passwordHash))) {
+    // Always perform password work, even for an unknown email (QA-D finding #3): returning
+    // early made "no such user" ~17× faster than a wrong password — a user-enumeration oracle.
+    const hash = user?.passwordHash ?? (await dummyPasswordHash());
+    const passwordOk = await verifyPassword(body.data.password, hash);
+    if (!user?.passwordHash || !passwordOk) {
       return fail(reply, new RouterError('auth_error', 'invalid credentials'));
     }
     const cookie = opts.sessions.create({
@@ -286,7 +304,7 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
   app.get('/admin-api/models', async (req, reply) => {
     if (!requireAdmin(req, reply)) return reply;
     const q = z
-      .object({ search: z.string().optional(), status: z.string().optional() })
+      .object({ search: safeString(120).optional(), status: safeString(20).optional() })
       .safeParse(req.query);
     const rows = await db.query.models.findMany({ orderBy: models.canonicalId });
     const search = q.success ? q.data.search?.toLowerCase() : undefined;
@@ -534,8 +552,8 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
       .object({
         from: z.coerce.date().optional(),
         to: z.coerce.date().optional(),
-        event: z.string().optional(),
-        app: z.string().optional(),
+        event: safeString(80).optional(),
+        app: safeString(80).optional(),
         limit: z.coerce.number().int().positive().max(1000).optional(),
       })
       .safeParse(req.query);

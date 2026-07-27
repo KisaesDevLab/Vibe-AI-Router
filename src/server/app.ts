@@ -35,6 +35,24 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
     requestIdHeader: 'x-request-id',
   });
 
+  /**
+   * Global error handler (QA-D finding #1): any error that escapes a route returns a generic
+   * taxonomy-shaped body. Fastify's default echoes `err.message`, which for a DB failure is the
+   * full SQL text plus bound parameter values — a schema/data disclosure to the caller.
+   * The real error is logged server-side only.
+   */
+  app.setErrorHandler((err: Error & { statusCode?: number }, req, reply) => {
+    const status = typeof err.statusCode === 'number' && err.statusCode >= 400 ? err.statusCode : 500;
+    if (status >= 500) {
+      req.log.error({ err, url: req.url }, 'unhandled route error');
+      return reply.code(500).send({ error: { message: 'internal error', code: 'unknown' } });
+    }
+    // client-side errors from Fastify itself (body too large, malformed JSON, …)
+    return reply.code(status).send({
+      error: { message: err.message, type: 'invalid_request_error', code: 'invalid_request' },
+    });
+  });
+
   app.get('/healthz', () => ({ status: 'ok' }));
 
   if (opts.gateway?.deps.metrics) {

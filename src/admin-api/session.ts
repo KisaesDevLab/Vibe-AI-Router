@@ -19,17 +19,53 @@ const TTL_MS = 12 * 3600_000;
 
 export class SessionStore {
   private readonly sessions = new Map<string, SessionData>();
+  private readonly maxSessions: number;
 
-  constructor(private readonly secret: string) {}
+  /**
+   * @param maxSessions hard cap on live sessions (QA-D finding #4). Without it, repeated
+   * logins — which need no valid password to be attempted, and no throttle exists — grow the
+   * map without bound: a slow memory-exhaustion vector. An appliance has a handful of admins;
+   * 1000 is far above legitimate use and far below anything that hurts.
+   */
+  constructor(
+    private readonly secret: string,
+    maxSessions = 1000,
+  ) {
+    this.maxSessions = maxSessions;
+  }
 
   private sign(id: string): string {
     return createHmac('sha256', this.secret).update(id).digest('base64url');
   }
 
+  /** drop expired entries; if still at the cap, evict the soonest-to-expire (oldest activity) */
+  private evictIfNeeded(): void {
+    const now = Date.now();
+    for (const [id, s] of this.sessions) if (s.expiresAt < now) this.sessions.delete(id);
+    while (this.sessions.size >= this.maxSessions) {
+      let oldestId: string | undefined;
+      let oldestAt = Infinity;
+      for (const [id, s] of this.sessions) {
+        if (s.expiresAt < oldestAt) {
+          oldestAt = s.expiresAt;
+          oldestId = id;
+        }
+      }
+      if (oldestId === undefined) break;
+      this.sessions.delete(oldestId);
+    }
+  }
+
   create(data: Omit<SessionData, 'expiresAt'>): string {
+    this.evictIfNeeded();
     const id = randomBytes(24).toString('base64url');
     this.sessions.set(id, { ...data, expiresAt: Date.now() + TTL_MS });
     return `${id}.${this.sign(id)}`;
+  }
+
+  /** live session count (bounded by maxSessions) */
+  get size(): number {
+    return this.sessions.size;
   }
 
   get(cookieValue: string | undefined): SessionData | undefined {
