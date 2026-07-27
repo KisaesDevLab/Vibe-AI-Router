@@ -2,6 +2,31 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-07-27 — Round F: appliance integration (installable app)
+
+- Packaged for Vibe-Appliance: console/manifests/vibe-ai-router.json, apps/vibe-ai-router.yml,
+  env-templates/per-app/vibe-ai-router.env.tmpl, emergency port 5193 (reclaimed from the
+  scrapped Shield), + @ROUTER_ADMIN_PASSWORD@ marker in lib/enable-app.sh. Internal-only by
+  design: one port serves console AND gateway, so no Caddy vhost — staff use :5193, apps use
+  vibe-ai-router:8220 on vibe_net.
+- NEW src/ops/bootstrap-firm.ts: production first-run (firm, admin login, local model server,
+  catalog, local-first pack). Idempotent. NOT the dev seed. Wired as the manifest's seed block.
+- 5 defects found by actually installing it (QA-REPORT.md Round F). Three High:
+  (1) nightly catalog sync had been ABORTING mid-run since Phase 5 on duplicate canonical ids
+      in the real feed — only the pure parser had ever seen that file;
+  (2) vendored feed path resolved for src layout only → ENOENT in the container every night;
+  (3) Ollama's CLOUD-hosted models (*-cloud) were imported as kind 'local' and, having the
+      biggest context windows, were PREFERRED by the policy pack — a hosted model inside the
+      'never leaves the appliance' tier.
+  Plus: pack now prefers operator-registered models over feed entries, and only considers
+  provider kinds the firm actually configured (honors the reviewed zero-cloud default).
+- Also caught: manifest default admin email admin@localhost is rejected by login validation —
+  the appliance would have created an admin who could never sign in. Now admin@appliance.local,
+  and bootstrap validates the address at install time.
+- Verified: 234 router tests; appliance manifest tests 11/11 + routing 4/4; env render
+  preflight clean; full install simulation on an empty DB → 31/31 clean-room checks serving
+  from the operator's own model.
+
 ## 2026-07-27 — QA rounds D/E (security + soak)
 
 - Round D security pass (test/qa-round-d-security.test.ts, 13 attack checks) → **4 findings**:

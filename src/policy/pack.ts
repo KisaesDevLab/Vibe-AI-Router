@@ -157,13 +157,23 @@ export const DEFAULT_PACK: PackEntry[] = [
   },
 ];
 
-/** Pick the best default model for a pack entry: local first, capability-valid, largest ctx. */
+/**
+ * Pick the best default model for a pack entry: local first, capability-valid, largest ctx.
+ *
+ * `availableKinds` limits the pool to provider kinds the firm has ACTUALLY configured. On a
+ * fresh appliance that is `local` only, so cloud-tier classes are left unconfigured rather
+ * than pre-pointed at a model nothing can serve — "zero-cloud out of the box; cloud is always
+ * a deliberate per-class admin choice" (Phase 15B). Without this, populating the catalog was
+ * enough to auto-assign a cloud model to any class no local model could satisfy.
+ */
 function pickDefaultModel(
   entries: (typeof models.$inferSelect)[],
   entry: PackEntry,
+  availableKinds: ReadonlySet<string>,
 ): typeof models.$inferSelect | undefined {
   const capable = entries.filter((m) => {
     if (m.status !== 'active') return false;
+    if (!availableKinds.has(m.providerKind)) return false;
     const caps = effectiveCapabilities(m);
     if (entry.requires.tools && !caps.tools) return false;
     if (entry.requires.json_schema && !caps.json_schema) return false;
@@ -174,8 +184,15 @@ function pickDefaultModel(
     entry.sensitivity === 'local_only' ? capable.filter((m) => m.providerKind === 'local') : capable;
   // local-first even for cloud-permitted classes (principle 2)
   const locals = pool.filter((m) => m.providerKind === 'local');
-  const pick = (list: typeof pool): typeof pool[number] | undefined =>
-    [...list].sort((a, b) => b.contextWindow - a.contextWindow)[0];
+  // Operator-registered models (source 'custom' — e.g. "the model MY server actually serves",
+  // written by the appliance bootstrap) always beat a synced catalog entry. Sorting purely by
+  // context window used to pick whatever the feed listed as biggest, which is not a model the
+  // appliance can serve. Context window breaks ties within each group.
+  const pick = (list: typeof pool): (typeof pool)[number] | undefined =>
+    [...list].sort((a, b) => {
+      if (a.source !== b.source) return a.source === 'custom' ? -1 : 1;
+      return b.contextWindow - a.contextWindow;
+    })[0];
   return pick(locals) ?? pick(pool);
 }
 
@@ -187,6 +204,11 @@ export interface ApplyPackResult {
 
 export async function applyDefaultPack(db: Db, firmId: string): Promise<ApplyPackResult> {
   const allModels = await db.query.models.findMany();
+  // only provider kinds this firm has configured are eligible (see pickDefaultModel)
+  const configured = await db.query.providers.findMany({
+    where: (p, { and, eq, isNull }) => and(eq(p.firmId, firmId), isNull(p.deletedAt)),
+  });
+  const availableKinds = new Set(configured.map((p) => p.kind));
   const result: ApplyPackResult = { classesCreated: 0, policiesCreated: 0, unresolved: [] };
 
   for (const entry of DEFAULT_PACK) {
@@ -213,7 +235,7 @@ export async function applyDefaultPack(db: Db, firmId: string): Promise<ApplyPac
     });
     if (existingPolicy) continue;
 
-    const model = pickDefaultModel(allModels, entry);
+    const model = pickDefaultModel(allModels, entry, availableKinds);
     if (!model) {
       // fail closed: no policy row → requests for this class are rejected until configured
       result.unresolved.push(entry.key);

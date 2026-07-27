@@ -89,6 +89,37 @@ describe.skipIf(!url)('syncCatalog (DB)', () => {
     return async () => handle.close();
   });
 
+  it('the REAL vendored feed syncs completely and idempotently (duplicate-key regression)', async () => {
+    // The hand-made FEED_V1 below has no duplicate canonical ids; the real feed does (the
+    // same model appears under a bare key AND a namespaced one). A plain insert died on the
+    // unique constraint mid-run, so the nightly sync silently applied only the models before
+    // the first collision. This test drives the actual shipped file through the DB path.
+    const { loadVendoredFeed } = await import('../src/catalog/sync.js');
+    const { feed } = await loadVendoredFeed();
+    const { entries } = parseFeed(feed);
+
+    await syncCatalog(handle.db, feed, { source: 'vendored', sourceSha256: 'v1' });
+    const afterFirst = await handle.db.query.models.findMany();
+    // completeness: EVERY parsed model reached the DB (the bug applied only the models
+    // preceding the first duplicate, leaving the rest of the feed silently unsynced)
+    const present = new Set(afterFirst.map((m) => m.canonicalId));
+    const missing = entries.map((e) => e.canonicalId).filter((id) => !present.has(id));
+    expect(missing, `feed models never synced: ${missing.slice(0, 5).join(', ')}`).toEqual([]);
+
+    const second = await syncCatalog(handle.db, feed, { source: 'vendored', sourceSha256: 'v1' });
+    expect(second.added).toEqual([]);
+    expect(second.updated).toEqual([]);
+    expect(second.pricingChanged).toEqual([]);
+    expect((await handle.db.query.models.findMany()).length).toBe(afterFirst.length);
+
+    // and every canonical id is unique after parsing (the dedupe contract)
+    const ids = entries.map((e) => e.canonicalId);
+    expect(new Set(ids).size).toBe(ids.length);
+
+    // clean slate for the hand-made-feed tests that follow
+    await resetDb(url as string);
+  });
+
   it('first sync adds; second identical sync is a no-op (idempotency)', async () => {
     const r1 = await syncCatalog(handle.db, FEED_V1, { source: 't', sourceSha256: 'a' });
     expect(r1.added.sort()).toEqual(['anthropic/claude-test-1', 'ollama/test-local', 'openai/gpt-test-1']);

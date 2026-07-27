@@ -3,9 +3,10 @@
 **Context:** operator decision 2026-07-27 — app migrations (MIG-1…8) are ON HOLD until the
 router has passed multiple QA rounds. This report is the record. Scope: router only.
 
-**Summary: 5 rounds run, 9 defects found, 9 fixed, each with a permanent regression test.**
-Final state: 229 tests + 26 black-box clean-room checks + e2e green; 37,500-request soak with
-zero errors, −1 MB memory drift and 14.3 ms p95 added latency.
+**Summary: 6 rounds run, 14 defects found, 14 fixed, each with a permanent regression test.**
+Final state: 234 tests + 31 black-box clean-room checks + e2e green; 37,500-request soak with
+zero errors, −1 MB memory drift and 14.3 ms p95 added latency; installs cleanly as an
+appliance app.
 
 | Round | Focus | Findings |
 | --- | --- | --- |
@@ -14,6 +15,7 @@ zero errors, −1 MB memory drift and 14.3 ms p95 added latency.
 | C | clean-room container from empty DB | 0 — 22/22, later 26/26 |
 | D | security pass, admin + auth surface | 4 (incl. 1 High: SQL/parameter disclosure) |
 | E | 25-minute soak, isolated DB | 0 — both budgets PASS |
+| F | appliance integration + real install | 5 (3 High, incl. a broken nightly sync and a data-boundary misclassification) |
 
 ## Round A — full regression (automated)
 
@@ -106,6 +108,33 @@ mid-run against late-run rather than start against end.
 > `resetDb`, which drops every table, against the database that soak was using. Isolating the
 > soak database was the fix; the contaminated run's numbers would have measured test
 > interference, not the router.
+
+## Round F — appliance integration (installability)
+
+Packaging the router as a Vibe-Appliance app (manifest + compose overlay + env template +
+production bootstrap) and then *actually installing it* — fresh database, real container,
+the exact env the appliance renders, the exact seed command it runs.
+
+**Findings — 5, all fixed.** Every one was invisible to 229 passing tests because they live
+in the gap between "the code works" and "a fresh install works".
+
+| # | Severity | Defect | Fix |
+| --- | --- | --- | --- |
+| 1 | **High** | The nightly catalog sync had been **aborting partway through against the real feed since Phase 5**. Five feed entries collapse to duplicate canonical ids (`deepseek-chat` + `deepseek/deepseek-chat`); the second insert hit the unique constraint and killed the run, so only the models before the first collision were ever synced | `parseFeed` dedupes (namespaced key wins), insert is conflict-safe, and each entry is isolated so one bad row can't abort the run. Regression drives the **real** vendored feed through the DB twice |
+| 2 | **High** | The vendored pricing file wasn't found in the container: the path resolved relative to source layout, so `dist/` builds got ENOENT. The sync failed *every night* in production while passing every dev-box test | resolve against both layouts (same bug class as the migrations path). Clean-room now asserts the catalog is populated |
+| 3 | **High** (data boundary) | Ollama publishes **cloud-hosted** models under the same provider name as local ones (`qwen3-coder:480b-cloud`). They were imported as kind `local` — i.e. eligible for the tier defined as "never leaves the appliance" — and because they carry the largest context windows, the policy pack **preferred them** | `-cloud` ollama entries are dropped at parse; test asserts no `local` model is named `-cloud` |
+| 4 | Medium | The pack picked models by context window alone, so a fresh install defaulted its local classes to a feed model the appliance's own server doesn't serve — a broken install | operator-registered (`custom`) models always beat synced entries; test pins local policies to the registered model |
+| 5 | Medium | Populating the catalog made cloud-tier classes auto-assign **cloud** models on an install with no cloud provider — contradicting the reviewed "zero-cloud out of the box" decision | the pack only considers provider kinds the firm has actually configured; unserviceable classes stay unconfigured (fail closed) |
+
+Also fixed: the manifest's default admin email (`admin@localhost`) is rejected by the login
+endpoint's validation — the appliance would have created **an admin who could never sign in**.
+Default is now `admin@appliance.local`, and the bootstrap validates the address at install
+time rather than producing a dead account.
+
+Verification: `console/manifests` validation (11/11 appliance tests), routing tests (4/4),
+env-template render preflight (no unsubstituted markers), and a full install simulation —
+container on an empty database → migrations at boot → seed command → **31/31 clean-room
+checks**, serving from the operator's registered model.
 
 ## Standing QA assets (run these every round)
 

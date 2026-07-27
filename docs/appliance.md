@@ -69,3 +69,37 @@ Scrape `vibe-ai-router:8220/metrics` from the appliance's metrics stack (interna
 only). Key series: `vibe_router_requests_total`, `vibe_router_request_duration_seconds`,
 `vibe_router_breaker_state`, `vibe_router_budget_rejections_total`,
 `vibe_router_scrubber_blocks_total`, `vibe_router_catalog_sync_age_seconds`.
+
+## Installing via the Vibe Appliance (recommended)
+
+The appliance ships this router as a first-class app. Files live in the **Vibe-Appliance**
+repo, not here:
+
+| File | Purpose |
+| --- | --- |
+| `console/manifests/vibe-ai-router.json` | app definition — images, ports, env, seed, first-login |
+| `apps/vibe-ai-router.yml` | compose overlay (one service, shared Postgres, no host publish) |
+| `env-templates/per-app/vibe-ai-router.env.tmpl` | rendered to `/opt/vibe/env/vibe-ai-router.env` |
+| `docker-compose.yml` → `emergency-proxy` | publishes `:5193` |
+
+Enable it from the appliance admin console (Apps panel) or `vibe enable vibe-ai-router`. On
+enable the appliance: creates `vibe_ai_router_db` + role, generates and **preserves**
+`MASTER_KEY` / `SESSION_SECRET` / `ROUTER_ADMIN_PASSWORD`, renders the env file, starts the
+container (migrations run at boot), waits for `/healthz`, then runs the seed command —
+`node dist/src/ops/bootstrap-firm.js` — which creates the firm, the admin login, registers the
+appliance's local model server, populates the catalog from the vendored feed, and applies the
+local-first policy pack.
+
+**Access.** `http://<appliance-ip>:5193` — the router's console has **no public vhost by
+design**: one port serves both the console and the `/v1` gateway, so publishing it would
+publish the gateway too. The port is UFW-gated to RFC1918 + Tailscale. Credentials appear in
+`/opt/vibe/CREDENTIALS.txt` and the console's first-login card.
+
+**What apps use:** `VIBE_AI_ROUTER_URL=http://vibe-ai-router:8220` on `vibe_net`, with a token
+minted per app in the router console (App tokens).
+
+**Classes left unconfigured on a fresh install** are intentional: the pack only assigns models
+whose provider kind the firm has actually configured, and only capability-valid ones. A vision
+class with no local vision model stays unconfigured and rejects requests (fail closed) until an
+admin assigns a model — set `LOCAL_MODEL_VISION=1` if your local server does vision, or add a
+provider and pick a model in the Policies page.

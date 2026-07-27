@@ -11,7 +11,14 @@
 const BASE = process.env['ROUTER_URL'] ?? 'http://127.0.0.1:8226';
 const ADMIN_EMAIL = process.env['ADMIN_EMAIL'] ?? 'admin@demo.firm';
 const ADMIN_PASSWORD = process.env['ADMIN_PASSWORD'] ?? 'vibe-router-demo-password';
-const APP_TOKEN = process.env['APP_TOKEN'] ?? 'vibe-tb-demo-token';
+/**
+ * App token for the gateway checks. Optional: when unset the script MINTS one through the
+ * admin API, so this works against a production install (which has no demo token) as well as
+ * a dev seed. Pass APP_TOKEN to exercise a specific existing token instead.
+ */
+let APP_TOKEN = process.env['APP_TOKEN'] ?? '';
+/** Task class used for the completion checks — must be one that exists in this deployment. */
+let TASK_CLASS = process.env['TASK_CLASS'] ?? '';
 
 let failures = 0;
 const out = (m: string): void => void process.stdout.write(m + '\n');
@@ -44,6 +51,47 @@ async function main(): Promise<void> {
   check('session /me', me.status === 200);
   check('unauthenticated admin call rejected', (await fetch(`${BASE}/admin-api/providers`)).status === 401);
 
+  // The vendored pricing feed must actually load in THIS deployment's file layout — a
+  // hard-coded relative path once resolved correctly under tsx and ENOENT'd in the container,
+  // silently breaking the nightly sync while every dev-box test passed.
+  const catalog = (await (
+    await fetch(`${BASE}/admin-api/models`, { headers: { cookie } })
+  ).json()) as { canonicalId: string; providerKind: string }[];
+  check(
+    'model catalog populated from the vendored feed',
+    Array.isArray(catalog) && catalog.length > 50,
+    `${Array.isArray(catalog) ? catalog.length : 0} models`,
+  );
+  check(
+    'catalog includes cloud models to configure',
+    Array.isArray(catalog) && catalog.some((m) => m.providerKind !== 'local'),
+  );
+
+  // Resolve the gateway fixtures from THIS deployment rather than assuming demo data.
+  if (!TASK_CLASS) {
+    const classes = (await (
+      await fetch(`${BASE}/admin-api/task-classes`, { headers: { cookie } })
+    ).json()) as { key: string; sensitivity: string }[];
+    const policies = (await (
+      await fetch(`${BASE}/admin-api/policies`, { headers: { cookie } })
+    ).json()) as { policies: { taskClassKey: string }[] };
+    const configured = new Set((policies.policies ?? []).map((p) => p.taskClassKey));
+    // a local_only class WITH a policy: exercises the pipeline without needing a cloud provider
+    TASK_CLASS =
+      classes.find((c) => c.sensitivity === 'local_only' && configured.has(c.key))?.key ?? '';
+    check('a configured local task class exists to test with', TASK_CLASS !== '', TASK_CLASS);
+  }
+  if (!APP_TOKEN) {
+    const minted = await fetch(`${BASE}/admin-api/app-tokens`, {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json', 'x-vibe-admin': '1' },
+      body: JSON.stringify({ app: 'qa-clean-room' }),
+    });
+    const body = (await minted.json()) as { token?: string };
+    APP_TOKEN = body.token ?? '';
+    check('minted an app token through the admin API', APP_TOKEN.startsWith('vibe-qa-clean-room-'));
+  }
+
   const providersRes = await fetch(`${BASE}/admin-api/providers`, { headers: { cookie } });
   const providerList = (await providersRes.json()) as { id: string; label: string }[];
   check('providers listed', providersRes.status === 200 && providerList.length > 0);
@@ -64,7 +112,7 @@ async function main(): Promise<void> {
     headers: {
       'content-type': 'application/json',
       authorization: 'Bearer not-a-token',
-      'x-vibe-task-class': 'tb_classification',
+      'x-vibe-task-class': TASK_CLASS,
     },
     body: JSON.stringify({ messages: [{ role: 'user', content: 'x' }] }),
   });
@@ -86,7 +134,7 @@ async function main(): Promise<void> {
     headers: {
       'content-type': 'application/json',
       authorization: `Bearer ${APP_TOKEN}`,
-      'x-vibe-task-class': 'tb_classification',
+      'x-vibe-task-class': TASK_CLASS,
       'x-vibe-client': 'QA-CLIENT',
     },
     body: JSON.stringify({ messages: [{ role: 'user', content: 'clean-room completion check' }] }),
@@ -105,7 +153,7 @@ async function main(): Promise<void> {
     headers: {
       'content-type': 'application/json',
       authorization: `Bearer ${APP_TOKEN}`,
-      'x-vibe-task-class': 'tb_classification',
+      'x-vibe-task-class': TASK_CLASS,
     },
     body: JSON.stringify({ messages: [{ role: 'user', content: 'stream check' }], stream: true }),
   });
@@ -121,7 +169,7 @@ async function main(): Promise<void> {
     headers: {
       'content-type': 'application/json',
       authorization: `Bearer ${APP_TOKEN}`,
-      'x-vibe-task-class': 'tb_classification',
+      'x-vibe-task-class': TASK_CLASS,
     },
     body: JSON.stringify({ messages: [{ role: 'user', content: 'classify SSN 123-45-6789 row' }] }),
   });
@@ -133,7 +181,7 @@ async function main(): Promise<void> {
   ).json()) as { event: string }[];
   check(
     'audit trail records requests',
-    audit.some((a) => a.event === 'request'),
+    Array.isArray(audit) && audit.some((a) => a.event === 'request'),
     `${audit.length} recent events`,
   );
   check('audit carries no prompt bodies', !JSON.stringify(audit).includes('clean-room completion check'));
