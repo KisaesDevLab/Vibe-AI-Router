@@ -1,18 +1,9 @@
 import { loadEnv } from '../config/env.js';
 import { createDb } from '../db/client.js';
 import { createLogger } from '../lib/logger.js';
-import { NoopLedger, type AdapterRegistry } from '../gateway/pipeline.js';
-import { StubAdapter } from '../gateway/stub-adapter.js';
+import { NoopLedger } from '../gateway/pipeline.js';
+import { createAdapterRegistry } from '../adapters/registry.js';
 import { buildApp } from './app.js';
-
-/**
- * Phase 2 registry: every kind currently routes to the stub adapter. Phase 3/4 replace with
- * real openai-compat and anthropic adapters.
- */
-function stubRegistry(): AdapterRegistry {
-  const stub = new StubAdapter();
-  return { forKind: () => stub };
-}
 
 async function main(): Promise<void> {
   const env = loadEnv();
@@ -21,7 +12,7 @@ async function main(): Promise<void> {
   const app = buildApp({
     env,
     gateway: {
-      deps: { db: handle.db, adapters: stubRegistry(), ledger: new NoopLedger(), log },
+      deps: { db: handle.db, adapters: createAdapterRegistry(), ledger: new NoopLedger(), log },
     },
   });
 

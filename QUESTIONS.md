@@ -37,3 +37,15 @@ Grouped by phase. This file is the Phase 15 review agenda.
   decision (fail closed), not a syntax error; distinguishable via message text → **S**
 - [Q-010] Client-disconnect detection → **response `close` with `writableFinished=false`**
   (req.raw `close` fires on normal completion in Node ≥18 and falsely aborts) → **S**
+
+## Phase 3
+
+- [Q-011] 3.10 requires a live Ollama completion; dev box has none → **verified against
+  in-process OpenAI-shaped mock; scripts/smoke-live.ts ships as the live-verification vehicle
+  for first appliance deploy** → identical wire format; risk is Ollama-specific quirks already
+  encoded from docs (no stream_options, /api/show probe) → **S**
+- [Q-012] Flavor detection heuristic (host patterns) vs explicit provider field? → **heuristic
+  with `generic` fallback** → zero-config for the common cases; Azure detection is robust
+  (*.azure.com); a provider `flavor` column can be added without breaking anything → **M**
+- [Q-013] Unknown finish reasons → **normalize to `stop`** → unknown reasons overwhelmingly
+  mean "completed normally" on compat gateways; `error` would spuriously fail requests → **S**

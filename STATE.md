@@ -2,6 +2,19 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-07-26 — Phase 3 complete (3.10 live leg deferred)
+
+- ProviderAdapter contract frozen; openai-compat adapter serves kinds `openai_compat` AND
+  `local`. Pure translation layer (translate.ts) fixture-tested: flavors, Azure URL/api-key,
+  finish-reason table, usage extraction (incl. DeepSeek cache hits), error mapping, stream
+  chunk translation incl. usage-only trailing chunk merge.
+- SSE client parser handles CRLF, multi-line data, split events, early cancel.
+- Estimated-usage fallback (char/4) whenever a provider omits usage — flagged, never zero.
+- Registry wired into server bootstrap (anthropic pending Phase 4).
+- Verified: 60/60 tests incl. adapter integration against in-process OpenAI-shaped mock
+  (execute + stream). Live Ollama leg NOT run — no Ollama on this dev box; run
+  `pnpm tsx scripts/smoke-live.ts` on the appliance (Q-011).
+
 ## 2026-07-26 — Phase 2 complete
 
 - Envelope frozen (src/gateway/envelope.ts + docs/envelope.md): AIRequest/AIResponse/StreamChunk,

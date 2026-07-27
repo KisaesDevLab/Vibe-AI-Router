@@ -55,7 +55,19 @@ abort propagation <1s test.
 
 ## Phase 3 — Adapter Framework + OpenAI-Compatible Adapter
 
-- [ ] 3.1 … 3.10
+- [x] 3.1 ProviderAdapter contract frozen (src/adapters/contract.ts + docs/adapter-contract.md)
+- [x] 3.2 openai-compat adapter: tools, json_schema, vision, streaming
+- [x] 3.3 Flavor variants OpenAI/Azure/Ollama/Groq/DeepSeek + quirks table in docs
+- [x] 3.4 Azure deployment-as-model via provider.model_mapping
+- [x] 3.5 Ollama capability probe (/api/show) + context-length discovery
+- [x] 3.6 Usage extraction incl. stream_options.include_usage; estimated-usage fallback flagged
+- [x] 3.7 Finish-reason normalization table, tested per variant
+- [x] 3.8 Error mapping → taxonomy, truncated provider body preserved for audit
+- [x] 3.9 Fixture harness (pure translate fns + in-process mock server); live smoke script
+- [~] 3.10 Real-Ollama end-to-end: mock-verified; live run deferred to appliance deploy
+        (no Ollama on dev box — scripts/smoke-live.ts is the verification vehicle)
+
+**Acceptance:** met except live-vibellm leg of 3.10 (see STATE); Azure fixtures green.
 
 ## Phase 4 — Anthropic Native Adapter
 
