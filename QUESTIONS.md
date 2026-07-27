@@ -15,3 +15,15 @@ Grouped by phase. This file is the Phase 15 review agenda.
   smallest public surface consistent with "non-technical admin can use a browser" → **S**
 - [Q-004] Dev DB host ports? → **55433/56380** → 1099 dev stack owns 55432/56379; both stacks
   must run simultaneously during Phase 12 TB/app migrations → **S**
+
+## Phase 1
+
+- [Q-005] `audit_log.event` pg enum vs text? → **text + app-side zod event registry** → the
+  event vocabulary grows every phase (fallback hops, breaker transitions, admin mutations);
+  ALTER TYPE churn on an append-only table is worse than app-layer validation → **S**
+- [Q-006] Columns added beyond plan text → **users.email/display_name (Phase 11 auth),
+  provider_credentials.status/grace_until (Phase 6 rotation), providers.model_mapping (Azure
+  3.4), models.capability_overrides (5.5), ledger.cost_estimated + request_id (9.2/9.3)** →
+  schema-whole-up-front is the phase's stated purpose; avoids later migration churn → **S**
+- [Q-007] Local model cost representation? → **explicit $0 pricing rows** → local is genuinely
+  zero-cost; `cost_unknown` must stay reserved for missing pricing (principle 7) → **S**

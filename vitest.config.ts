@@ -8,5 +8,8 @@ export default defineConfig({
     // so the pure-unit tier always runs anywhere.
     testTimeout: 15_000,
     pool: 'forks',
+    // DB-backed suites share one database (and the reversibility test drops every table);
+    // files must run serially. Unit-only files are fast enough that this costs nothing.
+    fileParallelism: false,
   },
 });

@@ -18,7 +18,24 @@ Mirrors `VIBE-AI-ROUTER-BUILD-PLAN.md` (source of truth for full item text). `[x
 
 ## Phase 1 — Data Model
 
-- [ ] 1.1 firms … [ ] 1.16 reversibility test (see plan)
+- [x] 1.1 firms
+- [x] 1.2 users (+ email/display_name for Phase 11 auth — see STATE 2026-07-26)
+- [x] 1.3 providers (soft delete, health jsonb, model_mapping for Azure)
+- [x] 1.4 provider_credentials (no plaintext column; rotation fields ready for Phase 6)
+- [x] 1.5 models (+ capability_overrides ready for Phase 5.5)
+- [x] 1.6 model_pricing (append-only history)
+- [x] 1.7 task_classes
+- [x] 1.8 policies (unique firm+task_class)
+- [x] 1.9 role_policies
+- [x] 1.10 usage_ledger (request_id unique = idempotency; cost numeric(12,6))
+- [x] 1.11 audit_log (append-only enforced by trigger; event as text per Q-005)
+- [x] 1.12 budgets_state (unique scope/scope_ref/period)
+- [x] 1.13 app_tokens
+- [x] 1.14 indexes
+- [x] 1.15 seed script (demo firm, admin, local provider, 3 classes × 3 tiers, 5 models, policies, app token)
+- [x] 1.16 reversibility up→down→up in CI + lingering-table assertion
+
+**Acceptance met:** `pnpm seed` navigable + idempotent (test-verified); schema doc at docs/schema.md.
 
 ## Phase 2 — Gateway Core & Envelope
 
