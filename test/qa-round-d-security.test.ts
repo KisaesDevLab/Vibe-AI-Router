@@ -285,7 +285,7 @@ describe.skipIf(!url)('QA-D: admin surface security', () => {
       "' OR '1'='1",
       '../../../../etc/passwd',
       '%2e%2e%2fetc%2fpasswd',
-      ' truncated',
+      'truncated',
     ];
     for (const p of payloads) {
       const res = await fetch(`${base}/admin-api/models?search=${encodeURIComponent(p)}`, {

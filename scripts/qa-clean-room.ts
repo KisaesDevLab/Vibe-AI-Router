@@ -152,6 +152,25 @@ async function main(): Promise<void> {
   });
   check('billing feed answers', billing.status === 200);
 
+  // 7 — hardening regressions (QA round D), verified black-box on the real deployment
+  const nulParam = await fetch(`${BASE}/admin-api/audit?event=${encodeURIComponent('a' + String.fromCharCode(0) + 'b')}`, {
+    headers: { cookie },
+  });
+  const nulBody = await nulParam.text();
+  check('control chars in query params → 400, not 500', nulParam.status === 400);
+  check(
+    'server errors never leak SQL or bound parameters',
+    !nulBody.includes('select ') && !nulBody.includes('params:'),
+  );
+  const csrf = await fetch(`${BASE}/admin-api/settings`, {
+    method: 'PUT',
+    headers: { cookie, 'content-type': 'application/json' }, // deliberately no x-vibe-admin
+    body: JSON.stringify({ scrubber_mode: 'warn' }),
+  });
+  check('mutation without CSRF header rejected', csrf.status === 403);
+  const forged = await fetch(`${BASE}/admin-api/providers`, { headers: { cookie: `${cookie}tampered` } });
+  check('tampered session cookie rejected', forged.status === 401);
+
   out(`\n${failures === 0 ? 'CLEAN-ROOM QA PASSED' : `CLEAN-ROOM QA FAILED (${failures} checks)`}`);
   process.exit(failures === 0 ? 0 : 1);
 }
