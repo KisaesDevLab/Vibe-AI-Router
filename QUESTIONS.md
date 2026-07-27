@@ -49,3 +49,16 @@ Grouped by phase. This file is the Phase 15 review agenda.
   (*.azure.com); a provider `flavor` column can be added without breaking anything → **M**
 - [Q-013] Unknown finish reasons → **normalize to `stop`** → unknown reasons overwhelmingly
   mean "completed normally" on compat gateways; `error` would spuriously fail requests → **S**
+
+## Phase 4
+
+- [Q-014] json_schema on Anthropic: beta output_format vs forced tool? → **forced synthetic
+  tool (`emit_<name>`) whose input_schema is the schema; tool_use translated back to content**
+  → works on every Claude model with no beta headers; deterministic; structured-output beta can
+  replace it later behind the same envelope surface → **M**
+- [Q-015] Caching breakpoint strategy → **3 fixed breakpoints: last system block, last tool,
+  last block of second-to-last message; per-task-class opt-in via ExecuteContext.promptCaching**
+  → deterministic, ≤4-breakpoint limit respected; smarter windowing is a tuning question → **S**
+- [Q-016] Thinking text exposure → **surfaced as AIResponse.thinking (transient only), thinking
+  deltas NOT relayed into the SSE stream** → callers get it non-streaming when enabled;
+  streaming relay would require an envelope chunk-type extension — deferred → **S**

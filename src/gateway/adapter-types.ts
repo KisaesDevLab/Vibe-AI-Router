@@ -15,6 +15,10 @@ export interface ExecuteContext {
   apiKey?: string;
   /** Azure-style deployment mapping and other provider quirks */
   modelMapping?: Record<string, string>;
+  /** enable automatic cache_control breakpoints (Anthropic, 4.2) — set per task class */
+  promptCaching?: boolean;
+  /** extended-thinking budget tokens (Anthropic, 4.3) — set per task class */
+  thinkingBudget?: number;
 }
 
 export interface GatewayAdapter {

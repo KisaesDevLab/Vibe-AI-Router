@@ -2,6 +2,17 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-07-26 — Phase 4 complete
+
+- Anthropic native adapter: Messages API translation (system extraction, tool_use/tool_result
+  round trip, base64/url images), forced-tool json_schema mapping (Q-014), 3-breakpoint
+  ephemeral caching behind ExecuteContext.promptCaching, thinking budget passthrough with
+  transient-only surfacing, streaming state machine (block-index→tool-index, usage folding from
+  message_start/message_delta), full error-type mapping incl. 529 overloaded.
+- Registry now serves all three kinds; envelope gained optional AIResponse.thinking.
+- Verified: 87/87 tests; comparative 4.8 test proves envelope-level structural identity
+  between adapter families against a dual-dialect mock server.
+
 ## 2026-07-26 — Phase 3 complete (3.10 live leg deferred)
 
 - ProviderAdapter contract frozen; openai-compat adapter serves kinds `openai_compat` AND

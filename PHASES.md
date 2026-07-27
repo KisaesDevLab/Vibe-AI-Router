@@ -71,7 +71,17 @@ abort propagation <1s test.
 
 ## Phase 4 — Anthropic Native Adapter
 
-- [ ] 4.1 … 4.8
+- [x] 4.1 Messages translation: system extraction, content blocks, tool_use/tool_result, images
+- [x] 4.2 Prompt caching: automatic breakpoints (system+tools+leading context), per-task-class flag, cache tokens in usage
+- [x] 4.3 Extended thinking: budget passthrough, thinking surfaced on AIResponse only (never persisted)
+- [x] 4.4 Streaming event state machine → internal chunks
+- [x] 4.5 max_tokens injection (policy) + 4096 last-resort in adapter
+- [x] 4.6 Error mapping incl. overloaded_error → provider_unavailable
+- [x] 4.7 Fixtures: tool round trip + cache token accounting
+- [x] 4.8 Comparative test: identical envelope → structurally identical AIResponse across families
+
+**Acceptance met:** both adapter families verified against one dual-dialect mock; cache tokens
+appear in usage; json_schema handled via forced-tool mapping (Q-014).
 
 ## Phase 5 — Model Catalog & Pricing Sync
 

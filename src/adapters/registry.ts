@@ -5,6 +5,7 @@
 import type { AdapterRegistry } from '../gateway/pipeline.js';
 import type { ProviderAdapter } from './contract.js';
 import { OpenAiCompatAdapter } from './openai-compat/index.js';
+import { AnthropicAdapter } from './anthropic/index.js';
 
 export function createAdapterRegistry(): AdapterRegistry & {
   get(kind: string): ProviderAdapter | undefined;
@@ -14,6 +15,7 @@ export function createAdapterRegistry(): AdapterRegistry & {
   const byKind = new Map<string, ProviderAdapter>([
     ['openai_compat', openaiCompat],
     ['local', local],
+    ['anthropic', new AnthropicAdapter()],
   ]);
   return {
     forKind: (kind) => byKind.get(kind),

@@ -92,6 +92,11 @@ export interface AIResponse {
   finishReason: FinishReason;
   usage: AIUsage;
   served: { model: string; providerId: string; latencyMs: number };
+  /**
+   * Extended-thinking text (4.3), surfaced to the caller only — NEVER persisted anywhere
+   * (ledger/audit store token counts and hashes only, like all message content).
+   */
+  thinking?: string;
 }
 
 /** Internal streaming chunk format — adapters translate provider events into these. */
