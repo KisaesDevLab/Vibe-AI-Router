@@ -2,6 +2,17 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-07-26 — Phase 15A complete — BUILD PAUSED FOR HUMAN REVIEW
+
+- REVIEW-PACKET.md assembled: 7 consequence-ordered agenda items (sensitivity first), all
+  closed KEEP/CHANGE questions, demo walkthrough, screenshot set (docs/screenshots/01–08,
+  captured via Playwright against the seeded stack).
+- Final gap-prevention pass: SSRF env var + budget stage + disjoint-usage semantics were doc
+  drift — fixed in env.md/envelope.md. Zero-cloud smoke, invariant suite, QUESTIONS/STATE all
+  current.
+- Autonomous run ends here by design (Decision Protocol §Phase 15). Next actor: Kurt, with
+  REVIEW-PACKET.md. 15C executes the answers, lands MIG-1 (TB swap), tags 1.0.0.
+
 ## 2026-07-26 — Phase 14 complete → v1.0.0-rc.1
 
 - Threat model docs/threat-model.md (T1–T6 + accepted residuals).

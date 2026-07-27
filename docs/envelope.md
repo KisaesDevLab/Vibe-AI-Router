@@ -32,7 +32,11 @@ toolCallId? }`; `ContentPart`: `{type:'text',text}` | `{type:'image',url}`.
 
 `AIResponse`: `{ message { role:'assistant', content, toolCalls? }, finishReason: stop|length|
 tool_calls|content_filter|error, usage { promptTokens, completionTokens, cachedReadTokens,
-cacheWriteTokens, estimated }, served { model, providerId, latencyMs } }`
+cacheWriteTokens, estimated }, served { model, providerId, latencyMs }, thinking? }`
+
+Usage semantics (extension, 9.1): `promptTokens` is DISJOINT from `cachedReadTokens`/`cacheWriteTokens`
+(uncached input only). OpenAI wire responses re-add cached into `prompt_tokens` for client
+compatibility. `estimated=true` marks router-estimated usage when a provider omitted it.
 
 `StreamChunk`: `text_delta | tool_call_start | tool_call_delta | finish{finishReason, usage?}`.
 Usage arrives on the final chunk; the SSE relay emits an OpenAI-shaped usage chunk after the
@@ -70,5 +74,6 @@ all env-tunable, violations → `invalid_request` (depth checked before schema p
 
 ## Pipeline order (fixed)
 
-`auth → resolveTaskClass → policy → scrub → route → adapt → ledger → respond` — every stage
-independently re-validates what it depends on (server-side enforcement, principle 5).
+`auth → resolveTaskClass → policy → budget → scrub → route → adapt → ledger → respond` —
+(budget stage added in Phase 9 as an extension). Every stage independently re-validates what
+it depends on (server-side enforcement, principle 5).

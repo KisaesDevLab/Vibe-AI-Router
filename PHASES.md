@@ -270,6 +270,24 @@ full-appliance run happens at first deploy (same posture as 3.10/Q-011).
 
 **Acceptance met:** release candidate tagged v1.0.0-rc.1; production + 1.0.0 wait on Phase 15.
 
-## Phase 15 — Human Review
+## Phase 15 — Human Review (SOLE HUMAN TOUCHPOINT)
 
-- [ ] 15.1 … 15.12
+**15A — packet generation (agent) — DONE**
+- [x] 15.1 REVIEW-PACKET.md (architecture page, decision logs, sensitivity table, threat
+        model, load results, screenshot walkthrough docs/screenshots/01–08)
+- [x] 15.2 Agenda ordered by consequence (sensitivity → L-cost → pack → scrubber → budgets →
+        naming → batched)
+- [x] 15.3 Every item is a closed KEEP/CHANGE question with the implemented default stated
+- [x] 15.4 Demo environment + scripted walkthrough (REVIEW-PACKET.md §Demo)
+
+**15B — Q&A session (Kurt) — WAITING. THE BUILD STOPS HERE.**
+- [ ] 15.5 Record answers inline in REVIEW-PACKET.md (KEEP / CHANGE: …)
+- [ ] 15.6 Triage new requirements: refinement vs post-1.0 backlog
+
+**15C — refinement execution (agent, after 15B)**
+- [ ] 15.7 Implement CHANGEs + re-run invariant/chaos/e2e
+- [ ] 15.8 TB direct-path swap + flag removal (MIG-1, Q-047)
+- [ ] 15.9 Contract/firm docs sync
+- [ ] 15.10 Second shadow-diff if classification-affecting changes
+- [ ] 15.11 Final gap-prevention pass
+- [ ] 15.12 Tag 1.0.0, deploy at own firm, schedule MIG-2…8

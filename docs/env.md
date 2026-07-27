@@ -31,6 +31,7 @@ Validation: `src/config/env.ts` (zod). Invalid config → the process refuses to
 | `SESSION_SECRET` | no | random per boot | admin-UI session signing (≥16 chars); unset → sessions reset on restart |
 | `SECURE_COOKIES` | no | `false` | set `true` behind HTTPS (Caddy) — marks session cookies Secure |
 | `LEDGER_RETENTION_DAYS` | no | — (retain forever) | daily purge of usage_ledger rows older than N days; audit_log is never purged |
+| `SSRF_DENY_PRIVATE_CLOUD` | no | `true` | request-time rejection of cloud providers on private hosts (14.2); leave on |
 
 Test-only:
 
