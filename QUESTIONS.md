@@ -151,3 +151,20 @@ Grouped by phase. This file is the Phase 15 review agenda.
 - [Q-041] Fallback on RETRYABLE failures too (after retries exhausted), not only non-retryable
   → plan 10.1/10.3 read together: retries first, then advance; stranding the request after
   retries when a fallback exists serves nobody → **S**
+
+## Phase 11
+
+- [Q-042] Admin auth mechanism → **local email+password (scrypt) + signed in-memory sessions,
+  SameSite=Strict + x-vibe-admin header for mutations** → suite-wide SSO is an explicit
+  backlog item; appliance-local auth unblocks the UI; sessions reset on restart unless
+  SESSION_SECRET set → **M** (swap to suite SSO later behind the same /admin-api/auth surface)
+- [Q-043] Password dependency → **Node scrypt, no argon2 native module** → zero native build
+  deps in the container; scrypt N=16384 is adequate for a LAN-only admin login → **S**
+- [Q-044] UI stack → **plain React 18 + hand-rolled hash routing + one CSS file, zero UI
+  libraries** → smallest attack/maintenance surface for an appliance; 56KB gzip total → **S**
+- [Q-045] Task-class sensitivity widening → **allowed ONLY via PATCH /admin-api/task-classes
+  (admin session), always audited with before/after** → registration/import can never widen;
+  someone must be able to, deliberately → **S**
+- [Q-046] Test-prompt endpoint runs the pipeline with a server-side trusted auth context
+  (admin session substitutes for an app token) → the wizard→policy→request→ledger smoke needs
+  a first-party path; it ledgers as app "admin-ui" → **S**

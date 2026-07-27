@@ -75,6 +75,8 @@ export const users = pgTable('users', {
   role: userRole('role').notNull(),
   email: text('email').unique(),
   displayName: text('display_name'),
+  /** scrypt hash for admin-UI login (Phase 11); NULL for users who never log in directly */
+  passwordHash: text('password_hash'),
   /** SSO subject once suite-wide auth lands; apps pass their own user context meanwhile. */
   externalRef: text('external_ref'),
   ...timestamps,

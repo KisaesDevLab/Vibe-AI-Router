@@ -45,5 +45,11 @@ jobs:
           pnpm migrate
       - run: pnpm test
       - run: pnpm build
+      - name: UI build
+        run: pnpm --filter @vibe-ai-router/ui build
+      - name: E2E smoke (Playwright)
+        run: |
+          pnpm --filter @vibe-ai-router/ui exec playwright install --with-deps chromium
+          pnpm --filter @vibe-ai-router/ui exec playwright test
       - name: Docker build
         run: docker build -t vibe-ai-router:ci .

@@ -190,7 +190,25 @@ log-only by design (Q-033).
 
 ## Phase 11 — Admin API + Admin UI
 
-- [ ] 11.1 … 11.10
+- [x] 11.1 Session-authed admin REST API (/admin-api/*): providers, write-only credentials,
+        catalog, task classes (sensitivity edit = the audited widening path), policies,
+        settings/budgets, dashboards, audit, app tokens, test-prompt; zod everywhere;
+        mutations audited + x-vibe-admin CSRF header
+- [x] 11.2 React 18 + Vite shell: scrypt login, sidebar nav, zero-cloud boundary lamp topbar
+- [x] 11.3 Provider wizard: preset → connection (Azure mapping step) → key → live test → save
+- [x] 11.4 Catalog browser: search, capability chips, $/MTok, status badges, custom model form
+- [x] 11.5 Policy editor: capability-valid model picker (local-only classes offer local models
+        only), allowed set, ordered fallback chain, limits, inline config-gate errors,
+        read-only tier badge with explainer
+- [x] 11.6 Firm settings: scrubber mode, banned patterns, temperature cap, budgets
+- [x] 11.7 Dashboard: spend bars by 5 dims, latency p50/p95, budget gauge, provider health +
+        breaker tiles
+- [x] 11.8 Live audit log (5s poll, pause/resume, CSV export)
+- [x] 11.9 Empty states incl. zero-cloud messaging
+- [x] 11.10 Playwright smoke GREEN: login → wizard(add+test) → policy edit → test prompt →
+        audit evidence; wired into CI
+
+**Acceptance met:** blank appliance → working provider + policy + verified request without docs.
 
 ## Phase 12 — App Integration SDK & First App Migration
 

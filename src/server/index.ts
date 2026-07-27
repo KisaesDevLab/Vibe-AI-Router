@@ -1,5 +1,7 @@
+import { randomBytes } from 'node:crypto';
 import { loadEnv } from '../config/env.js';
 import { createDb } from '../db/client.js';
+import { SessionStore } from '../admin-api/session.js';
 import { createLogger } from '../lib/logger.js';
 import { DbLedger } from '../ledger/writer.js';
 import { createAdapterRegistry } from '../adapters/registry.js';
@@ -63,8 +65,18 @@ async function main(): Promise<void> {
   }, 300_000);
   limiterPrune.unref();
 
+  const sessions = new SessionStore(env.SESSION_SECRET ?? randomBytes(32).toString('base64'));
+  if (!env.SESSION_SECRET) log.warn('SESSION_SECRET not set — admin sessions reset on restart');
+
   const app = buildApp({
     env,
+    adminApi: {
+      sessions,
+      secureCookies: env.SECURE_COOKIES,
+      ...(vault ? { vault } : {}),
+      adapterFor: (kind: string) => adapters.get(kind),
+      breakerSnapshot: () => breaker.snapshot(),
+    },
     gateway: {
       deps: {
         db: handle.db,

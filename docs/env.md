@@ -28,6 +28,8 @@ Validation: `src/config/env.ts` (zod). Invalid config → the process refuses to
 | `BREAKER_OPEN_MS` | no | `30000` | circuit-breaker open duration before half-open probe |
 | `ROUTER_TIMEOUT_TOTAL_MS` | no | `120000` | total upstream budget per request |
 | `ROUTER_TIMEOUT_STREAM_IDLE_MS` | no | `60000` | streaming idle watchdog |
+| `SESSION_SECRET` | no | random per boot | admin-UI session signing (≥16 chars); unset → sessions reset on restart |
+| `SECURE_COOKIES` | no | `false` | set `true` behind HTTPS (Caddy) — marks session cookies Secure |
 
 Test-only:
 

@@ -1,4 +1,8 @@
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
+import fastifyStatic from '@fastify/static';
 import type { Env } from '../config/env.js';
 import { createLogger } from '../lib/logger.js';
 import { VERSION } from '../version.js';
@@ -6,6 +10,7 @@ import { registerGateway } from '../gateway/routes.js';
 import type { PipelineDeps } from '../gateway/pipeline.js';
 import { registerTaskClassRegistration } from '../policy/registration.js';
 import { registerBillingFeed } from '../ledger/billing-route.js';
+import { registerAdminApi, type AdminApiOptions } from '../admin-api/routes.js';
 
 export interface BuildAppOptions {
   env: Env;
@@ -14,6 +19,8 @@ export interface BuildAppOptions {
     deps: PipelineDeps;
     heartbeatMs?: number;
   };
+  /** When provided, the session-authed admin API is mounted (Phase 11). */
+  adminApi?: Omit<AdminApiOptions, 'deps'> & { deps?: PipelineDeps };
 }
 
 /** Builds the Fastify instance. Kept separate from listen() so tests can inject() without a socket. */
@@ -50,6 +57,33 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
       engine: opts.gateway.deps.engine,
     });
     registerBillingFeed(app, { db: opts.gateway.deps.db });
+  }
+
+  if (opts.adminApi && opts.gateway) {
+    registerAdminApi(app, { ...opts.adminApi, deps: opts.adminApi.deps ?? opts.gateway.deps });
+
+    // serve the built admin UI when present (production container; dev uses vite proxy).
+    // path differs between tsx (src/server) and compiled (dist/src/server) layouts:
+    const here = dirname(fileURLToPath(import.meta.url));
+    const uiDist = [join(here, '../../ui/dist'), join(here, '../../../ui/dist')].find((p) =>
+      existsSync(join(p, 'index.html')),
+    );
+    if (uiDist) {
+      void app.register(fastifyStatic, { root: uiDist, prefix: '/' });
+      app.setNotFoundHandler((req, reply) => {
+        // SPA fallback for UI routes only; API 404s stay JSON
+        if (
+          req.method === 'GET' &&
+          !req.url.startsWith('/v1/') &&
+          !req.url.startsWith('/admin') &&
+          !req.url.startsWith('/healthz') &&
+          !req.url.startsWith('/version')
+        ) {
+          return reply.sendFile('index.html');
+        }
+        return reply.code(404).send({ error: { message: 'not found', code: 'invalid_request' } });
+      });
+    }
   }
 
   return app;

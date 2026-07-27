@@ -40,6 +40,13 @@ const envSchema = z.object({
   BREAKER_OPEN_MS: z.coerce.number().int().positive().default(30_000),
   ROUTER_TIMEOUT_TOTAL_MS: z.coerce.number().int().positive().default(120_000),
   ROUTER_TIMEOUT_STREAM_IDLE_MS: z.coerce.number().int().positive().default(60_000),
+  /** Admin UI session signing secret; unset → random per boot (sessions reset on restart) */
+  SESSION_SECRET: z.string().min(16).optional(),
+  /** Set when the admin UI is served over HTTPS (Caddy) — marks cookies Secure */
+  SECURE_COOKIES: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 });
 
 export type Env = z.infer<typeof envSchema>;

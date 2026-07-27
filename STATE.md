@@ -2,6 +2,23 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-07-26 — Phase 11 complete
+
+- Admin API (/admin-api): scrypt login + signed sessions (migration 0002 adds
+  users.password_hash; seed sets demo password), full CRUD surface per PHASES 11.1, CSRF
+  double-guard, every mutation audited. Test-prompt endpoint drives the real pipeline and
+  ledgers as app 'admin-ui' (Q-046).
+- UI (/ui, React 18 + Vite, no UI libs): ledger visual identity (bankbook green + monospace
+  display), signature data-boundary chips LOCAL/SCRUBBED/CLOUD everywhere a class appears,
+  zero-cloud lamp in the topbar. Pages: Dashboard (spend bars/latency/budget gauge/health +
+  breaker tiles + test prompt), Providers (wizard w/ Azure mapping, credential lifecycle),
+  Catalog, Policies (capability-filtered pickers, ordered fallbacks, inline gate errors),
+  Tokens (mint-once display), Audit (live poll), Settings.
+- Static serving: router serves ui/dist with SPA fallback (tsx vs dist path pitfall fixed).
+- Playwright smoke GREEN locally (login→wizard→policy→test prompt→audit evidence) and wired
+  into CI (chromium install step). Backend: 177/177.
+- Fix found by e2e: test-prompt path forgot emitTerminalAudit — audit page showed nothing.
+
 ## 2026-07-26 — Phase 10 complete
 
 - Resilience primitives (src/resilience/): backoff (jitter, Retry-After), CircuitBreaker

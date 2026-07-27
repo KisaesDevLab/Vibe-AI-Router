@@ -6,6 +6,7 @@
 import { createHash } from 'node:crypto';
 import { eq, sql as dsql } from 'drizzle-orm';
 import { createDb } from '../src/db/client.js';
+import { hashPassword } from '../src/lib/password.js';
 import {
   appTokens,
   firms,
@@ -20,6 +21,7 @@ import {
 export const DEMO = {
   firmSlug: 'demo-firm',
   adminEmail: 'admin@demo.firm',
+  adminPassword: 'vibe-router-demo-password',
   appToken: 'vibe-tb-demo-token', // plaintext printed at seed time; only the hash is stored
 } as const;
 
@@ -38,11 +40,18 @@ export async function seed(databaseUrl: string, log: (m: string) => void = () =>
       .returning();
     if (!firm) throw new Error('firm upsert returned nothing');
 
-    // admin user
+    // admin user (password for the admin UI, Phase 11)
+    const passwordHash = await hashPassword(DEMO.adminPassword);
     await db
       .insert(users)
-      .values({ firmId: firm.id, role: 'admin', email: DEMO.adminEmail, displayName: 'Demo Admin' })
-      .onConflictDoUpdate({ target: users.email, set: { displayName: 'Demo Admin' } });
+      .values({
+        firmId: firm.id,
+        role: 'admin',
+        email: DEMO.adminEmail,
+        displayName: 'Demo Admin',
+        passwordHash,
+      })
+      .onConflictDoUpdate({ target: users.email, set: { displayName: 'Demo Admin', passwordHash } });
 
     // local provider (Ollama / vibellm)
     const existingProvider = await db.query.providers.findFirst({
