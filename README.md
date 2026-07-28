@@ -55,5 +55,21 @@ pnpm tsx scripts/load-test.ts              # perf budget check
 
 ## Status
 
-`1.0.0-rc.1` — all build phases complete; pending the Phase 15 human review (agenda item #1:
-SENSITIVITY-REVIEW.md) before production deployment and `1.0.0`.
+**`0.0.1` — first public release. Feature-complete and heavily tested, but not yet run in
+production.** The low version number is deliberate: it reflects deployment maturity, not
+missing features.
+
+Verified: 237 automated tests (unit, integration, invariant, chaos, property-based, fuzz,
+security), 36 black-box acceptance checks against a container built from an empty database, a
+Playwright end-to-end pass, a 37,500-request soak (0 errors, no memory drift), and seven
+post-review QA rounds that found and fixed 16 defects (`QA-REPORT.md`).
+
+**Not yet verified — needs real hardware:**
+
+- live completions against a real model server (all model traffic in tests is mocked);
+- Caddy/TLS ingress and `SECURE_COOKIES=true` end to end;
+- a memory soak on appliance hardware rather than a dev box;
+- the shadow-diff report against a real model (the harness is proven on a deterministic mock);
+- the `DOCKER-USER` firewall rules against real packets (rule *generation* is tested).
+
+Treat it as pre-production until those are done. Install path: `docs/appliance.md`.

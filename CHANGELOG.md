@@ -1,22 +1,32 @@
 # Changelog
 
-## 1.0.0 — 2026-07-27
+Versioning note: the build ran to an internal `1.0.0` (feature-complete, reviewed, QA'd), but
+the **first public release is `0.0.1`** — the code has never run against a real appliance, live
+model server, or production traffic. The number reflects deployment maturity, not feature
+completeness. See "Not yet verified" in the README.
 
-Phase 15 human review complete (REVIEW-PACKET.md carries the full verdict table). Changes from
-rc.1, all operator-decided:
+## 0.0.1 — 2026-07-27
+
+First public release. Contains everything below (internal phases 0–15 plus seven post-review QA
+rounds), with the Phase 15 review outcomes applied:
 
 - Scrubber firm default changed **block → redact** (Q-056): protected numbers become `[TYPE]`
   tokens before cloud transmission; block remains a per-firm setting. Invariant suite updated
   (block-mode invariant now sets the mode explicitly).
 - Runtime standardized on **Node 24** (Q-057): image base, engines, CI.
 - All sensitivity-tier assignments confirmed as built (SENSITIVITY-REVIEW.md marked reviewed).
-- TB call-site migration (MIG-1) deferred by decision to its own ticket (Q-058) — 1.0.0 ships
-  the router; trial-balance-app swaps in the MIG-1 window.
+- TB call-site migration (MIG-1) deferred by decision to its own ticket (Q-058) — this release
+  ships the router only; trial-balance-app swaps in the MIG-1 window.
 
-## 1.0.0-rc.1 — 2026-07-26
+Post-review hardening (QA rounds A–G, 16 defects found and fixed — see QA-REPORT.md): phantom
+billing on cache hits, SQL/parameter disclosure via the default error handler, a login timing
+oracle, an unbounded session store, a nightly catalog sync that aborted mid-run on the real
+feed, cloud-hosted models misclassified as local, and the `ROUTER_ROLE` split that lets the
+admin console have TLS without publishing the app-facing gateway alongside it.
 
-Initial release candidate. One autonomous build pass, phases 0–14 of
-`VIBE-AI-ROUTER-BUILD-PLAN.md`.
+### Build history (pre-public, internal versions)
+
+One autonomous build pass over phases 0–14 of `VIBE-AI-ROUTER-BUILD-PLAN.md`:
 
 - Gateway: OpenAI-compatible `/v1/chat/completions` with `X-Vibe-Task-Class` (fail closed),
   SSE streaming, frozen internal envelope + error taxonomy.

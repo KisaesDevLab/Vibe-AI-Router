@@ -25,6 +25,10 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            # The appliance manifest pulls `:latest` (image.defaultTag), so a release that
+            # publishes only version tags leaves `vibe enable vibe-ai-router` unable to pull.
+            # Excluded for pre-releases (e.g. v0.0.2-rc.1) so an rc never becomes `latest`.
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
       - uses: docker/build-push-action@v6
         with:
           context: .

@@ -1,6 +1,6 @@
 {
   "name": "vibe-ai-router",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "private": true,
   "description": "Vibe AI Router — sole AI egress point for the Vibe appliance suite",
   "license": "BUSL-1.1",
