@@ -121,6 +121,12 @@ describe.skipIf(!url)('ROUTER_ROLE surface separation', () => {
       // JSON, not the SPA — a 200 HTML shell would read as success to a caller
       expect(r.headers['content-type'], path).toContain('application/json');
     }
+
+    // /metrics is unauthenticated operational data (task-class counts, provider names,
+    // breaker state). The console gets a Caddy vhost, so it must not carry the endpoint —
+    // the appliance also blocks it at the edge (deny_paths), but the container itself is
+    // the last line. Found by Kurt in appliance integration.
+    expect((await app.inject({ method: 'GET', url: '/metrics' })).statusCode).toBe(404);
   });
 
   it('both role (dev/default): serves everything, preserving the pre-split shape', async () => {

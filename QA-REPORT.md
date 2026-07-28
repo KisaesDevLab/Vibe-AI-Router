@@ -3,8 +3,8 @@
 **Context:** operator decision 2026-07-27 — app migrations (MIG-1…8) are ON HOLD until the
 router has passed multiple QA rounds. This report is the record. Scope: router only.
 
-**Summary: 7 rounds run, 16 defects found, 16 fixed, each with a permanent regression test.**
-Final state: 237 tests + 36 black-box clean-room checks + e2e green; 37,500-request soak with
+**Summary: 8 rounds run, 20 defects found, 20 fixed, each with a permanent regression test.**
+Final state: 237 tests + 37 black-box clean-room checks + e2e green; 37,500-request soak with
 zero errors, −1 MB memory drift and 14.3 ms p95 added latency; installs cleanly as an
 appliance app.
 
@@ -17,6 +17,7 @@ appliance app.
 | E | 25-minute soak, isolated DB | 0 — both budgets PASS |
 | F | appliance integration + real install | 5 (3 High, incl. a broken nightly sync and a data-boundary misclassification) |
 | G | exposure hardening (role split + Docker/UFW) | 1 appliance-wide firewall gap + 1 latent metrics bug |
+| H | operator review of the role split | 4 (incl. 1 High: console published /metrics) — found by Kurt, fixed in 0.0.2 |
 
 ## Round A — full regression (automated)
 
@@ -180,6 +181,21 @@ process per deployment had hidden it since Phase 13.
 surface), both containers running the real appliance shape — migrations exactly once, console
 skipping them — and **36/36 clean-room checks**, including new assertions that the published
 console does not serve the gateway and that the two `/role` endpoints disagree as expected.
+
+## Round H — operator review of the role split (findings by Kurt)
+
+Kurt reviewed the Round G integration on the appliance branch and found four defects the
+automated rounds missed — a useful record of *why* they were missed:
+
+| # | Severity | Defect | Why QA missed it | Fix (0.0.2) |
+| --- | --- | --- | --- | --- |
+| 1 | **High** (information disclosure) | Publishing the console published its unauthenticated `/metrics` (per-task-class counts, provider names, breaker state) — the exact endpoint documented "never route through Caddy" in Phase 13 | the clean-room script *asserted `/metrics` reachable*, so exposure read as a pass | appliance `deny_paths` at the edge (Kurt) + `/metrics` gated to gateway-serving roles in the image; clean-room now asserts it 404s on a split console |
+| 2 | Medium (duplicate writes) | Catalog sync scheduler not role-gated: both containers ran the same nightly upsert against the same tables | the rig never set `CATALOG_SYNC_CRON` on both containers | all background data work (sync, credential auto-revoke, retention purge) now runs only in gateway-serving roles; verified with the cron deliberately set on both containers |
+| 3 | Medium | `emergencyPort` declared only under `subdomains[]` — the console API reported no emergency URL while HAProxy served :5193 | manifest tests validated shape, not the API's read path | top-level `emergencyPort` mirroring vibe-connect (Kurt) |
+| 4 | Medium (docs) | Enable-flow docs asserted behavior that was never verified: "password resets on re-enable" and "email change creates a second admin" were both false (`state.apps.<slug>.seeded` gates the seed exactly once); `SESSION_SECRET` described as per-app when it is the shared `@JWT_SECRET@` | claims were inferred from reading code, not traced through the state gating | corrected by Kurt; lesson recorded — enable-flow claims must be exercised, not inferred |
+
+Kurt also added `rootServedOnly` and `health_extra` manifest fields — before that, *nothing*
+health-checked the gateway tier (it has no vhost, so no edge probe ever touched it).
 
 ## Standing QA assets (run these every round)
 

@@ -17,7 +17,7 @@ import { LoadShedGuard } from '../resilience/shed.js';
 import { RateLimiter } from '../resilience/limiter.js';
 import { Metrics } from '../ops/metrics.js';
 import { ResponseCache } from '../ops/cache.js';
-import { buildApp } from './app.js';
+import { buildApp, servesGateway } from './app.js';
 
 async function main(): Promise<void> {
   const env = loadEnv();
@@ -118,14 +118,22 @@ async function main(): Promise<void> {
     });
   }
 
+  // Background data work (auto-revoke, retention purge, catalog sync) is role-gated to the
+  // gateway: in a split deployment both containers share one database, and un-gated timers
+  // ran every job twice against the same tables (found by Kurt in appliance integration —
+  // the catalog sync was worked around there with CATALOG_SYNC_CRON="", fixed here at the
+  // source). The gateway is the container that owns the data plane.
+  const runsBackgroundJobs = servesGateway(env.ROUTER_ROLE);
+
   // hourly auto-revoke of expired grace credentials (6.4)
-  const autoRevoke = vault
-    ? setInterval(() => void vault.autoRevokeExpired().catch(() => {}), 3600_000)
-    : undefined;
+  const autoRevoke =
+    vault && runsBackgroundJobs
+      ? setInterval(() => void vault.autoRevokeExpired().catch(() => {}), 3600_000)
+      : undefined;
   autoRevoke?.unref();
 
   // optional daily ledger retention purge (13.7); audit_log is immutable by design (Q-050)
-  if (env.LEDGER_RETENTION_DAYS) {
+  if (env.LEDGER_RETENTION_DAYS && runsBackgroundJobs) {
     const days = env.LEDGER_RETENTION_DAYS;
     const purge = async (): Promise<void> => {
       const cutoff = new Date(Date.now() - days * 86_400_000);
@@ -139,11 +147,12 @@ async function main(): Promise<void> {
     void purge().catch(() => {});
   }
 
-  const scheduler = env.CATALOG_SYNC_CRON
-    ? (await import('../catalog/scheduler.js')).startCatalogScheduler(handle.db, log, env.CATALOG_SYNC_CRON, () =>
-        metrics.markSync(),
-      )
-    : undefined;
+  const scheduler =
+    env.CATALOG_SYNC_CRON && runsBackgroundJobs
+      ? (await import('../catalog/scheduler.js')).startCatalogScheduler(handle.db, log, env.CATALOG_SYNC_CRON, () =>
+          metrics.markSync(),
+        )
+      : undefined;
 
   // graceful shutdown (13.8): stop accepting, drain in-flight (incl. SSE + ledger writes),
   // force-close stragglers after a 15s grace window.

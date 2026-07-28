@@ -44,8 +44,13 @@ async function main(): Promise<void> {
   const version = (await (await fetch(`${BASE}/version`)).json()) as { version: string };
   check('version served', typeof version.version === 'string', version.version);
   check('admin UI served', (await fetch(`${BASE}/`)).status === 200);
-  const metrics = await fetch(`${BASE}/metrics`);
-  check('metrics served', metrics.status === 200 && (await metrics.text()).includes('vibe_router_'));
+  // /metrics lives with the traffic (gateway); a published console must NOT carry it —
+  // it is unauthenticated operational data and the console is the container with a vhost.
+  const metrics = await fetch(`${GATEWAY_BASE}/metrics`);
+  check('metrics served by the gateway', metrics.status === 200 && (await metrics.text()).includes('vibe_router_'));
+  if (SPLIT) {
+    check('console does not serve /metrics', (await fetch(`${BASE}/metrics`)).status === 404);
+  }
 
   // 2 — admin session
   const login = await fetch(`${BASE}/admin-api/auth/login`, {

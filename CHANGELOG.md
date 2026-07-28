@@ -5,6 +5,22 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.2 — 2026-07-27
+
+Hardening from the appliance integration review (defects found by the operator reviewing the
+role split — QA-REPORT.md Round H):
+
+- **`/metrics` is now gateway-role only.** A `console` container gets the public vhost, and it
+  was carrying the unauthenticated Prometheus endpoint (per-task-class request counts, provider
+  names, breaker state). The appliance also blocks `/metrics` at the edge (`deny_paths`); this
+  removes the surface from the container itself.
+- **Background data work is role-gated to the gateway** (catalog sync scheduler, hourly
+  credential auto-revoke, daily ledger retention purge). In a split deployment both containers
+  share one database, and every job ran twice; the appliance's `CATALOG_SYNC_CRON=""` workaround
+  on the console is no longer required.
+- Clean-room script: `/metrics` asserted on the gateway and asserted *absent* on a split
+  console; new role-separation checks.
+
 ## 0.0.1 — 2026-07-27
 
 First public release. Contains everything below (internal phases 0–15 plus seven post-review QA

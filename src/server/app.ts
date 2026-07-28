@@ -38,7 +38,7 @@ export interface BuildAppOptions {
  */
 export type RouterRole = 'gateway' | 'console' | 'both';
 
-const servesGateway = (role: RouterRole): boolean => role === 'gateway' || role === 'both';
+export const servesGateway = (role: RouterRole): boolean => role === 'gateway' || role === 'both';
 const servesConsole = (role: RouterRole): boolean => role === 'console' || role === 'both';
 
 /** Builds the Fastify instance. Kept separate from listen() so tests can inject() without a socket. */
@@ -73,14 +73,6 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
 
   app.get('/healthz', () => ({ status: 'ok' }));
 
-  if (opts.gateway?.deps.metrics) {
-    const metrics = opts.gateway.deps.metrics;
-    // internal-network only — never route through Caddy (docs/appliance.md)
-    app.get('/metrics', async (_req, reply) => {
-      return reply.header('content-type', 'text/plain; version=0.0.4').send(await metrics.render());
-    });
-  }
-
   app.get('/version', () => ({
     name: 'vibe-ai-router',
     version: VERSION,
@@ -88,6 +80,18 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
 
   const role = env.ROUTER_ROLE;
   app.get('/role', () => ({ role })); // lets ops confirm what a container is actually serving
+
+  // /metrics is internal-network only — never route through Caddy (docs/appliance.md). A
+  // console container gets a Caddy vhost, so it must not carry the endpoint at all: the
+  // appliance's routing.deny_paths blocks it at the edge, and gating it here means even a
+  // misconfigured proxy has nothing to expose (per-task-class counts, provider names,
+  // breaker state are firm-operational data). Gateway metrics live where the traffic is.
+  if (opts.gateway?.deps.metrics && servesGateway(role)) {
+    const metrics = opts.gateway.deps.metrics;
+    app.get('/metrics', async (_req, reply) => {
+      return reply.header('content-type', 'text/plain; version=0.0.4').send(await metrics.render());
+    });
+  }
 
   if (opts.gateway && servesGateway(role)) {
     registerGateway(app, {
