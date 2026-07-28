@@ -3,8 +3,8 @@
 **Context:** operator decision 2026-07-27 — app migrations (MIG-1…8) are ON HOLD until the
 router has passed multiple QA rounds. This report is the record. Scope: router only.
 
-**Summary: 6 rounds run, 14 defects found, 14 fixed, each with a permanent regression test.**
-Final state: 234 tests + 31 black-box clean-room checks + e2e green; 37,500-request soak with
+**Summary: 7 rounds run, 16 defects found, 16 fixed, each with a permanent regression test.**
+Final state: 237 tests + 36 black-box clean-room checks + e2e green; 37,500-request soak with
 zero errors, −1 MB memory drift and 14.3 ms p95 added latency; installs cleanly as an
 appliance app.
 
@@ -16,6 +16,7 @@ appliance app.
 | D | security pass, admin + auth surface | 4 (incl. 1 High: SQL/parameter disclosure) |
 | E | 25-minute soak, isolated DB | 0 — both budgets PASS |
 | F | appliance integration + real install | 5 (3 High, incl. a broken nightly sync and a data-boundary misclassification) |
+| G | exposure hardening (role split + Docker/UFW) | 1 appliance-wide firewall gap + 1 latent metrics bug |
 
 ## Round A — full regression (automated)
 
@@ -135,6 +136,50 @@ Verification: `console/manifests` validation (11/11 appliance tests), routing te
 env-template render preflight (no unsubstituted markers), and a full install simulation —
 container on an empty database → migrations at boot → seed command → **31/31 clean-room
 checks**, serving from the operator's registered model.
+
+## Round G — exposure hardening (role split + Docker/UFW)
+
+Prompted by the question "if we host on the appliance, is it WAN-accessible?". The answer was
+verified rather than asserted, and turned out to be *partly* — for a reason that had nothing to
+do with the router's own design.
+
+**Finding — the appliance's UFW rules never applied to Docker-published ports.**
+`ufw allow`/`ufw deny` write to the INPUT chain. Docker-published traffic never traverses INPUT:
+it is DNAT'd in `nat/PREROUTING` and filtered through `FORWARD → DOCKER`. So on any host with a
+public IP — every DO droplet — the emergency range `:5171–:5198` (Portainer and Duplicati
+included) was reachable from the internet while `ufw status` displayed it as denied. Pre-existing
+and appliance-wide; not introduced by the router, but the router's console would have inherited
+it as its *primary* access path.
+
+Fixed in `lib/ufw-rules.sh`: a managed `DOCKER-USER` block written into `/etc/ufw/after.rules`
+(so it reloads with UFW at boot — raw `iptables` rules would vanish on reboot) applying the same
+RFC1918 + loopback + optional Tailscale-CGNAT allow-list and a catch-all `DROP`, matched on
+conntrack's ORIGINAL destination port so it holds regardless of host→container port mapping.
+Exercised in isolation against a temporary `after.rules`: idempotent across re-runs, preserves
+pre-existing content, adds and removes the tailnet rule as the toggle changes, and never
+accumulates duplicate blocks.
+
+**Change — `ROUTER_ROLE` splits the two surfaces.** The console and the app-facing gateway shared
+a port, so publishing one published both — the reason the app had to be internal-only. The same
+image now runs twice:
+
+| Container | Role | Port | Exposure |
+| --- | --- | --- | --- |
+| `vibe-ai-router` | `gateway` | 8220 | `vibe_net` only — no vhost, no tunnel, no host publish |
+| `vibe-ai-router-console` | `console` | 8222 | Caddy vhost (HTTPS) + emergency `:5193` |
+
+A console process answers `/v1/*` with a **JSON 404** — never the SPA shell, which a caller would
+read as success. The gateway runs migrations at boot; the console sets `SKIP_MIGRATIONS=1` and
+waits on the gateway's health check, so two processes never race the same schema.
+
+**Latent bug surfaced by the split:** `Metrics` registered one gauge on prom-client's *global*
+registry, so constructing a second instance in one process threw `already been registered`. One
+process per deployment had hidden it since Phase 13.
+
+**Verified:** 237 tests (3 new role-separation cases asserting each role refuses the other's
+surface), both containers running the real appliance shape — migrations exactly once, console
+skipping them — and **36/36 clean-room checks**, including new assertions that the published
+console does not serve the gateway and that the two `/role` endpoints disagree as expected.
 
 ## Standing QA assets (run these every round)
 

@@ -74,11 +74,16 @@ export class Metrics {
   constructor(breakerSnapshot?: () => BreakerSnapshot[]) {
     collectDefaultMetrics({ register: this.registry, prefix: 'vibe_router_' });
     if (breakerSnapshot) {
-      // refresh breaker gauges + sync age at scrape time
+      // Refresh breaker gauges + sync age at scrape time.
+      // `registers` is explicit: without it prom-client attaches the gauge to its GLOBAL
+      // default registry, so constructing a second Metrics in one process threw
+      // "already been registered" — which only showed up once the console and gateway roles
+      // could both be built side by side.
       this.registry.registerMetric(
         new Gauge({
           name: 'vibe_router_breaker_refresh',
           help: 'internal scrape-time refresh hook (always 1)',
+          registers: [this.registry],
           collect: () => {
             for (const snap of breakerSnapshot()) {
               this.breakerState.set(

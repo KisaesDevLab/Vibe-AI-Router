@@ -30,7 +30,12 @@ COPY --from=build --chown=node:node /app/data ./data
 COPY --from=build --chown=node:node /app/ui/dist ./ui/dist
 COPY --from=build --chown=node:node /app/package.json ./package.json
 EXPOSE 8220
+# Probes $PORT, not a literal — the same image runs as the gateway (8220) and the console
+# (8222), and a hard-coded port would mark the console permanently unhealthy.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
-  CMD node -e "fetch('http://127.0.0.1:8220/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8220)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 # migrations run before serve — reversible pairs, safe to re-run (idempotent)
-CMD ["sh", "-c", "node dist/db/migrate.js up && node dist/src/server/index.js"]
+# Migrations run before serving (reversible pairs, idempotent). SKIP_MIGRATIONS=1 is for
+# additional containers of the same image (e.g. the console role) that share one database —
+# only one process should drive the schema, and the others wait on its health check.
+CMD ["sh", "-c", "if [ \"$SKIP_MIGRATIONS\" = \"1\" ]; then echo 'skipping migrations (SKIP_MIGRATIONS=1)'; else node dist/db/migrate.js up; fi && node dist/src/server/index.js"]

@@ -90,10 +90,29 @@ container (migrations run at boot), waits for `/healthz`, then runs the seed com
 appliance's local model server, populates the catalog from the vendored feed, and applies the
 local-first policy pack.
 
-**Access.** `http://<appliance-ip>:5193` — the router's console has **no public vhost by
-design**: one port serves both the console and the `/v1` gateway, so publishing it would
-publish the gateway too. The port is UFW-gated to RFC1918 + Tailscale. Credentials appear in
-`/opt/vibe/CREDENTIALS.txt` and the console's first-login card.
+**Two containers, one image.** `ROUTER_ROLE` splits the surfaces so the console can have TLS
+without republishing the gateway alongside it:
+
+| Container | Role | Port | Exposure |
+| --- | --- | --- | --- |
+| `vibe-ai-router` | `gateway` | 8220 | `vibe_net` **only** — no Caddy vhost, no tunnel ingress, no host publish |
+| `vibe-ai-router-console` | `console` | 8222 | Caddy vhost (HTTPS) + emergency `:5193` |
+
+The gateway runs migrations at boot; the console sets `SKIP_MIGRATIONS=1` and waits on the
+gateway's health check, so two processes never race the same schema. A console container
+answers `/v1/*` with a JSON 404 — verified black-box by `scripts/qa-clean-room.ts` whenever
+`GATEWAY_URL` differs from `ROUTER_URL`.
+
+**Access.** Console at `https://airouter.<your-domain>`, like any other app. `:5193` remains
+the staff fallback — but note that in domain mode session cookies are `Secure`, so signing in
+over that plain-HTTP port will not work; it confirms the service is up, and fixing TLS/DNS is
+the way back in. Credentials appear in `/opt/vibe/CREDENTIALS.txt` and the first-login card.
+
+**Firewall note.** Docker-published ports bypass UFW's INPUT chain, so `lib/ufw-rules.sh`
+also writes a `DOCKER-USER` block into `/etc/ufw/after.rules` that applies the same
+RFC1918 + Tailscale policy to the emergency-port range. Without it, `:5171–:5198` are
+reachable from the internet on any host with a public IP despite `ufw status` showing them
+denied. Confirm with `sudo iptables -L DOCKER-USER -n` after enabling.
 
 **What apps use:** `VIBE_AI_ROUTER_URL=http://vibe-ai-router:8220` on `vibe_net`, with a token
 minted per app in the router console (App tokens).

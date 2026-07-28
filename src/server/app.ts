@@ -23,6 +23,24 @@ export interface BuildAppOptions {
   adminApi?: Omit<AdminApiOptions, 'deps'> & { deps?: PipelineDeps };
 }
 
+/**
+ * Which surfaces this process serves (ROUTER_ROLE).
+ *
+ *   gateway — `/v1/*` for apps. NEVER publicly routed: it authenticates with app tokens and
+ *             spends the firm's AI budget, so it stays on the internal network.
+ *   console — the staff admin UI + `/admin-api/*`. Safe to put behind Caddy/TLS because it is
+ *             session-authenticated and CSRF-guarded.
+ *   both    — one process serves everything (dev default, and the pre-split deployment shape).
+ *
+ * Splitting them into two containers is what lets the console have a real HTTPS hostname
+ * without publishing the gateway alongside it — the two surfaces shared a port before, so
+ * exposing one exposed both.
+ */
+export type RouterRole = 'gateway' | 'console' | 'both';
+
+const servesGateway = (role: RouterRole): boolean => role === 'gateway' || role === 'both';
+const servesConsole = (role: RouterRole): boolean => role === 'console' || role === 'both';
+
 /** Builds the Fastify instance. Kept separate from listen() so tests can inject() without a socket. */
 export function buildApp(opts: BuildAppOptions): FastifyInstance {
   const { env } = opts;
@@ -68,7 +86,10 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
     version: VERSION,
   }));
 
-  if (opts.gateway) {
+  const role = env.ROUTER_ROLE;
+  app.get('/role', () => ({ role })); // lets ops confirm what a container is actually serving
+
+  if (opts.gateway && servesGateway(role)) {
     registerGateway(app, {
       deps: opts.gateway.deps,
       limits: {
@@ -85,7 +106,7 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
     registerBillingFeed(app, { db: opts.gateway.deps.db });
   }
 
-  if (opts.adminApi && opts.gateway) {
+  if (opts.adminApi && opts.gateway && servesConsole(role)) {
     registerAdminApi(app, { ...opts.adminApi, deps: opts.adminApi.deps ?? opts.gateway.deps });
 
     // serve the built admin UI when present (production container; dev uses vite proxy).
@@ -97,12 +118,16 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
     if (uiDist) {
       void app.register(fastifyStatic, { root: uiDist, prefix: '/' });
       app.setNotFoundHandler((req, reply) => {
-        // SPA fallback for UI routes only; API 404s stay JSON
+        // SPA fallback for UI routes only; API 404s stay JSON. /v1 is excluded even in
+        // console-only mode: a console container must answer a stray gateway call with a
+        // JSON 404, never the SPA shell (which would look like a 200 to a caller).
         if (
           req.method === 'GET' &&
           !req.url.startsWith('/v1/') &&
           !req.url.startsWith('/admin') &&
           !req.url.startsWith('/healthz') &&
+          !req.url.startsWith('/metrics') &&
+          !req.url.startsWith('/role') &&
           !req.url.startsWith('/version')
         ) {
           return reply.sendFile('index.html');

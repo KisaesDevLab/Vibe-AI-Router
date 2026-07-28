@@ -40,6 +40,12 @@ const envSchema = z.object({
   BREAKER_OPEN_MS: z.coerce.number().int().positive().default(30_000),
   ROUTER_TIMEOUT_TOTAL_MS: z.coerce.number().int().positive().default(120_000),
   ROUTER_TIMEOUT_STREAM_IDLE_MS: z.coerce.number().int().positive().default(60_000),
+  /**
+   * Which surfaces this process serves (see RouterRole in src/server/app.ts).
+   * `gateway` = /v1 for apps (never publicly routed); `console` = admin UI + /admin-api
+   * (safe behind Caddy/TLS); `both` = one process serves everything (dev default).
+   */
+  ROUTER_ROLE: z.enum(['gateway', 'console', 'both']).default('both'),
   /** Admin UI session signing secret; unset → random per boot (sessions reset on restart) */
   SESSION_SECRET: z.string().min(16).optional(),
   /** Set when the admin UI is served over HTTPS (Caddy) — marks cookies Secure */

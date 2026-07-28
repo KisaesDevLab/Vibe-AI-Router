@@ -9,6 +9,14 @@
  * Exit 0 = all checks pass. Prints one line per check.
  */
 const BASE = process.env['ROUTER_URL'] ?? 'http://127.0.0.1:8226';
+/**
+ * Where the app-facing gateway lives. On a split deployment (ROUTER_ROLE=gateway/console —
+ * the appliance shape) this is a different container and URL from the console; on a combined
+ * deployment (`both`) it is the same. Defaults to ROUTER_URL so single-process installs work
+ * unchanged.
+ */
+const GATEWAY_BASE = process.env['GATEWAY_URL'] ?? BASE;
+const SPLIT = GATEWAY_BASE !== BASE;
 const ADMIN_EMAIL = process.env['ADMIN_EMAIL'] ?? 'admin@demo.firm';
 const ADMIN_PASSWORD = process.env['ADMIN_PASSWORD'] ?? 'vibe-router-demo-password';
 /**
@@ -100,14 +108,42 @@ async function main(): Promise<void> {
     !JSON.stringify(providerList).includes('ciphertext'),
   );
 
+  // 2b — SPLIT DEPLOYMENT: the published console must not carry the gateway. This is the
+  // entire reason the roles were separated — if it regresses, putting the console behind TLS
+  // silently republishes /v1 to whoever can reach the hostname.
+  if (SPLIT) {
+    for (const path of ['/v1/chat/completions', '/v1/billing/usage?period=209901']) {
+      const leak = await fetch(`${BASE}${path}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${APP_TOKEN}`,
+          'x-vibe-task-class': TASK_CLASS,
+        },
+        body: JSON.stringify({ messages: [{ role: 'user', content: 'x' }] }),
+      });
+      check(`console does not serve ${path.split('?')[0]}`, leak.status === 404);
+      check(
+        'console 404s gateway paths as JSON (not the SPA shell)',
+        (leak.headers.get('content-type') ?? '').includes('application/json'),
+      );
+    }
+    const roles = await Promise.all(
+      [BASE, GATEWAY_BASE].map(async (u) =>
+        ((await (await fetch(`${u}/role`)).json()) as { role: string }).role,
+      ),
+    );
+    check('roles are actually split', roles[0] === 'console' && roles[1] === 'gateway', roles.join(' / '));
+  }
+
   // 3 — gateway auth boundaries
-  const noClass = await fetch(`${BASE}/v1/chat/completions`, {
+  const noClass = await fetch(`${GATEWAY_BASE}/v1/chat/completions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${APP_TOKEN}` },
     body: JSON.stringify({ messages: [{ role: 'user', content: 'x' }] }),
   });
   check('missing task-class header → 403 (fail closed)', noClass.status === 403);
-  const badToken = await fetch(`${BASE}/v1/chat/completions`, {
+  const badToken = await fetch(`${GATEWAY_BASE}/v1/chat/completions`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -117,7 +153,7 @@ async function main(): Promise<void> {
     body: JSON.stringify({ messages: [{ role: 'user', content: 'x' }] }),
   });
   check('invalid token → 401', badToken.status === 401);
-  const unknownClass = await fetch(`${BASE}/v1/chat/completions`, {
+  const unknownClass = await fetch(`${GATEWAY_BASE}/v1/chat/completions`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -129,7 +165,7 @@ async function main(): Promise<void> {
   check('unknown task class → 403', unknownClass.status === 403);
 
   // 4 — completions (local tier)
-  const chat = await fetch(`${BASE}/v1/chat/completions`, {
+  const chat = await fetch(`${GATEWAY_BASE}/v1/chat/completions`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -148,7 +184,7 @@ async function main(): Promise<void> {
   );
   check('x-request-id returned', requestId.length > 0);
 
-  const stream = await fetch(`${BASE}/v1/chat/completions`, {
+  const stream = await fetch(`${GATEWAY_BASE}/v1/chat/completions`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -164,7 +200,7 @@ async function main(): Promise<void> {
   );
 
   // 5 — scrubber on local tier passes verbatim (exempt), audit + ledger evidence
-  const pii = await fetch(`${BASE}/v1/chat/completions`, {
+  const pii = await fetch(`${GATEWAY_BASE}/v1/chat/completions`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -195,7 +231,7 @@ async function main(): Promise<void> {
 
   // 6 — billing feed
   const period = `${new Date().getUTCFullYear()}${String(new Date().getUTCMonth() + 1).padStart(2, '0')}`;
-  const billing = await fetch(`${BASE}/v1/billing/usage?period=${period}`, {
+  const billing = await fetch(`${GATEWAY_BASE}/v1/billing/usage?period=${period}`, {
     headers: { authorization: `Bearer ${APP_TOKEN}` },
   });
   check('billing feed answers', billing.status === 200);
