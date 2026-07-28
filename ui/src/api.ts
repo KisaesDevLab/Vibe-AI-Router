@@ -1,5 +1,42 @@
 /** Thin fetch wrapper for /admin-api — mutations carry the x-vibe-admin CSRF header. */
 
+/**
+ * Where this bundle is mounted, as a path prefix with no trailing slash
+ * (`''` at a hostname root, `'/ai-router'` under a path mount).
+ *
+ * Asset URLs are relative (see `base` in vite.config.ts), but API calls are
+ * written as absolute paths — `/admin-api/auth/me` — and the browser sends
+ * those to the ROOT of the host regardless of where the page came from. Under
+ * a path mount that reaches whatever else lives at the root, so every request
+ * fails in a way that looks like the API is down.
+ *
+ * Derived from `document.baseURI` rather than configured, so the same
+ * container image works at a hostname root and under any prefix with no env
+ * var, no build arg, and no entrypoint rewriting.
+ *
+ * Exported for testing.
+ */
+export function resolveMountPath(baseURI: string): string {
+  let dir: string;
+  try {
+    // `new URL('.', …)` yields the directory of the current document, always
+    // with a trailing slash. A page served at `/ai-router` (no slash) would
+    // resolve to `/` — proxies redirect the bare form for exactly this
+    // reason, and getting it wrong degrades to today's behaviour.
+    dir = new URL('.', baseURI).pathname;
+  } catch {
+    return '';
+  }
+  return dir === '/' ? '' : dir.replace(/\/+$/, '');
+}
+
+const MOUNT_PATH = typeof document === 'undefined' ? '' : resolveMountPath(document.baseURI);
+
+/** Absolute API paths get the mount prefix; anything else is left alone. */
+function mounted(path: string): string {
+  return path.startsWith('/') ? MOUNT_PATH + path : path;
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -13,7 +50,7 @@ export class ApiError extends Error {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(mounted(path), {
     method,
     headers: {
       ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
