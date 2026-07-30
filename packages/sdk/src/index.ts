@@ -342,6 +342,38 @@ export class VibeAiClient {
     }
   }
 
+  /**
+   * Forced-JSON completion (R3): sends a json_schema response format and returns the parsed
+   * object — the SDK equivalent of the "single required tool call" pattern the apps used
+   * against Anthropic directly. Tolerates markdown fences around the JSON (local models).
+   * Throws VibeAiError('unknown') when the response cannot be parsed against expectations;
+   * schema VALIDATION stays the caller's job (apps already have zod at the call sites).
+   */
+  async completeJson<T>(
+    taskClass: string,
+    messages: ChatMessage[],
+    schema: { name: string; schema: unknown; strict?: boolean },
+    options?: Omit<RequestOptions, 'responseFormat'>,
+  ): Promise<CompletionResult & { data: T }> {
+    const result = await this.complete(taskClass, messages, {
+      ...options,
+      responseFormat: { type: 'json_schema', ...schema },
+    });
+    // some providers answer a forced-JSON request with a tool call instead of content
+    const raw = result.content.trim() !== '' ? result.content : (result.toolCalls[0]?.arguments ?? '');
+    const unfenced = raw
+      .trim()
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/, '');
+    try {
+      return { ...result, data: JSON.parse(unfenced) as T };
+    } catch {
+      throw new VibeAiError('unknown', 502, `response for ${schema.name} was not valid JSON`, undefined, {
+        requestId: result.requestId,
+      });
+    }
+  }
+
   /** Declare this app's task classes at startup (12.2). Idempotent; new classes start local_only. */
   async registerTaskClasses(params: {
     app: string;
