@@ -1,29 +1,35 @@
 # Addendum — the router as an OPTION in each Vibe app
 
-**Status: plan for operator review. The MIG hold (Q-059) remains in force — nothing here
-authorizes app changes.** Prepared 2026-07-29 from a call-site survey of all 11 suite repos.
+**Status: D1 DECIDED (2026-07-29, Kurt — see Q-063); D2–D6 open. The MIG hold (Q-059)
+remains in force — nothing here authorizes app changes.** Prepared 2026-07-29 from a
+call-site survey of all 11 suite repos.
 
 ## What this addendum changes
 
 The migration playbook (`docs/migration-playbook.md`) and tickets (`docs/migration-tickets.md`)
 assume a **hard swap**: provider SDKs deleted from each app, direct path retired after sign-off
-(Q-047 / plan 15.8). This addendum revises that posture to **dual-mode**:
+(Q-047 / plan 15.8). This addendum replaces that posture with **permanent dual-mode**:
 
 > Every AI-using app carries two drivers behind its existing provider interface — its current
-> direct path and a router driver — selected by configuration. The router is the *recommended*
-> mode and the appliance default for new installs; direct mode remains a supported
-> configuration, not a temporary scaffold.
+> direct path and a router driver — selected by configuration. Dual-mode is the standing
+> posture, not a transition: **some apps ship as single-install standalone instances, where no
+> router exists to point at** (operator decision Q-063). Direct mode is therefore a first-class
+> deployment mode, not a legacy scaffold, and there is no sunset date.
 
-Because this supersedes part of a reviewed decision (Q-047's "retire the direct path"), it
-needs an explicit operator verdict before MIG work starts. Everything else below survives
-either verdict — dual-mode is a superset of the hard swap (the swap is just "delete the direct
-driver later").
+Deployment topology decides the mode:
 
-**What dual-mode costs, stated honestly:** invariant #1 ("apps never hold provider keys")
-holds only for firms that choose router mode. The "where your data goes" one-pager must
-describe the *active* mode per app, and the compliance story ("no intermediary holds client
-data") is unchanged — in direct mode the app itself holds the firm's key, in router mode the
-router does; both are the firm's own infrastructure.
+| Topology | Mode | Why |
+| --- | --- | --- |
+| Appliance install (full suite) | `router` (recommended default) | the router is present, invariant #1 applies |
+| Standalone single-install app | `direct` | there is no router in the deployment |
+| Appliance install, firm opts out | `direct` (supported) | continuity during adoption |
+
+**What dual-mode means for the invariants, stated honestly:** invariant #1 ("apps never hold
+provider keys") is an **appliance-deployment invariant**, not a universal app invariant. The
+"where your data goes" one-pager must describe the *active* mode per app. The compliance story
+("no intermediary holds client data") is unchanged in both modes — in direct mode the app
+itself holds the firm's key, in router mode the router does; both are the firm's own
+infrastructure.
 
 ## Mode contract (identical in every app)
 
@@ -126,8 +132,9 @@ if approved. Each ticket is independently shippable and reversible (flip the fla
 
 ## Decision items for the operator
 
-- **D1** — Approve dual-mode as the standing posture (supersedes Q-047's "retire direct
-  path"), or keep it as a transition state with a sunset date per app?
+- **D1** — ✅ **DECIDED (2026-07-29, Kurt / Q-063): dual-mode is the standing posture,
+  permanently** — some apps ship as single-install standalone instances where no router
+  exists. Supersedes Q-047's "retire the direct path". No sunset dates.
 - **D2** — Appliance default for *new* installs once a driver ships: `router` or `direct`?
   (Recommendation: `router` — new installs have no direct-path muscle memory to preserve.)
 - **D3** — Automate app-token minting during `vibe enable <app>` (enable script calls the

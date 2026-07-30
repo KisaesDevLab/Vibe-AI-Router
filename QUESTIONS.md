@@ -246,3 +246,9 @@ Grouped by phase. This file is the Phase 15 review agenda.
   published** → config-time gating refuses DO models for classes requiring undeclared
   capabilities (fail closed, invariant #7); operators unlock per model via
   capability_overrides after verifying against their account → **S**
+- [Q-063] Router adoption posture in apps: hard swap (Q-047) vs dual-mode? → **operator
+  decision 2026-07-29 (Kurt): dual-mode PERMANENTLY — router is an option, direct path is a
+  first-class mode** → some apps ship as single-install standalone instances with no router
+  in the deployment; invariant #1 ("apps never hold provider keys") is hereby scoped to
+  appliance deployments in router mode. Supersedes Q-047's "retire direct path" / plan 15.8.
+  Details: docs/router-option-addendum.md (D2–D6 still open) → **S**
