@@ -258,3 +258,9 @@ Grouped by phase. This file is the Phase 15 review agenda.
   step operators skip); D4 R1 Anthropic-native passthrough APPROVED for the backlog (Phase D
   gate for TRC chat); D5 GLM-OCR stays direct (local tier, revisit as its own ticket); D6
   Q-059 hold LIFTED for Phase A (Payroll-Time, Calculators) → **S**
+- [Q-065] SDK distribution to app repos (no npm auth available) → **pnpm repos: git
+  dependency pinned to a tag (github:KisaesDevLab/Vibe-AI-Router#sdk-v0.2.0&path:packages/sdk,
+  prepare script builds on install); npm-workspace repos: vendor the single dependency-free
+  file with a provenance header** → the SDK is deliberately one file with zero deps precisely
+  to make vendoring safe; GitHub Packages rejected (requires auth even for public installs,
+  breaking standalone installs); npm publish deferred until credentials exist → **S**

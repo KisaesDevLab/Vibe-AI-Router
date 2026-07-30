@@ -1,6 +1,6 @@
 # Addendum — the router as an OPTION in each Vibe app
 
-**Status: ALL DECISIONS MADE — D1 (Q-063), D2–D6 (Q-064, 2026-07-29, Kurt: per recommendations). The Q-059 hold is LIFTED for Phase A.** Prepared 2026-07-29 from a
+**Status: decisions D1–D6 made (Q-063/Q-064). PHASE A SHIPPED 2026-07-29 — MIG-7 (Vibe-Payroll-Time 4d04ade) and MIG-9 (Vibe-Calculators e452ec6) landed with D3 auto-minting in the appliance (5063cc1); W0 SDK 0.2.0 tagged (sdk-v0.2.0, completeJson + git-dep prepare). Next: Phase B (MIG-1 trial-balance-app).** Prepared 2026-07-29 from a
 call-site survey of all 11 suite repos.
 
 ## What this addendum changes
