@@ -1,6 +1,6 @@
 # Addendum — the router as an OPTION in each Vibe app
 
-**Status: decisions D1–D6 made (Q-063/Q-064). PHASE A SHIPPED 2026-07-29 — MIG-7 (Vibe-Payroll-Time 4d04ade) and MIG-9 (Vibe-Calculators e452ec6) landed with D3 auto-minting in the appliance (5063cc1); W0 SDK 0.2.0 tagged (sdk-v0.2.0, completeJson + git-dep prepare). Next: Phase B (MIG-1 trial-balance-app).** Prepared 2026-07-29 from a
+**Status: decisions D1–D6 made (Q-063/Q-064). PHASE A SHIPPED 2026-07-29 — MIG-7 (Vibe-Payroll-Time 4d04ade) and MIG-9 (Vibe-Calculators e452ec6) landed with D3 auto-minting in the appliance (5063cc1); W0 SDK 0.2.0 tagged (sdk-v0.2.0, completeJson + git-dep prepare). PHASE B SHIPPED 2026-07-30 — MIG-1′ trial-balance-app: RouterLLMProvider behind getLLMProvider() (complete + streaming SSE + vision), all 15 aiComplete sites + support-chat stream mapped to task classes (3 pack + 3 new local_only: tb_bank_statement_extract / tb_support_chat / tb_diagnostics, Q-066), vendored SDK per Q-065, managed-by-router settings banner, appliance vibe-tb env template; unit 10/10, live-wire 19/19 against the published image. Shadow-diff vs a real direct provider still pending the real appliance. Next: Phase C (MIG-8′ Time-Billing → MIG-2′ myBooks → MIG-6′ TxConvertor).** Prepared 2026-07-29 from a
 call-site survey of all 11 suite repos.
 
 ## What this addendum changes

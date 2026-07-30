@@ -264,3 +264,14 @@ Grouped by phase. This file is the Phase 15 review agenda.
   file with a provenance header** → the SDK is deliberately one file with zero deps precisely
   to make vendoring safe; GitHub Packages rejected (requires auth even for public installs,
   breaking standalone installs); npm publish deferred until credentials exist → **S**
+- [Q-066] MIG-1 trial-balance-app task-class mapping (15 aiComplete sites + 1 stream) →
+  **3 pack classes reused (tb_classification for csv/tax-line/bank-txn/account-number
+  suggestion; tb_doc_extract for TB PDF import incl. chat+verify; tb_research_summary for
+  the zero-client-data model-pricing fetch) + 3 NEW classes (tb_bank_statement_extract —
+  full statements are account numbers + transaction detail throughout, txconv precedent,
+  requires vision+json_schema, defaultMaxTokens 32768; tb_support_chat — streaming KB chat;
+  tb_diagnostics — TB/GL observations), all three start local_only until widened** →
+  driver fails closed on any call site that omits taskClass (an unmapped site must not ride
+  a default class). NOTE for operators: TB call sites request up to 8192 output tokens on
+  tb_classification (pack default clamps at 2048) — raise the policy max-token override if
+  truncation shows up in ai_usage_log → **S**
