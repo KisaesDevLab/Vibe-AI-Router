@@ -1,7 +1,6 @@
 # Addendum — the router as an OPTION in each Vibe app
 
-**Status: D1 DECIDED (2026-07-29, Kurt — see Q-063); D2–D6 open. The MIG hold (Q-059)
-remains in force — nothing here authorizes app changes.** Prepared 2026-07-29 from a
+**Status: ALL DECISIONS MADE — D1 (Q-063), D2–D6 (Q-064, 2026-07-29, Kurt: per recommendations). The Q-059 hold is LIFTED for Phase A.** Prepared 2026-07-29 from a
 call-site survey of all 11 suite repos.
 
 ## What this addendum changes
@@ -135,12 +134,8 @@ if approved. Each ticket is independently shippable and reversible (flip the fla
 - **D1** — ✅ **DECIDED (2026-07-29, Kurt / Q-063): dual-mode is the standing posture,
   permanently** — some apps ship as single-install standalone instances where no router
   exists. Supersedes Q-047's "retire the direct path". No sunset dates.
-- **D2** — Appliance default for *new* installs once a driver ships: `router` or `direct`?
-  (Recommendation: `router` — new installs have no direct-path muscle memory to preserve.)
-- **D3** — Automate app-token minting during `vibe enable <app>` (enable script calls the
-  router admin API with credentials it already holds), or keep manual console minting?
-  (Recommendation: automate; manual minting is the step operators will skip or botch.)
-- **D4** — R1 (Anthropic passthrough): build it, or accept TRC chat staying direct
-  indefinitely? This is the largest single line item and only one app needs it.
-- **D5** — R4 GLM-OCR: confirm leave-direct recommendation.
-- **D6** — Lift or keep the Q-059 hold for Phase A once D1–D3 are decided.
+- **D2** — ✅ DECIDED: `router` default for new appliance installs once the app's driver ships.
+- **D3** — ✅ DECIDED: automate minting during `vibe enable`; graceful degrade to direct mode with a warning when the router is not yet enabled/healthy.
+- **D4** — ✅ DECIDED: build R1 (backlog, gates Phase D / TRC chat).
+- **D5** — ✅ DECIDED: GLM-OCR stays direct; revisit as its own ticket post-adoption.
+- **D6** — ✅ DECIDED: Q-059 hold lifted for Phase A (MIG-7′ Payroll-Time, MIG-9 Calculators).

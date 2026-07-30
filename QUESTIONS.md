@@ -252,3 +252,9 @@ Grouped by phase. This file is the Phase 15 review agenda.
   in the deployment; invariant #1 ("apps never hold provider keys") is hereby scoped to
   appliance deployments in router mode. Supersedes Q-047's "retire direct path" / plan 15.8.
   Details: docs/router-option-addendum.md (D2–D6 still open) → **S**
+- [Q-064] Addendum decisions D2-D6 → **operator verdict 2026-07-29 (Kurt): go with the
+  recommendations** → D2 new appliance installs default VIBE_AI_MODE=router once an app's
+  driver ships; D3 automate app-token minting during `vibe enable` (manual minting is the
+  step operators skip); D4 R1 Anthropic-native passthrough APPROVED for the backlog (Phase D
+  gate for TRC chat); D5 GLM-OCR stays direct (local tier, revisit as its own ticket); D6
+  Q-059 hold LIFTED for Phase A (Payroll-Time, Calculators) → **S**
