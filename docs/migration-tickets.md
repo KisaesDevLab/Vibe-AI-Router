@@ -3,6 +3,12 @@
 > 2026-07-27: Kurt — no app changes until the router has passed multiple QA rounds. QA rounds
 > A/B/C are complete (QA-REPORT.md); the hold remains until explicit operator sign-off.
 
+> **2026-07-29: superseded in part by `docs/router-option-addendum.md`** — dual-mode
+> (router as an option per app) instead of a hard swap, with a corrected roster from a
+> call-site survey: MIG-3 (1099) and MIG-5 (Connect) have **no AI code** and become no-ops;
+> Tax-Research-Chat (MIG-4) splits, gated on new router surface (R1/R2); Calculators joins
+> as MIG-9. Effort and order in the addendum. Awaiting operator verdicts D1–D6.
+
 Template per docs/migration-playbook.md (8 steps). Effort assumes the playbook; task classes
 already exist in the default pack unless noted.
 
