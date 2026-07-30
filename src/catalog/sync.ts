@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { and, eq, inArray, not } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
-import { modelPricing, models } from '../../db/schema.js';
+import { modelPricing, models, type ProviderKind } from '../../db/schema.js';
 
 /**
  * The vendored feed sits at <repo>/data/. Its path relative to THIS file differs between the
@@ -18,9 +18,17 @@ import { modelPricing, models } from '../../db/schema.js';
  * both — a single hard-coded relative path made the nightly sync fail with ENOENT inside the
  * container while passing every dev-box test.
  */
-const VENDORED_CANDIDATES = [
-  join(dirname(fileURLToPath(import.meta.url)), '../../data/litellm-prices.json'),
-  join(dirname(fileURLToPath(import.meta.url)), '../../../data/litellm-prices.json'),
+/**
+ * Two vendored files, one feed: LiteLLM's pinned pricing snapshot plus a first-party curated
+ * file for DigitalOcean Gradient serverless inference (Q-061 — LiteLLM's feed carries no
+ * digitalocean entries, and hand-curated rows do not belong inside a third-party snapshot
+ * whose provenance is "pinned upstream"). Both use the LiteLLM entry shape; DO keys are
+ * namespaced (`digitalocean/<native-id>`) so canonical ids are used verbatim.
+ */
+const VENDORED_FILES = ['litellm-prices.json', 'digitalocean-models.json'] as const;
+const VENDORED_ROOTS = [
+  join(dirname(fileURLToPath(import.meta.url)), '../../data'),
+  join(dirname(fileURLToPath(import.meta.url)), '../../../data'),
 ];
 
 const litellmEntry = z
@@ -43,18 +51,19 @@ const litellmEntry = z
   })
   .passthrough();
 
-const PROVIDER_TO_KIND: Record<string, 'openai_compat' | 'anthropic' | 'local'> = {
+const PROVIDER_TO_KIND: Record<string, ProviderKind> = {
   openai: 'openai_compat',
   azure: 'openai_compat',
   groq: 'openai_compat',
   deepseek: 'openai_compat',
   anthropic: 'anthropic',
   ollama: 'local',
+  digitalocean: 'digitalocean',
 };
 
 export interface SyncedModel {
   canonicalId: string;
-  providerKind: 'openai_compat' | 'anthropic' | 'local';
+  providerKind: ProviderKind;
   displayName: string;
   contextWindow: number;
   maxOutput: number | null;
@@ -167,22 +176,38 @@ export function parseFeed(feed: Record<string, unknown>): { entries: SyncedModel
 }
 
 export async function loadVendoredFeed(): Promise<{ feed: Record<string, unknown>; sha256: string }> {
-  let lastErr: unknown;
-  for (const candidate of VENDORED_CANDIDATES) {
-    try {
-      const text = await readFile(candidate, 'utf8');
-      return {
-        feed: JSON.parse(text) as Record<string, unknown>,
-        sha256: createHash('sha256').update(text).digest('hex'),
-      };
-    } catch (err) {
-      lastErr = err;
+  const feed: Record<string, unknown> = {};
+  const hash = createHash('sha256');
+  for (const name of VENDORED_FILES) {
+    let text: string | undefined;
+    let lastErr: unknown;
+    for (const root of VENDORED_ROOTS) {
+      try {
+        text = await readFile(join(root, name), 'utf8');
+        break;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    if (text === undefined) {
+      // every vendored file ships in the repo and the image; a missing one is a build defect,
+      // not a soft condition — fail the sync loudly rather than silently shrink the catalog
+      throw new Error(
+        `vendored feed file ${name} not found under ${VENDORED_ROOTS.join(' or ')}: ` +
+          (lastErr instanceof Error ? lastErr.message : 'unknown'),
+      );
+    }
+    hash.update(text);
+    for (const [key, value] of Object.entries(JSON.parse(text) as Record<string, unknown>)) {
+      if (key !== 'sample_spec' && key in feed) {
+        // cross-file collisions would let the curated file silently shadow upstream (or vice
+        // versa depending on order) — refuse instead; canonical ids are namespaced per source
+        throw new Error(`vendored feed key collision: ${key} appears in more than one file`);
+      }
+      feed[key] = value;
     }
   }
-  throw new Error(
-    `vendored pricing feed not found (tried ${VENDORED_CANDIDATES.join(', ')}): ` +
-      (lastErr instanceof Error ? lastErr.message : 'unknown'),
-  );
+  return { feed, sha256: hash.digest('hex') };
 }
 
 function numEq(a: string | null, b: string | null): boolean {

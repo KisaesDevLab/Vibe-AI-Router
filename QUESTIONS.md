@@ -223,3 +223,26 @@ Grouped by phase. This file is the Phase 15 review agenda.
   multiple QA rounds** → QA rounds A/B/C executed 2026-07-27 (QA-REPORT.md: 5 findings found
   and fixed, incl. one High money-correctness defect in cache-hit ledger rows); hold remains
   until explicit sign-off → **S**
+- [Q-060] DigitalOcean Gradient serverless inference: preset of `openai_compat` vs own
+  provider kind? → **own kind `digitalocean`, reusing the openai-compat adapter** → routing
+  resolves the firm's provider BY KIND (`engine.providerFor`), so a second `openai_compat`
+  row is unreachable next to OpenAI/Groq — a preset would work only for firms with no other
+  openai-compat cloud provider and silently misroute otherwise. Migration 0003 adds the enum
+  value; its down.sql removes DO rows and rebuilds the type (downs are destructive by repo
+  contract — 0001's drops the schema). Base URL https://inference.do-ai.run/v1, Bearer
+  model-access-key, wire protocol identical to OpenAI (flavor `generic`) → **M** (enum value
+  + kind unions; reversal = migration down)
+- [Q-061] DO model catalog source: pollute the pinned LiteLLM snapshot vs curated first-party
+  file? → **separate `data/digitalocean-models.json`, merged into the vendored feed at load**
+  (LiteLLM carries no digitalocean entries; hand-curated rows don't belong in a third-party
+  snapshot whose provenance is "pinned upstream"). 14 open-source models with DO's published
+  per-MTok pricing (docs retrieved 2026-07-29); kimi-k3 omitted — no published context
+  window. Cross-file key collisions refuse loudly. Commercial Anthropic/OpenAI models on DO
+  are NOT listed — those route through their own kinds with the firm's own keys, which is
+  the §7216 story → **S**
+- [Q-062] DO capability flags with no per-model documentation (DO documents tool calling for
+  its commercial models only) → **conservative: tools/json_schema unset (= false), vision
+  only for documented-multimodal Kimi K2.5/K2.6, caching only where a cached-input price is
+  published** → config-time gating refuses DO models for classes requiring undeclared
+  capabilities (fail closed, invariant #7); operators unlock per model via
+  capability_overrides after verifying against their account → **S**

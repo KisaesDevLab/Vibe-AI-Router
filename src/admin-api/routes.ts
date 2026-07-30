@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Db } from '../db/client.js';
-import { appTokens, firms, models, providers, taskClasses, users } from '../../db/schema.js';
+import { appTokens, firms, models, providers, taskClasses, users, PROVIDER_KINDS } from '../../db/schema.js';
 import { RouterError, errorBody, toRouterError } from '../gateway/errors.js';
 import {
   emitTerminalAudit,
@@ -161,7 +161,7 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
   });
 
   const providerBody = z.object({
-    kind: z.enum(['openai_compat', 'anthropic', 'local']),
+    kind: z.enum(PROVIDER_KINDS),
     label: z.string().min(1).max(120),
     baseUrl: z.string().url(),
     authType: z.enum(['api_key', 'none']).default('api_key'),
@@ -468,7 +468,7 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
   const settingsSchema = z
     .object({
       scrubber_mode: z.enum(['block', 'redact', 'warn']).optional(),
-      banned_provider_kinds: z.array(z.enum(['openai_compat', 'anthropic', 'local'])).optional(),
+      banned_provider_kinds: z.array(z.enum(PROVIDER_KINDS)).optional(),
       banned_model_patterns: z.array(z.string().max(200)).max(50).optional(),
       global_temperature_max: z.number().min(0).max(2).optional(),
       budgets: z

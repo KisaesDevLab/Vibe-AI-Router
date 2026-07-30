@@ -2,6 +2,21 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-07-29 — DigitalOcean Gradient serverless inference (provider kind)
+
+- New provider kind  (Q-060): OpenAI wire protocol, own kind because routing
+  resolves providers BY KIND — a second openai_compat row is unreachable. Migration 0003
+  (ALTER TYPE ADD VALUE; down rebuilds the type after removing DO rows; up→down→up green).
+- Curated catalog data/digitalocean-models.json (Q-061): 14 open-source models with DO's
+  published per-MTok pricing, merged into the vendored feed at load; collisions refuse.
+- Conservative capabilities (Q-062): tools/json_schema unset → config-time gating refuses
+  classes that require them; capability_overrides is the operator unlock.
+- test/digitalocean.test.ts: 7 integration tests against a mock DO server — Bearer
+  model-access-key + prefix-stripped model on the wire, ledger at DO pricing (19.5¢ check),
+  SSE streaming, scrubber redacts before egress, local_only blocked at BOTH config and
+  request time (planted policy row → 4xx, zero bytes to the mock), SSRF cloud gates.
+- Suite: 244 tests / 26 files green; lint, UI build, e2e smoke green.
+
 ## 2026-07-27 — Round F: appliance integration (installable app)
 
 - Packaged for Vibe-Appliance: console/manifests/vibe-ai-router.json, apps/vibe-ai-router.yml,

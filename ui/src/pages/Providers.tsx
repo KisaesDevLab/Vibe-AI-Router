@@ -9,6 +9,9 @@ const PRESETS: Record<string, { kind: string; baseUrl: string; authType: string 
   'Ollama (local)': { kind: 'local', baseUrl: 'http://vibellm:11434/v1', authType: 'none' },
   Groq: { kind: 'openai_compat', baseUrl: 'https://api.groq.com/openai/v1', authType: 'api_key' },
   DeepSeek: { kind: 'openai_compat', baseUrl: 'https://api.deepseek.com/v1', authType: 'api_key' },
+  // own kind (not openai_compat) so it routes independently next to OpenAI/Groq; the
+  // credential is a DO "model access key", entered like any API key
+  'DigitalOcean (Gradient)': { kind: 'digitalocean', baseUrl: 'https://inference.do-ai.run/v1', authType: 'api_key' },
 };
 
 export function Providers(): JSX.Element {

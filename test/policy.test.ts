@@ -7,7 +7,7 @@ import fc from 'fast-check';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { createDb, type DbHandle } from '../src/db/client.js';
-import { models, policies, rolePolicies, taskClasses } from '../db/schema.js';
+import { models, policies, rolePolicies, taskClasses, PROVIDER_KINDS } from '../db/schema.js';
 import {
   applyLimits,
   checkRole,
@@ -228,9 +228,7 @@ describe('property: random configs never violate the two hard invariants', () =>
     caching: fc.boolean(),
     reasoning: fc.boolean(),
   });
-  const kindArb = fc.constantFrom('openai_compat', 'anthropic', 'local') as fc.Arbitrary<
-    'openai_compat' | 'anthropic' | 'local'
-  >;
+  const kindArb = fc.constantFrom(...PROVIDER_KINDS) as fc.Arbitrary<(typeof PROVIDER_KINDS)[number]>;
   const sensitivityArb = fc.constantFrom('local_only', 'cloud_deidentified', 'cloud_allowed');
   const requiresArb = fc.record(
     { tools: fc.boolean(), json_schema: fc.boolean(), vision: fc.boolean() },

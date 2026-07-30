@@ -35,6 +35,7 @@ Rules:
 | Ollama | host contains `11434`/`ollama`/`vibellm` | `{base}/chat/completions` (`{base}` ends in `/v1`) | none | `stream_options` omitted (older builds reject unknown fields); usage may be absent → estimated; capability probe via `POST {root}/api/show` → `capabilities[]` + `*.context_length` (3.5) |
 | Groq | host `api.groq.com` | standard | Bearer | fast SSE cadence; standard usage |
 | DeepSeek | host `api.deepseek.com` | standard | Bearer | `prompt_cache_hit_tokens` → cachedReadTokens; `insufficient_system_resource` finish → `error` |
+| DigitalOcean (Gradient) | own provider KIND `digitalocean` (not host detection — see Q-060); flavor falls through to `generic` | standard (`https://inference.do-ai.run/v1`) | Bearer (DO "model access key") | wire-identical to OpenAI; own kind so it routes independently next to an openai_compat provider; catalog from the curated `data/digitalocean-models.json` (Q-061), capabilities conservative (Q-062) |
 | generic | anything else | standard | Bearer | unknown SSE keep-alive shapes tolerated (non-JSON `data:` skipped, unparseable chunks yield `[]`) |
 
 ## Model naming

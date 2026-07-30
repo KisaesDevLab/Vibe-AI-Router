@@ -5,6 +5,28 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.3 — 2026-07-29
+
+**DigitalOcean Gradient serverless inference as a provider** (Q-060/061/062) — access to
+70+ hosted open-source models (Llama, DeepSeek, Qwen, Mistral, GPT-OSS, Kimi) through the
+firm's own DO account and model access key.
+
+- New provider kind `digitalocean` reusing the OpenAI-compat adapter. Its own kind — not an
+  `openai_compat` preset — because routing resolves the firm's provider *by kind*; a second
+  openai_compat row would be unreachable next to OpenAI/Groq. Migration `0003` (reversible).
+- Admin UI preset "DigitalOcean (Gradient)" → `https://inference.do-ai.run/v1`, Bearer
+  model-access-key credential, standard test-connection flow.
+- Curated catalog `data/digitalocean-models.json`: 14 open-source models with DO's published
+  per-MTok pricing, merged into the vendored feed (LiteLLM's snapshot carries no DO entries).
+  The platform's commercial Anthropic/OpenAI models are deliberately not listed — those route
+  through their own provider kinds with the firm's own keys.
+- Conservative capability flags: DO documents tool calling only for its commercial models, so
+  `tools`/`json_schema` default false and config-time gating refuses task classes that require
+  them (fail closed); operators unlock per model via capability overrides after verifying.
+- All boundary machinery applies unchanged, now covered by tests against a mock DO server:
+  scrubber redacts before egress, `local_only` can never route there (config AND request
+  time), SSRF https+public-host gates, ledger rows priced from the curated feed.
+
 ## 0.0.2 — 2026-07-27
 
 Hardening from the appliance integration review (defects found by the operator reviewing the

@@ -1,0 +1,120 @@
+{
+  "sample_spec": {
+    "_doc": "First-party curated catalog for DigitalOcean Gradient serverless inference (Q-061). Open-source models only — the platform's commercial Anthropic/OpenAI models are reachable through their own provider kinds with the firm's own keys, which is the product's compliance story. Shape mirrors LiteLLM entries (costs are USD per TOKEN). Sources: docs.digitalocean.com/products/inference/details/models + /pricing, retrieved 2026-07-29. Capabilities are conservative by design (Q-062): DO documents tool calling only for its commercial models, so tools/json_schema are left unset (= false) here and operators enable them per model via capability overrides after verifying against their account; vision is set only where DO documents multimodal input (Kimi K2.5/K2.6); caching only where DO publishes a cached-input price. kimi-k3 is omitted: DO does not publish its context window.",
+    "litellm_provider": "digitalocean"
+  },
+  "digitalocean/llama3.3-70b-instruct": {
+    "max_input_tokens": 128000,
+    "input_cost_per_token": 0.00000065,
+    "output_cost_per_token": 0.00000065,
+    "litellm_provider": "digitalocean",
+    "mode": "chat"
+  },
+  "digitalocean/llama-4-maverick": {
+    "max_input_tokens": 128000,
+    "input_cost_per_token": 0.00000025,
+    "output_cost_per_token": 0.00000087,
+    "litellm_provider": "digitalocean",
+    "mode": "chat"
+  },
+  "digitalocean/deepseek-r1-distill-llama-70b": {
+    "max_input_tokens": 32678,
+    "input_cost_per_token": 0.00000099,
+    "output_cost_per_token": 0.00000099,
+    "litellm_provider": "digitalocean",
+    "mode": "chat"
+  },
+  "digitalocean/deepseek-v4-pro": {
+    "max_input_tokens": 262144,
+    "input_cost_per_token": 0.000001392,
+    "output_cost_per_token": 0.000002784,
+    "cache_read_input_token_cost": 0.000000348,
+    "supports_prompt_caching": true,
+    "litellm_provider": "digitalocean",
+    "mode": "chat"
+  },
+  "digitalocean/deepseek-4-flash": {
+    "max_input_tokens": 262144,
+    "input_cost_per_token": 0.000000112,
+    "output_cost_per_token": 0.000000224,
+    "cache_read_input_token_cost": 0.000000028,
+    "supports_prompt_caching": true,
+    "litellm_provider": "digitalocean",
+    "mode": "chat"
+  },
+  "digitalocean/deepseek-3.2": {
+    "max_input_tokens": 163840,
+    "input_cost_per_token": 0.000000425,
+    "output_cost_per_token": 0.00000136,
+    "cache_read_input_token_cost": 0.00000015,
+    "supports_prompt_caching": true,
+    "litellm_provider": "digitalocean",
+    "mode": "chat"
+  },
+  "digitalocean/alibaba-qwen3-32b": {
+    "max_input_tokens": 32768,
+    "input_cost_per_token": 0.00000025,
+    "output_cost_per_token": 0.00000055,
+    "litellm_provider": "digitalocean",
+    "mode": "chat"
+  },
+  "digitalocean/qwen3-coder-flash": {
+    "max_input_tokens": 262144,
+    "input_cost_per_token": 0.00000045,
+    "output_cost_per_token": 0.0000017,
+    "cache_read_input_token_cost": 0.00000009,
+    "supports_prompt_caching": true,
+    "litellm_provider": "digitalocean",
+    "mode": "chat"
+  },
+  "digitalocean/qwen3.5-397b-a17b": {
+    "max_input_tokens": 131072,
+    "input_cost_per_token": 0.000000385,
+    "output_cost_per_token": 0.00000245,
+    "cache_read_input_token_cost": 0.000000111,
+    "supports_prompt_caching": true,
+    "litellm_provider": "digitalocean",
+    "mode": "chat"
+  },
+  "digitalocean/mistral-3-14B": {
+    "max_input_tokens": 262144,
+    "input_cost_per_token": 0.0000002,
+    "output_cost_per_token": 0.0000002,
+    "litellm_provider": "digitalocean",
+    "mode": "chat"
+  },
+  "digitalocean/openai-gpt-oss-120b": {
+    "max_input_tokens": 128000,
+    "input_cost_per_token": 0.0000001,
+    "output_cost_per_token": 0.0000007,
+    "litellm_provider": "digitalocean",
+    "mode": "chat"
+  },
+  "digitalocean/openai-gpt-oss-20b": {
+    "max_input_tokens": 128000,
+    "input_cost_per_token": 0.00000005,
+    "output_cost_per_token": 0.00000045,
+    "litellm_provider": "digitalocean",
+    "mode": "chat"
+  },
+  "digitalocean/kimi-k2.6": {
+    "max_input_tokens": 262144,
+    "input_cost_per_token": 0.00000076,
+    "output_cost_per_token": 0.0000032,
+    "cache_read_input_token_cost": 0.00000019,
+    "supports_prompt_caching": true,
+    "supports_vision": true,
+    "litellm_provider": "digitalocean",
+    "mode": "chat"
+  },
+  "digitalocean/kimi-k2.5": {
+    "max_input_tokens": 262144,
+    "input_cost_per_token": 0.000000375,
+    "output_cost_per_token": 0.000002025,
+    "cache_read_input_token_cost": 0.000000203,
+    "supports_prompt_caching": true,
+    "supports_vision": true,
+    "litellm_provider": "digitalocean",
+    "mode": "chat"
+  }
+}

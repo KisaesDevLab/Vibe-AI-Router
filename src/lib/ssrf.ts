@@ -7,6 +7,7 @@
  *   pointing at a public host is a covert cloud route around the sensitivity tiers.
  */
 import { lookup } from 'node:dns/promises';
+import type { ProviderKind } from '../../db/schema.js';
 import { isIP } from 'node:net';
 
 export type HostClass = 'loopback' | 'private' | 'linklocal' | 'metadata' | 'dockerdns' | 'public';
@@ -40,7 +41,7 @@ export interface SsrfVerdict {
 }
 
 /** Pattern-level check — synchronous, used at request time and as the first config gate. */
-export function checkBaseUrl(kind: 'openai_compat' | 'anthropic' | 'local', baseUrl: string): SsrfVerdict {
+export function checkBaseUrl(kind: ProviderKind, baseUrl: string): SsrfVerdict {
   let url: URL;
   try {
     url = new URL(baseUrl);
@@ -76,7 +77,7 @@ export function checkBaseUrl(kind: 'openai_compat' | 'anthropic' | 'local', base
  * private space (DNS-rebinding-shaped configs die here, in front of an audit trail).
  */
 export async function checkBaseUrlWithDns(
-  kind: 'openai_compat' | 'anthropic' | 'local',
+  kind: ProviderKind,
   baseUrl: string,
 ): Promise<SsrfVerdict> {
   const shallow = checkBaseUrl(kind, baseUrl);

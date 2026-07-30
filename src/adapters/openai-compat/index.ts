@@ -24,9 +24,9 @@ import {
 } from './translate.js';
 
 export class OpenAiCompatAdapter implements ProviderAdapter {
-  readonly kind: 'openai_compat' | 'local';
+  readonly kind: 'openai_compat' | 'local' | 'digitalocean';
 
-  constructor(kind: 'openai_compat' | 'local' = 'openai_compat') {
+  constructor(kind: 'openai_compat' | 'local' | 'digitalocean' = 'openai_compat') {
     this.kind = kind;
   }
 

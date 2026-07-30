@@ -5,6 +5,7 @@
  */
 import type { AIRequest, AIResponse, StreamChunk } from '../gateway/envelope.js';
 import type { ExecuteContext, GatewayAdapter } from '../gateway/adapter-types.js';
+import type { ProviderKind } from '../../db/schema.js';
 
 export interface AdapterCapabilities {
   streaming: boolean;
@@ -35,7 +36,7 @@ export interface ConnectionTestResult {
 }
 
 export interface ProviderAdapter extends GatewayAdapter {
-  readonly kind: 'openai_compat' | 'anthropic' | 'local';
+  readonly kind: ProviderKind;
   capabilities(): AdapterCapabilities;
   /** pure: envelope → wire request (url/headers/body). Secrets enter here and only here. */
   translateRequest(env: AIRequest, ctx: ExecuteContext): TranslatedRequest;

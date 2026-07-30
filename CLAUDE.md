@@ -118,7 +118,9 @@ client works as a contract test client. Apps consume it through `@kisaes/vibe-ai
 (`/packages/sdk`) — that package contains zero provider SDKs.
 
 **Two adapter families**, one contract (`/docs/adapter-contract.md`): openai-compat (OpenAI, Azure,
-Ollama, Groq, DeepSeek — Azure's deployment-name-as-model quirk lives on the provider record) and
+Ollama, Groq, DeepSeek — Azure's deployment-name-as-model quirk lives on the provider record;
+DigitalOcean Gradient is wire-compatible but its OWN provider kind `digitalocean`, because routing
+resolves providers by kind — Q-060, curated catalog in `data/digitalocean-models.json`) and
 Anthropic native (Messages API, prompt caching breakpoints, extended thinking). A Phase 4 test
 asserts the same envelope through both families yields structurally identical `AIResponse`.
 

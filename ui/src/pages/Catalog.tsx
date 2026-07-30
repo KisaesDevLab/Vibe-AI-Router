@@ -142,6 +142,7 @@ function AddModel({ onDone, onError }: { onDone: () => void; onError: (e: string
             <option value="local">local</option>
             <option value="openai_compat">openai_compat</option>
             <option value="anthropic">anthropic</option>
+            <option value="digitalocean">digitalocean</option>
           </select>
         </div>
         <div>

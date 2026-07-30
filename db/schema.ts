@@ -29,7 +29,16 @@ import {
 // ── enums ────────────────────────────────────────────────────────────────────
 
 export const userRole = pgEnum('user_role', ['admin', 'partner', 'staff']);
-export const providerKind = pgEnum('provider_kind', ['openai_compat', 'anthropic', 'local']);
+/**
+ * Provider kinds are the routing key (engine.providerFor picks the firm's provider BY KIND),
+ * so a hosted platform that needs its own provider record alongside OpenAI/Groq gets its own
+ * kind even when it speaks the OpenAI wire protocol — `digitalocean` (Gradient serverless
+ * inference) reuses the openai-compat adapter but routes independently. Order matters:
+ * migrations append with ADD VALUE, so new kinds go LAST here to match the DB enum order.
+ */
+export const PROVIDER_KINDS = ['openai_compat', 'anthropic', 'local', 'digitalocean'] as const;
+export type ProviderKind = (typeof PROVIDER_KINDS)[number];
+export const providerKind = pgEnum('provider_kind', PROVIDER_KINDS);
 export const providerAuthType = pgEnum('provider_auth_type', ['api_key', 'none']);
 export const providerStatus = pgEnum('provider_status', ['unknown', 'healthy', 'degraded', 'down']);
 export const credentialStatus = pgEnum('credential_status', ['active', 'grace', 'revoked']);

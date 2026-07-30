@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import { and, eq, lte } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
-import { modelPricing, models, policies } from '../../db/schema.js';
+import { modelPricing, models, policies, PROVIDER_KINDS } from '../../db/schema.js';
 import { RouterError } from '../gateway/errors.js';
 
 type ModelRow = typeof models.$inferSelect;
@@ -28,7 +28,7 @@ export const customModelSchema = z.object({
   canonicalId: z
     .string()
     .regex(/^[a-z0-9_-]+\/[A-Za-z0-9_.:\-]+$/, 'expected family/native-name, e.g. ollama/qwen3:14b'),
-  providerKind: z.enum(['openai_compat', 'anthropic', 'local']),
+  providerKind: z.enum(PROVIDER_KINDS),
   displayName: z.string().min(1).max(200),
   contextWindow: z.number().int().positive(),
   maxOutput: z.number().int().positive().optional(),

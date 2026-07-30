@@ -1,6 +1,9 @@
 /**
  * Adapter registry: provider kind → adapter singleton. `local` is the OpenAI-compat adapter
- * pointed at Ollama-style /v1 endpoints. `anthropic` arrives in Phase 4.
+ * pointed at Ollama-style /v1 endpoints. `anthropic` arrives in Phase 4. `digitalocean`
+ * (Gradient serverless inference) speaks the OpenAI wire protocol — same adapter, own kind,
+ * because routing picks the firm's provider BY KIND and a second openai_compat row would be
+ * unreachable next to OpenAI/Groq (Q-060).
  */
 import type { AdapterRegistry } from '../gateway/pipeline.js';
 import type { ProviderAdapter } from './contract.js';
@@ -16,6 +19,7 @@ export function createAdapterRegistry(): AdapterRegistry & {
     ['openai_compat', openaiCompat],
     ['local', local],
     ['anthropic', new AnthropicAdapter()],
+    ['digitalocean', new OpenAiCompatAdapter('digitalocean')],
   ]);
   return {
     forKind: (kind) => byKind.get(kind),
