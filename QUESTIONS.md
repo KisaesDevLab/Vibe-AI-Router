@@ -275,3 +275,31 @@ Grouped by phase. This file is the Phase 15 review agenda.
   a default class). NOTE for operators: TB call sites request up to 8192 output tokens on
   tb_classification (pack default clamps at 2048) — raise the policy max-token override if
   truncation shows up in ai_usage_log → **S**
+- [Q-067] MIG-8 Time-Billing class mapping (16 features) → **3 classes: pack
+  tb_invoice_narrative (suggest-description, prebill-narrative, reason-code-suggest) + NEW
+  timebill_practice_analytics (nine analytics/pricing/NL-translation features) + NEW
+  timebill_support_chat (staff + client-portal KB chat), new ones local_only** → app-side
+  egress gate/credentials/budget go inert in router mode (ai_request_log rows carry
+  provider=VIBE_ROUTER at cost 0 — the router ledger owns cost); unknown features fail closed
+  before any wire traffic. Time-Billing has NO appliance manifest — router mode is
+  env-documented in its repo for multi-app deployments → **S**
+- [Q-068] MIG-6 TxConvertor scope: which paths route? → **policy-driven TEXT passes only
+  (extraction+repair → pack txconv_statement_parse; cleanse/category → NEW txconv_enrichment;
+  check text-parse → NEW txconv_check_resolve); the forced-local vision/OCR paths (GLM-OCR
+  pages, check-image reads) stay direct in BOTH modes** → page images never leave the box
+  (ADR-023/025), so there is no boundary for the router to enforce there; RouterProvider's
+  vision surfaces throw by design. Worker's primary/secondary fallback order collapses to the
+  router (failover within router mode is the router's fallback-chain job) → **S**
+- [Q-069] MIG-2 myBooks class gap (8 features vs 2 pack classes) → **6 NEW local_only classes:
+  mybooks_bill_extract (distinct schema from receipts), mybooks_doc_classify,
+  mybooks_statement_extract (stage-2 + check reads), mybooks_vendor_enrich, mybooks_chat,
+  mybooks_report_narrative; judgment review rides mybooks_txn_categorize (same transaction
+  data boundary)** → the pinned-local qwen extraction pipeline + GLM-OCR keep forceDirect in
+  both modes; myBooks' two-tier consent + per-company task toggles stay app-side (extra
+  governance on top of router policy, not instead of it) → **S**
+- [Q-070] MIG-4 TRC job routability → **9 of 10 background jobs route (content_meta /
+  authoring / memo_draft classes); strategy-watch is PINNED direct — it depends on Anthropic's
+  server-side web_search, which the router does not expose pre-R1** → the split is static
+  per-job identity, never a runtime fallback; ANTHROPIC_KILL_SWITCH brakes BOTH paths
+  (emergency spend stop regardless of backend); untranslatable content blocks/server tools
+  throw rather than silently drop → **S**
