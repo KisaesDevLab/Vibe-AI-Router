@@ -32,3 +32,13 @@ in the audit log.
 
 The appliance is fully functional with no cloud provider configured at all. In that state the
 console shows **FULLY LOCAL** and every AI task runs on your own hardware.
+
+## WISP appendix export
+
+The admin console's **Compliance** page exports an **AI Data-Handling Appendix** (Microsoft
+Word) for your firm's Written Information Security Plan (FTC Safeguards Rule / IRS Pub 4557).
+It is generated from your live configuration — the tier of every task, your configured
+providers, the screening in force, encryption, retention, and access controls — so re-export
+it whenever you change a provider or tier. It documents only the AI-handling controls the
+router enforces; the rest of your WISP (physical security, personnel, incident response, the
+designated Qualified Individual) and attorney review remain yours.

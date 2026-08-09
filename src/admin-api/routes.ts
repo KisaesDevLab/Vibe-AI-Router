@@ -45,6 +45,7 @@ import {
 } from '../catalog/service.js';
 import { latencyStats, ledgerRows, rowsToCsv, spendBy } from '../ledger/aggregate.js';
 import { currentPeriod } from '../ledger/budget.js';
+import { buildWispData, renderWispDocx } from '../ops/wisp.js';
 import type { CredentialVault } from '../vault/service.js';
 import type { ProviderAdapter } from '../adapters/contract.js';
 import type { BreakerSnapshot } from '../resilience/breaker.js';
@@ -64,6 +65,8 @@ export interface AdminApiOptions {
   vault?: CredentialVault;
   adapterFor: (kind: string) => ProviderAdapter | undefined;
   breakerSnapshot?: () => BreakerSnapshot[];
+  /** ledger metadata retention (days) — surfaced in the WISP appendix; absent = indefinite */
+  retentionDays?: number;
 }
 
 /**
@@ -674,6 +677,18 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
       .header('content-type', 'text/csv; charset=utf-8')
       .header('content-disposition', 'attachment; filename="ledger.csv"')
       .send(rowsToCsv(rows, cols));
+  });
+
+  // ── WISP AI Data-Handling Appendix (14.7 compliance export) ─────────────────
+  app.get('/admin-api/wisp.docx', async (req, reply) => {
+    const session = requireAdmin(req, reply);
+    if (!session) return reply;
+    const data = await buildWispData(db, session.firmId, opts.retentionDays);
+    const buf = await renderWispDocx(data);
+    return reply
+      .header('content-type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+      .header('content-disposition', 'attachment; filename="AI-Data-Handling-Appendix.docx"')
+      .send(buf);
   });
 
   // ── app tokens (12.7 surface, admin-managed) ───────────────────────────────

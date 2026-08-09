@@ -5,6 +5,30 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.9 — 2026-08-09
+
+**WISP AI Data-Handling Appendix export** + **SDK `completeJson` truncation check**.
+
+- **WISP export.** New admin-console **Compliance** page and
+  `GET /admin-api/wisp.docx` (admin-session, firm-scoped) that generates a Microsoft Word
+  *AI Data-Handling Appendix* to the firm's Written Information Security Plan (FTC Safeguards
+  Rule 16 CFR 314 / IRS Pub 4557), populated from **live configuration**: data tiers per task
+  class, configured providers (local vs cloud), the active scrubber mode + detected
+  identifier types, credential encryption, retention, and access controls — scoped as a
+  factual exhibit with an attorney-review disclaimer, not a standalone WISP. Re-exporting
+  after a provider/tier change reflects it. Adds the pure-JS `docx` dependency (no native
+  binaries; offline-safe). New `src/ops/wisp.ts` (`buildWispData` + `renderWispDocx`);
+  `MATCH_TYPES` promoted to a runtime const in `src/protect/scrub.ts` as the single source of
+  truth the appendix cites.
+- **SDK `completeJson` truncation check** (`@kisaes/vibe-ai-client` 0.2.1). `completeJson`
+  now checks `finishReason` **before** parsing and throws a typed
+  `VibeAiError('output_truncated')` — carrying the *served* completion-token count — when a
+  forced-JSON response is cut off at `max_tokens`. Previously a truncation surfaced as a
+  misleading "not valid JSON", or worse, a parseable-but-incomplete prefix returned as
+  silent success (dropped data). Low-level `complete()` stays permissive. New `output_truncated`
+  code (SDK-synthesized; documented in `docs/integration.md`). Lets the downstream TxConvertor
+  copy be retired.
+
 ## 0.0.8 — 2026-08-08
 
 **Security test: unauthorized-access audit of the auth surface** (Q-079, QA Round L). A

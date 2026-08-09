@@ -8,7 +8,9 @@
  */
 import type { AIMessage, AIRequest } from '../gateway/envelope.js';
 
-export type MatchType = 'ssn' | 'ein' | 'routing' | 'account' | 'card';
+/** the identifier classes the scrubber detects — single source of truth (WISP export cites it) */
+export const MATCH_TYPES = ['ssn', 'ein', 'routing', 'account', 'card'] as const;
+export type MatchType = (typeof MATCH_TYPES)[number];
 
 export interface ScrubMatch {
   type: MatchType;

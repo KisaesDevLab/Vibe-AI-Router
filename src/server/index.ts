@@ -80,6 +80,7 @@ async function main(): Promise<void> {
       sessions,
       secureCookies: env.SECURE_COOKIES,
       ...(vault ? { vault } : {}),
+      ...(env.LEDGER_RETENTION_DAYS ? { retentionDays: env.LEDGER_RETENTION_DAYS } : {}),
       adapterFor: (kind: string) => adapters.get(kind),
       breakerSnapshot: () => breaker.snapshot(),
     },

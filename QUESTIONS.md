@@ -389,3 +389,17 @@ Grouped by phase. This file is the Phase 15 review agenda.
   → accepted residuals: no login/bearer throttle (Q-052, LAN-only + scrypt cost); client-
   asserted X-Vibe-User-Role is advisory within the trusted-app model; bootstrap /admin/* is
   the intentional global-operator surface (token-gated, unregistered when unset) → **S**
+- [Q-080] Two deliverables: (a) SDK completeJson truncation check (uploaded ticket,
+  sdk-v0.2.1) + (b) exportable WISP documentation for IRS regs "based on app settings" →
+  **(a) completeJson checks finishReason==='length' BEFORE parsing and throws typed
+  VibeAiError('output_truncated') with the SERVED completionTokens — closes both the
+  misleading-"not valid JSON" and the silent-incomplete-success modes; complete() stays
+  permissive; new SDK-synthesized code documented in integration.md; 0.2.1. (b) WISP scope =
+  AI Data-Handling Appendix ONLY (user choice) — a factual exhibit to the firm's WISP
+  covering just what the router enforces (tiers/providers/screening/encryption/retention/
+  audit), not a standalone full WISP; format = Word .docx (user choice) via the pure-JS
+  `docx` dep; GET /admin-api/wisp.docx (admin, firm-scoped) + Compliance console page;
+  content is LIVE from task_classes+policies+providers+firm settings so it always reflects
+  current config** → docx is one new dependency (accepted for the .docx format); appendix
+  states only router-enforced facts with an attorney-review disclaimer; downstream
+  TxConvertor local completeJson can now be retired (separate repo) → **S/M**

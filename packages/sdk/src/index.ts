@@ -5,6 +5,9 @@
  */
 
 // ── error taxonomy (mirrors the router; frozen contract) ────────────────────
+// Every code except `output_truncated` maps 1:1 to a router error code. `output_truncated`
+// is SDK-synthesized client-side (the router has no such code) — completeJson raises it when
+// a forced-JSON response is cut off at max_tokens (finish_reason 'length').
 
 export type VibeAiErrorCode =
   | 'invalid_request'
@@ -17,6 +20,7 @@ export type VibeAiErrorCode =
   | 'scrubber_blocked'
   | 'capability_missing'
   | 'budget_exceeded'
+  | 'output_truncated'
   | 'unknown';
 
 export class VibeAiError extends Error {
@@ -421,8 +425,12 @@ export class VibeAiClient {
    * Forced-JSON completion (R3): sends a json_schema response format and returns the parsed
    * object — the SDK equivalent of the "single required tool call" pattern the apps used
    * against Anthropic directly. Tolerates markdown fences around the JSON (local models).
-   * Throws VibeAiError('unknown') when the response cannot be parsed against expectations;
-   * schema VALIDATION stays the caller's job (apps already have zod at the call sites).
+   *
+   * Throws VibeAiError('output_truncated') when the response was cut off at max_tokens
+   * (finish_reason 'length') — checked BEFORE parsing so a truncated-but-parseable prefix is
+   * never returned as silently-incomplete success. Throws VibeAiError('unknown') when the
+   * (untruncated) response cannot be parsed. Schema VALIDATION stays the caller's job (apps
+   * already have zod at the call sites).
    */
   async completeJson<T>(
     taskClass: string,
@@ -434,6 +442,20 @@ export class VibeAiClient {
       ...options,
       responseFormat: { type: 'json_schema', ...schema },
     });
+    // Truncation wins over the parse error below: a max_tokens cutoff usually breaks JSON
+    // (→ misleading "not valid JSON") and occasionally leaves a parseable prefix (→ silently
+    // dropped data). Report the SERVED completion count — a policy maxTokensOverride clamp
+    // below the requested cap is only visible there. Non-retryable (retrying can't succeed).
+    if (result.finishReason === 'length') {
+      throw new VibeAiError(
+        'output_truncated',
+        502,
+        `response for ${schema.name} truncated at max_tokens ` +
+          `(served ${result.usage.completionTokens} completion tokens)`,
+        undefined,
+        { requestId: result.requestId, completionTokens: result.usage.completionTokens },
+      );
+    }
     // some providers answer a forced-JSON request with a tool call instead of content
     const raw = result.content.trim() !== '' ? result.content : (result.toolCalls[0]?.arguments ?? '');
     const unfenced = raw

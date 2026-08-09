@@ -8,6 +8,7 @@ import { Policies } from './pages/Policies';
 import { Settings } from './pages/Settings';
 import { Audit } from './pages/Audit';
 import { Tokens } from './pages/Tokens';
+import { Compliance } from './pages/Compliance';
 
 const PAGES = [
   ['dashboard', 'Dashboard'],
@@ -16,6 +17,7 @@ const PAGES = [
   ['policies', 'Policies'],
   ['tokens', 'App tokens'],
   ['audit', 'Audit log'],
+  ['compliance', 'Compliance'],
   ['settings', 'Firm settings'],
 ] as const;
 
@@ -94,6 +96,7 @@ export function App(): JSX.Element {
           {page === 'policies' && <Policies />}
           {page === 'tokens' && <Tokens />}
           {page === 'audit' && <Audit />}
+          {page === 'compliance' && <Compliance />}
           {page === 'settings' && <Settings />}
         </div>
       </div>

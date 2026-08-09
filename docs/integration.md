@@ -59,6 +59,7 @@ const result = await ai.complete('tb_classification', [
 | `rate_limited`, `provider_unavailable` | retryable (`err.retryable === true`); honor `retryAfterSeconds` |
 | `capability_missing`, `invalid_request` | app bug or config gap — log loudly |
 | `context_exceeded` | shrink the prompt |
+| `output_truncated` | **SDK-side** (`completeJson` only, since v0.2.1): the forced-JSON response was cut off at `max_tokens` (`finish_reason: 'length'`). `detail.completionTokens` is the served count. Not retryable as-is — raise the class's `max_tokens`/policy override, or split the input |
 
 ## Versioning (12.8)
 
