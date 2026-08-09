@@ -96,6 +96,67 @@ export const DEFAULT_PACK: PackEntry[] = [
     defaultMaxTokens: 4096,
     rationale: 'Receipts rarely carry TINs; card numbers are Luhn-scrubbed before egress.',
   },
+  // Registered at boot by vibe-mybooks (Q-081); added to the pack so coverage no longer
+  // depends on the boot-registration handshake and each class gets a reviewed tier + a
+  // pre-provisioned policy on firm creation. All local_only = the safest defensible default
+  // and identical to what runtime registration produced (no egress-behavior change). The
+  // cloud-candidate classes are flagged for Phase-15 widening in SENSITIVITY-REVIEW.md.
+  {
+    key: 'mybooks_bill_extract',
+    app: 'vibe-mybooks',
+    description: 'Vendor bill / invoice field extraction',
+    sensitivity: 'local_only',
+    requires: { json_schema: true, vision: true },
+    defaultMaxTokens: 4096,
+    rationale: 'Vendor bills carry account numbers and occasional TINs; local until reviewed.',
+  },
+  {
+    key: 'mybooks_doc_classify',
+    app: 'vibe-mybooks',
+    description: 'Uploaded-document type classification',
+    sensitivity: 'local_only',
+    requires: { json_schema: true, vision: true },
+    defaultMaxTokens: 1024,
+    rationale: 'Classifier sees full statement/check images with account numbers throughout.',
+  },
+  {
+    key: 'mybooks_statement_extract',
+    app: 'vibe-mybooks',
+    description: 'Bank-statement / check field extraction',
+    sensitivity: 'local_only',
+    requires: { json_schema: true, vision: true },
+    // full statements emit large JSON arrays; app registers 16384, raised to match
+    // txconv_statement_parse so a low clamp can't truncate mid-array (Q-074)
+    defaultMaxTokens: 32768,
+    rationale: 'Full bank statements + check reads: account numbers + transaction detail throughout.',
+  },
+  {
+    key: 'mybooks_vendor_enrich',
+    app: 'vibe-mybooks',
+    description: 'Merchant / vendor enrichment',
+    sensitivity: 'local_only',
+    requires: { json_schema: true },
+    defaultMaxTokens: 1024,
+    rationale: 'Payee/merchant names are mildly identifying; local until reviewed for cloud.',
+  },
+  {
+    key: 'mybooks_chat',
+    app: 'vibe-mybooks',
+    description: 'Bookkeeping assistant / support chat',
+    sensitivity: 'local_only',
+    requires: {},
+    defaultMaxTokens: 2048,
+    rationale: 'Assistant can surface live client ledger/company data; conservative default.',
+  },
+  {
+    key: 'mybooks_report_narrative',
+    app: 'vibe-mybooks',
+    description: 'Client-facing report narration',
+    sensitivity: 'local_only',
+    requires: {},
+    defaultMaxTokens: 1024,
+    rationale: 'Narration names clients + financials; local until reviewed for cloud drafting.',
+  },
   // ── Vibe Payroll ──────────────────────────────────────────────────────────
   {
     key: 'payroll_anomaly_review',
@@ -158,6 +219,27 @@ export const DEFAULT_PACK: PackEntry[] = [
     requires: {},
     defaultMaxTokens: 1024,
     rationale: 'WIP narratives name clients/matters; scrub then draft.',
+  },
+  // Registered at boot by vibe-time-billing (Q-081); added to the pack for the same reason as
+  // the mybooks_* classes above. Both stay local_only — analytics + KB support run over
+  // internal firm billing/practice data (client + engagement names, WIP amounts).
+  {
+    key: 'timebill_practice_analytics',
+    app: 'vibe-time-billing',
+    description: 'Practice analytics narratives + NL query (realization, pricing, capacity, anomalies)',
+    sensitivity: 'local_only',
+    requires: {},
+    defaultMaxTokens: 600,
+    rationale: 'Runs over internal firm billing/practice metrics with client + engagement names.',
+  },
+  {
+    key: 'timebill_support_chat',
+    app: 'vibe-time-billing',
+    description: 'KB-grounded staff/portal support chat + report parameter parsing',
+    sensitivity: 'local_only',
+    requires: {},
+    defaultMaxTokens: 1024,
+    rationale: 'Assistant grounds on internal KB and can surface firm data; conservative default.',
   },
 ];
 

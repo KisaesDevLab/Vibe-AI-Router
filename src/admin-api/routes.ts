@@ -35,7 +35,8 @@ import { toEnvelope } from '../gateway/envelope.js';
 import { hashPassword, verifyPassword } from '../lib/password.js';
 import { checkBaseUrlWithDns } from '../lib/ssrf.js';
 import { safeString } from '../lib/safe-string.js';
-import { queryAudit, auditToCsv } from '../protect/audit.js';
+import { queryAudit, auditToCsv, writeAudit } from '../protect/audit.js';
+import { discoverDigitalOceanModels } from '../catalog/discovery.js';
 import { savePolicy, exportPolicies, importPolicies } from '../policy/save.js';
 import {
   createCustomModel,
@@ -309,6 +310,41 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
       return await reply.send(
         await opts.vault.test(provider.id, adapter, body.data.model ? { model: body.data.model } : {}),
       );
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  // on-demand live-endpoint model discovery (Q-082) — DigitalOcean only (the one cloud kind
+  // whose model set changes without a router release). Additive: adds models DO serves that
+  // the catalog lacks, as conservative source='provider' rows; never removes or overwrites.
+  app.post('/admin-api/providers/:id/discover-models', async (req, reply) => {
+    const session = requireAdmin(req, reply);
+    if (!session) return reply;
+    const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
+    if (!params.success) return fail(reply, new RouterError('invalid_request', 'bad request'));
+    const provider = await db.query.providers.findFirst({ where: eq(providers.id, params.data.id) });
+    if (!provider || provider.deletedAt || provider.firmId !== session.firmId)
+      return fail(reply, new RouterError('invalid_request', 'provider not found'));
+    if (provider.kind !== 'digitalocean')
+      return fail(reply, new RouterError('invalid_request', 'discovery is supported only for digitalocean providers'));
+    if (!opts.vault) return fail(reply, new RouterError('unknown', 'vault unavailable (MASTER_KEY unset)'));
+    try {
+      const apiKey = await opts.vault.getActiveApiKey(provider.id);
+      const result = await discoverDigitalOceanModels(db, provider, apiKey);
+      if (result.discovered.length > 0) {
+        await writeAudit(db, {
+          firmId: provider.firmId,
+          event: 'provider_models_discovered',
+          detail: {
+            providerId: provider.id,
+            providerLabel: provider.label,
+            discovered: result.discovered,
+            alreadyKnown: result.alreadyKnown,
+          },
+        });
+      }
+      return await reply.send(result);
     } catch (err) {
       return fail(reply, err);
     }

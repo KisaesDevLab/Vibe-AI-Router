@@ -56,7 +56,11 @@ export const providerAuthType = pgEnum('provider_auth_type', ['api_key', 'none']
 export const providerStatus = pgEnum('provider_status', ['unknown', 'healthy', 'degraded', 'down']);
 export const credentialStatus = pgEnum('credential_status', ['active', 'grace', 'revoked']);
 export const modelStatus = pgEnum('model_status', ['active', 'deprecated', 'sunset']);
-export const modelSource = pgEnum('model_source', ['synced', 'custom']);
+// 'provider' = auto-discovered from a live provider /models endpoint (Q-082). Distinct from
+// 'synced' (vendored feed) and 'custom' (operator-entered): the vendored sync's vanish-check
+// only deprecates 'synced', so a discovered row is never auto-deprecated, yet sync still
+// enriches it in place if a curated feed entry with the same id later ships.
+export const modelSource = pgEnum('model_source', ['synced', 'custom', 'provider']);
 export const sensitivity = pgEnum('sensitivity', ['local_only', 'cloud_deidentified', 'cloud_allowed']);
 export const budgetScope = pgEnum('budget_scope', ['firm', 'app', 'user']);
 export const requestStatus = pgEnum('request_status', [

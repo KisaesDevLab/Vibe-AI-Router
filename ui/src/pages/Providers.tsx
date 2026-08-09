@@ -41,6 +41,24 @@ export function Providers(): JSX.Element {
     reload();
   };
 
+  const discover = async (p: Provider): Promise<void> => {
+    setNotice(`Discovering models served by ${p.label}…`);
+    try {
+      const res = await api.post<{ discovered: string[]; alreadyKnown: number }>(
+        `/admin-api/providers/${p.id}/discover-models`,
+        {},
+      );
+      setNotice(
+        res.discovered.length > 0
+          ? `✓ Added ${res.discovered.length} new model(s) from ${p.label}: ${res.discovered.join(', ')}`
+          : `✓ ${p.label}: no new models (${res.alreadyKnown} already in the catalog)`,
+      );
+    } catch (err) {
+      setNotice(`✗ ${p.label}: ${err instanceof Error ? err.message : 'discovery failed'}`);
+    }
+    reload();
+  };
+
   const promote = async (credId: string): Promise<void> => {
     await api.post(`/admin-api/credentials/${credId}/promote`);
     reload();
@@ -87,6 +105,11 @@ export function Providers(): JSX.Element {
             <div className="row">
               <Status value={p.status} />
               <button onClick={() => void test(p)}>Test connection</button>
+              {p.kind === 'digitalocean' && (
+                <button onClick={() => void discover(p)} title="Add models this provider serves that aren't in the catalog yet">
+                  Discover models
+                </button>
+              )}
               <button className="danger" onClick={() => void remove(p)}>Remove</button>
             </div>
           </div>

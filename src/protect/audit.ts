@@ -28,6 +28,13 @@ const EVENT_SCHEMAS = {
     unchanged: z.number(),
   }),
   catalog_sync_failed: z.object({ source: z.string(), reason: z.string().max(500) }),
+  provider_models_discovered: z.object({
+    providerId: z.string(),
+    providerLabel: z.string(),
+    /** canonical ids newly added to the catalog from the provider's live /models endpoint */
+    discovered: z.array(z.string()),
+    alreadyKnown: z.number(),
+  }),
   credential_test: z.object({
     ok: z.boolean(),
     latencyMs: z.number(),

@@ -403,3 +403,35 @@ Grouped by phase. This file is the Phase 15 review agenda.
   current config** → docx is one new dependency (accepted for the .docx format); appendix
   states only router-enforced facts with an attorney-review disclaimer; downstream
   TxConvertor local completeJson can now be retired (separate repo) → **S/M**
+- [Q-081] MyBooks & Time-Billing repo audit: verify every app AI task has a router task class,
+  esp. support chat → **No hard fail-closed gap — all 11 classes (8 MyBooks, 3 Time-Billing)
+  are registered at boot, so nothing fails closed permanently. But only 3 of the 11 lived in
+  the curated default pack (`mybooks_txn_categorize`, `mybooks_receipt_extract`,
+  `tb_invoice_narrative`); the other 8 — incl. BOTH support-chat classes (`mybooks_chat`,
+  `timebill_support_chat`) — existed only via runtime registration, so a firm got no
+  pre-provisioned policy and support chat could fail closed during the boot-registration race.
+  Added all 8 to `src/policy/pack.ts` as `local_only` — the safest defensible default AND
+  identical to what runtime registration produced (zero egress-behavior change), closing the
+  race window and pre-provisioning policy on firm creation. `mybooks_statement_extract` gets
+  the 32768 defaultMaxTokens floor (matching `txconv_statement_parse`) so large-array
+  statement extraction can't truncate mid-array (Q-074).** → SENSITIVITY-REVIEW.md rows added
+  and flagged ⏳ PENDING; 4 are cloud-candidates (parallels of already-cloud classes) an
+  operator/Phase-15 may widen deliberately (audited). OCR intake stays direct GLM-OCR (D5),
+  not a router class. Registration identities confirmed matching (vibe-mybooks /
+  vibe-time-billing) — no Q-074-style token/app mismatch → **S**
+- [Q-082] Automate adding available DigitalOcean models to the catalog so operators stop
+  hand-editing data/digitalocean-models.json + cutting a release per model → **Query the DO
+  provider's live OpenAI-compatible /models endpoint and upsert any served model the catalog
+  lacks. Triggers: BOTH (user choice) — nightly alongside catalog sync (gated on
+  CATALOG_SYNC_CRON + a vault to supply the key) AND an on-demand "Discover models" admin
+  button (POST /admin-api/providers/:id/discover-models, DO-only). ADDITIVE + CONSERVATIVE +
+  NON-DESTRUCTIVE: discovered rows get a new source='provider' enum value (migration 0005,
+  reversible), placeholder contextWindow=8192, NO capabilities (operator enables per model via
+  overrides, Q-062), and NO pricing (→ cost_unknown, never silently zero). Never deprecates or
+  overwrites: a live list endpoint can be partial, and the vendored curated feed stays the
+  source of accurate specs — and because 'provider' rows are not 'custom', the nightly vendored
+  sync ENRICHES them in place if a curated entry with the same id later ships (self-healing
+  placeholders). Discovery is idempotent (onConflictDoNothing on canonical id) so nightly +
+  on-demand can't double-insert. Audited as provider_models_discovered only when something new
+  is added.** → additive/gated/reversible; DO-only by design (other cloud kinds are covered by
+  the LiteLLM feed, locals are pinned) → **S/M**

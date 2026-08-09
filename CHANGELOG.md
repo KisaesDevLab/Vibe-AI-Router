@@ -5,6 +5,33 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.10 — 2026-08-09
+
+**MyBooks/Time-Billing task-class pack coverage** + **DigitalOcean model auto-discovery**.
+
+- **App AI-task coverage (Q-081).** A call-site audit of myBooks and Vibe-Time-Billing
+  confirmed every AI feature maps to a task class the app registers at boot (no hard
+  fail-closed gaps), but 8 of those classes — including both support-chat classes
+  (`mybooks_chat`, `timebill_support_chat`) — lived only in runtime registration, not the
+  curated default pack, so a firm got no pre-provisioned policy and support chat could fail
+  closed during the boot-registration window. Added all 8 to `src/policy/pack.ts` as
+  **`local_only`** (the safest defensible default, identical to what registration produced —
+  zero egress-behavior change). `mybooks_statement_extract` gets the 32768 `defaultMaxTokens`
+  floor (matching `txconv_statement_parse`, Q-074) to prevent mid-array truncation.
+  `SENSITIVITY-REVIEW.md` updated; four cloud-candidate classes flagged PENDING for a
+  deliberate, audited widening.
+- **DigitalOcean model auto-discovery (Q-082).** The router now discovers the models a firm's
+  DigitalOcean provider actually serves — nightly (alongside catalog sync) and via a new
+  on-demand **Discover models** button (`POST /admin-api/providers/:id/discover-models`) — so
+  operators no longer hand-edit `data/digitalocean-models.json` and cut a release per model.
+  Discovery is additive, conservative, and non-destructive: it queries the provider's live
+  `/models` endpoint and inserts only unknown ids as `source='provider'` rows (new enum value,
+  reversible migration `0005`) with placeholder context window, no capabilities (operator
+  enables via overrides), and no pricing (→ `cost_unknown`). It never deprecates or overwrites;
+  the vendored curated feed remains the source of accurate specs and enriches discovered rows
+  in place if a curated entry later ships. New `src/catalog/discovery.ts`; audited as
+  `provider_models_discovered`.
+
 ## 0.0.9 — 2026-08-09
 
 **WISP AI Data-Handling Appendix export** + **SDK `completeJson` truncation check**.

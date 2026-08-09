@@ -150,8 +150,14 @@ async function main(): Promise<void> {
 
   const scheduler =
     env.CATALOG_SYNC_CRON && runsBackgroundJobs
-      ? (await import('../catalog/scheduler.js')).startCatalogScheduler(handle.db, log, env.CATALOG_SYNC_CRON, () =>
-          metrics.markSync(),
+      ? (await import('../catalog/scheduler.js')).startCatalogScheduler(
+          handle.db,
+          log,
+          env.CATALOG_SYNC_CRON,
+          () => metrics.markSync(),
+          // enable nightly live-provider model discovery only when the vault can supply keys
+          // (Q-082); without MASTER_KEY there are no cloud credentials to discover with anyway
+          vault ? (providerId: string) => vault.getActiveApiKey(providerId) : undefined,
         )
       : undefined;
 

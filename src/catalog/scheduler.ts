@@ -10,6 +10,10 @@ import { firms, taskClasses } from '../../db/schema.js';
 import { writeAudit } from '../protect/audit.js';
 import { loadVendoredFeed, syncCatalog, type DiffReport } from './sync.js';
 import { findRetiredModelReferences } from './service.js';
+import { runProviderDiscovery } from './discovery.js';
+
+/** Live-endpoint model discovery (Q-082): supply a key resolver to enable it, omit to skip. */
+export type GetApiKey = (providerId: string) => Promise<string | undefined>;
 
 async function firmIdForAudit(db: Db): Promise<string | undefined> {
   const firm = await db.query.firms.findFirst({ orderBy: firms.createdAt });
@@ -20,8 +24,18 @@ export async function runCatalogSync(
   db: Db,
   log: Logger,
   onSuccess?: () => void,
+  getApiKey?: GetApiKey,
 ): Promise<DiffReport | undefined> {
   const firmId = await firmIdForAudit(db);
+  // Live-provider discovery (Q-082) runs independently of the vendored sync's success — a
+  // feed load failure must not suppress it, and its own failure must not fail the sync.
+  if (getApiKey) {
+    try {
+      await runProviderDiscovery(db, log, getApiKey);
+    } catch (err) {
+      log.warn({ err }, 'provider model discovery pass failed');
+    }
+  }
   try {
     const { feed, sha256 } = await loadVendoredFeed();
     const report = await syncCatalog(db, feed, { source: 'vendored:litellm', sourceSha256: sha256 });
@@ -98,9 +112,10 @@ export function startCatalogScheduler(
   log: Logger,
   cronExpr: string,
   onSuccess?: () => void,
+  getApiKey?: GetApiKey,
 ): ScheduledTask {
   const task = cron.schedule(cronExpr, () => {
-    void runCatalogSync(db, log, onSuccess);
+    void runCatalogSync(db, log, onSuccess, getApiKey);
   });
   log.info({ cron: cronExpr }, 'catalog sync scheduled');
   return task;
