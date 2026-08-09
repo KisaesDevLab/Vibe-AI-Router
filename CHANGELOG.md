@@ -20,6 +20,12 @@ completeness. See "Not yet verified" in the README.
   binaries; offline-safe). New `src/ops/wisp.ts` (`buildWispData` + `renderWispDocx`);
   `MATCH_TYPES` promoted to a runtime const in `src/protect/scrub.ts` as the single source of
   truth the appendix cites.
+- **Release build fix.** The SDK `prepare` script (added in 0.2.0 for downstream git-dependency
+  installs) ran `tsc` during the router's own Docker build stage, where the SDK source/tsconfig
+  aren't copied yet — failing the image build. Latent since 0.2.0 because no release was cut in
+  between; it surfaced on the first release since. `prepare` now builds only when its inputs are
+  present (downstream install → builds; router Docker install → skips, since the Dockerfile
+  builds the SDK explicitly). Validated with a full local Docker build.
 - **SDK `completeJson` truncation check** (`@kisaes/vibe-ai-client` 0.2.1). `completeJson`
   now checks `finishReason` **before** parsing and throws a typed
   `VibeAiError('output_truncated')` — carrying the *served* completion-token count — when a

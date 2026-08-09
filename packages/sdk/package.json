@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
-    "prepare": "tsc -p tsconfig.json"
+    "prepare": "node -e \"const fs=require('fs');if(fs.existsSync('tsconfig.json')&&fs.existsSync('src'))require('child_process').execSync('tsc -p tsconfig.json',{stdio:'inherit'})\""
   },
   "engines": { "node": ">=20" },
   "devDependencies": {
