@@ -38,7 +38,11 @@ const envSchema = z.object({
   UPSTREAM_MAX_CONCURRENCY: z.coerce.number().int().positive().default(16),
   UPSTREAM_QUEUE_CAP: z.coerce.number().int().nonnegative().default(32),
   BREAKER_OPEN_MS: z.coerce.number().int().positive().default(30_000),
-  ROUTER_TIMEOUT_TOTAL_MS: z.coerce.number().int().positive().default(120_000),
+  // total-request budget. For STREAMS this bounds time-to-first-token only (the idle timeout
+  // governs after the first chunk — Q-077), so a long 32k-token generation is not walled.
+  // For NON-STREAMING it bounds the whole call: raise it for large local completions that
+  // don't stream (e.g. txconv 32k statement parse can take many minutes at local speeds).
+  ROUTER_TIMEOUT_TOTAL_MS: z.coerce.number().int().positive().default(300_000),
   ROUTER_TIMEOUT_STREAM_IDLE_MS: z.coerce.number().int().positive().default(60_000),
   /**
    * Which surfaces this process serves (see RouterRole in src/server/app.ts).

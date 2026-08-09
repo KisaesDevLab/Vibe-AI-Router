@@ -303,3 +303,89 @@ Grouped by phase. This file is the Phase 15 review agenda.
   per-job identity, never a runtime fallback; ANTHROPIC_KILL_SWITCH brakes BOTH paths
   (emergency spend stop regardless of backend); untranslatable content blocks/server tools
   throw rather than silently drop → **S**
+- [Q-071] Anthropic "Test connection" always failed (admin UI passes no model → adapter sent
+  `model:""` to /v1/messages → guaranteed 400 → provider marked `down`); plus three latent
+  request-time 400s on newer Claude models → **(1) empty-model test now hits GET /v1/models
+  (auth+reachability check, mirrors openai-compat); openai-compat's /models-404 fallback
+  rethrows instead of pinging with an empty model. (2) 4.7+/5-family wire ids
+  (ADAPTIVE_ONLY_MODEL regex): thinking budget → `{type:"adaptive"}`, temperature/top_p
+  omitted (both removed server-side, 400 if sent). (3) Claude 4.x: temperature preferred over
+  top_p, never both (Anthropic rejects the pair on 4+)** → behavior unchanged for the seeded
+  4.5/4.6 models; regex must be extended when a new family ships (catalog sync surfaces the
+  ids) → **S**
+
+- [Q-072] Scrubber ran only when the PRIMARY model was cloud — a local-default policy with a
+  cloud fallback could egress UNSCRUBBED content on a fallback hop (found independently by
+  two review passes) → **scrub decision now considers the whole candidate chain: local
+  primary + cloud-in-chain prepares a redacted outbound copy swapped in per cloud hop
+  (`ctx.cloudEnvelope`); block mode bars cloud hops via routeForModel while local still
+  serves; audit events carry `scope: fallback_only`** → local-served requests keep their
+  original content (local tier stays exempt); regression suite in resilience.test.ts → **S**
+- [Q-073] Multi-firm + accounting hardening batch from the deep review → **(1) budgets_state
+  scope_ref keys firm-scoped (`firmId:app` / `firmId:user` — bare app names collided across
+  firms: cross-tenant budget DoS + spend leak). (2) Response-cache key now
+  firm + model + messages-hash + request-params digest (was model+messages only: cross-firm
+  and wrong-shape hits). (3) Streams that die/abort before a usage-bearing finish ledger
+  ESTIMATED usage (chars/4, flagged) instead of silent zeros — closes the abort-early budget
+  loophole. (4) Admin API firm-scoped everywhere (providers list/patch/delete/test,
+  credentials add/promote/revoke, app-tokens list/revoke, dashboard budgets); provider
+  delete revokes its credentials; empty PATCH and malformed cookies are 4xx not 500s.
+  (5) /healthz probes the DB (2s cache) — the appliance healthcheck chain trusted a
+  process-liveness lie. (6) CSV exports neutralize leading formula chars. (7) keyring
+  rejects MASTER_KEY_PREVIOUS_VERSION == MASTER_KEY_VERSION. (8) settings accept explicit
+  null to clear a key (UI could never unset global_temperature_max)** → known-accepted
+  residuals recorded in QA-REPORT Round J → **S/M**
+- [Q-074] Suite compat: `txconv_statement_parse` pack default 4096 truncated TxConvertor's
+  multi-page extractions (app requests 32k) and app registration re-stamped the low value
+  each boot; payroll pack app name `vibe-payroll` didn't match the app's registration
+  identity `vibe-payroll-time` (token minted under the pack name → registration 403 loop)
+  → **pack default raised to 32768; curated pack defaults now act as a registration FLOOR
+  (apps can raise, never lower below pack; operators clamp down via policy
+  maxTokensOverride); pack app renamed to the app's real identity** → app-side tickets
+  A1–A9 in docs/app-compat-review-2026-08-08.md → **S**
+- [Q-075] R4 (operator-directed): route the shared GLM-OCR llama-server through the router →
+  **new provider kind `local_ocr` (OpenAI wire shape via the openai-compat adapter — GLM-OCR
+  is llama-server on :8090; own kind because routing resolves providers BY KIND and a second
+  `local` row would be unreachable next to vibellm, same rationale as Q-060) + the LOCAL
+  TIER generalized from `kind === 'local'` to `LOCAL_TIER_KINDS`/`isLocalKind()` across
+  local_only sensitivity, scrubber exemption, SSRF LAN-pinning, response-cache tiering, and
+  the Q-072 hop-envelope logic. Migration 0004 (reversible; down also strips model ids from
+  policy uuid[] arrays — fixing 0003's dangling-reference flaw). UI: provider preset
+  `GLM-OCR (local)`, catalog kind option, local-tier policy filter.** Supersedes the
+  "OCR stays direct in both modes" portion of Q-068/Q-069 as an OPTION — apps may now route
+  OCR page images through the router to a local_ocr provider (image parts pass through
+  verbatim; local tier stays scrubber-exempt; property tests updated to the tier
+  definition) → **M**
+- [Q-077] Exhaustive QA (Round K) connection-handling defects → **(1) total timeout (120s)
+  killed every long generation incl. the 32k txconv case: streams now use total-timeout as a
+  first-token bound, then the idle timer governs; default raised to 300s; (2) idle watchdog
+  armed only after first chunk so Ollama cold-loads aren't killed at 60s; (3) client
+  abort / total-timeout no longer recorded as provider failure (was opening the breaker on
+  healthy providers → marked down); stream health recorded once not twice; (4) timeouts map
+  to provider_unavailable/502 not unknown/500, incl. AbortSignal.timeout on admin/vault
+  tests; (5) postSse + SDK flush the decoder and emit a final blank-line-less event (was
+  dropping the usage frame → measured billing downgraded to estimated)** → verified against a
+  live router with mock upstreams → **M**
+- [Q-078] Exhaustive QA (Round K) wire-format defects → **(1) stateful OpenAI stream
+  translator: parallel/ omitted-index/split-id tool calls stay distinct + ids synthesized
+  (official openai client no longer merges them into garbage); (2) usage-bearing content
+  chunk no longer injects a phantom mid-stream finish (vLLM cumulative usage); usage+finish
+  in one chunk (DeepSeek) attaches to the real finish; (3) Anthropic tool_result array
+  content → block array not JSON.stringify of internals; (4) Anthropic tool_use missing
+  input → arguments '{}' not invalid JSON; (5) temperature clamped to Anthropic 0–1;
+  (6) cache-write tokens folded into wire prompt_tokens; (7) n>1 rejected at ingress;
+  (8) SDK default timeout + signal on every method (registerTaskClasses runs at boot) +
+  content-type guard; (9) /version reads package.json (was pinned 0.0.3 for 3 releases)** →
+  regression tests added; official-openai-client contract suite + live wire capture confirm
+  compliance → **M**- [Q-079] Security test (Round L): can any unauthorized party reach the AI endpoints? →
+  **NO — audit + live pen-test confirmed every gateway path (chat/register/billing) requires
+  a valid, non-revoked, chat-scoped app token; admin surface requires an admin-role signed
+  session + CSRF header; bootstrap requires a timing-safe token; firmId is only ever taken
+  from the token/session row, never a client header; cross-firm isolation holds on all
+  firm-owned tables. ONE latent gap fixed: task_classes/models are GLOBAL (no firm_id), so a
+  firm admin could mutate suite-wide sensitivity/catalog affecting another firm in a
+  multi-firm deployment — now guarded (assertSoleFirm → 403 when >1 firm; single-firm
+  behavior unchanged), the compliance-critical sensitivity boundary being the key concern**
+  → accepted residuals: no login/bearer throttle (Q-052, LAN-only + scrypt cost); client-
+  asserted X-Vibe-User-Role is advisory within the trusted-app model; bootstrap /admin/* is
+  the intentional global-operator surface (token-gated, unregistered when unset) → **S**

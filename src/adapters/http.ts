@@ -81,11 +81,25 @@ export async function* postSse(
 
   const decoder = new TextDecoder();
   let buffer = '';
+  const emit = function* (rawEvent: string): Generator<string> {
+    const dataLines = rawEvent
+      .split(/\r?\n/)
+      .filter((l) => l.startsWith('data:'))
+      .map((l) => l.slice(5).trimStart());
+    if (dataLines.length > 0) yield dataLines.join('\n');
+  };
   const reader = res.body.getReader();
   try {
     for (;;) {
       const result = (await reader.read()) as { done: boolean; value?: Uint8Array };
-      if (result.done) break;
+      if (result.done) {
+        // flush any trailing multibyte bytes and emit a final event that arrived without a
+        // trailing blank line (providers that close the socket right after the usage frame —
+        // Q-077: losing it silently downgraded measured billing to estimated)
+        buffer += decoder.decode();
+        if (buffer.trim().length > 0) yield* emit(buffer);
+        break;
+      }
       buffer += decoder.decode(result.value, { stream: true });
       // events are separated by a blank line
       for (;;) {
@@ -93,11 +107,7 @@ export async function* postSse(
         if (sep === -1) break;
         const rawEvent = buffer.slice(0, sep);
         buffer = buffer.slice(sep).replace(/^\r?\n\r?\n/, '');
-        const dataLines = rawEvent
-          .split(/\r?\n/)
-          .filter((l) => l.startsWith('data:'))
-          .map((l) => l.slice(5).trimStart());
-        if (dataLines.length > 0) yield dataLines.join('\n');
+        yield* emit(rawEvent);
       }
     }
   } finally {

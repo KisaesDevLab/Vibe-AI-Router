@@ -12,6 +12,9 @@ const PRESETS: Record<string, { kind: string; baseUrl: string; authType: string 
   // own kind (not openai_compat) so it routes independently next to OpenAI/Groq; the
   // credential is a DO "model access key", entered like any API key
   'DigitalOcean (Gradient)': { kind: 'digitalocean', baseUrl: 'https://inference.do-ai.run/v1', authType: 'api_key' },
+  // shared appliance GLM-OCR llama-server (R4) — LOCAL data tier, own kind so it can
+  // coexist with the vibellm local provider (routing resolves providers by kind)
+  'GLM-OCR (local)': { kind: 'local_ocr', baseUrl: 'http://vibe-glm-ocr:8090/v1', authType: 'none' },
 };
 
 export function Providers(): JSX.Element {

@@ -12,6 +12,7 @@ import {
   normalizeFinishReason,
   providerModelName,
   translateResponse,
+  OpenAiStreamState,
   translateStreamChunk,
 } from '../src/adapters/openai-compat/translate.js';
 import { ProviderHttpError } from '../src/adapters/http.js';
@@ -191,6 +192,42 @@ describe('stream chunk translation fixtures', () => {
   it('tolerates unknown shapes (returns [])', () => {
     expect(translateStreamChunk({ weird: true })).toEqual([]);
     expect(translateStreamChunk('noise')).toEqual([]);
+  });
+
+  // ── Q-078: stateful multi-tool + phantom-finish regressions ─────────────────
+  it('OpenAiStreamState: two parallel tool calls that both OMIT index stay distinct', () => {
+    const s = new OpenAiStreamState();
+    // provider (Ollama /v1) omits index; names arrive on separate start frames
+    const a = s.handle({ choices: [{ delta: { tool_calls: [{ id: 'a', function: { name: 'f1', arguments: '' } }] } }] });
+    const b = s.handle({ choices: [{ delta: { tool_calls: [{ id: 'b', function: { name: 'f2', arguments: '' } }] } }] });
+    const argA = s.handle({ choices: [{ delta: { tool_calls: [{ function: { arguments: '{"x":1}' } }] } }] });
+    expect(a).toEqual([{ type: 'tool_call_start', index: 0, id: 'a', name: 'f1' }]);
+    expect(b).toEqual([{ type: 'tool_call_start', index: 1, id: 'b', name: 'f2' }]);
+    // arg-only frame with no index belongs to the most recently opened call (index 1)
+    expect(argA).toEqual([{ type: 'tool_call_delta', index: 1, argumentsDelta: '{"x":1}' }]);
+  });
+
+  it('OpenAiStreamState: synthesizes an id when the provider sends name but no id', () => {
+    const s = new OpenAiStreamState();
+    expect(s.handle({ choices: [{ delta: { tool_calls: [{ index: 0, function: { name: 'g' } }] } }] })).toEqual([
+      { type: 'tool_call_start', index: 0, id: 'call_0', name: 'g' },
+    ]);
+  });
+
+  it('OpenAiStreamState: usage alongside CONTENT does not inject a phantom finish (vLLM cumulative usage)', () => {
+    const s = new OpenAiStreamState();
+    // a content chunk that also carries cumulative usage must NOT emit a finish
+    const out = s.handle({ choices: [{ delta: { content: 'hi' }, finish_reason: null }], usage: { prompt_tokens: 5, completion_tokens: 1 } });
+    expect(out).toEqual([{ type: 'text_delta', delta: 'hi' }]);
+    expect(out.some((c) => c.type === 'finish')).toBe(false);
+  });
+
+  it('OpenAiStreamState: usage AND finish in one chunk (DeepSeek) attaches usage to the real finish', () => {
+    const s = new OpenAiStreamState();
+    const out = s.handle({ choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 5, completion_tokens: 2 } });
+    expect(out).toEqual([
+      { type: 'finish', finishReason: 'tool_calls', usage: { promptTokens: 5, completionTokens: 2, cachedReadTokens: 0, cacheWriteTokens: 0, estimated: false } },
+    ]);
   });
 });
 

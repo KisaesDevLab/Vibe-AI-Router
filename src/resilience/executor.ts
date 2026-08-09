@@ -4,6 +4,7 @@
  * routeForModel), streaming fallback only before the first content chunk, total + idle
  * timeouts, load-shed guard. Every hop is audited.
  */
+import { isLocalKind } from '../../db/schema.js';
 import type { AIResponse, StreamChunk } from '../gateway/envelope.js';
 import { RETRYABLE_CODES, RouterError, toRouterError } from '../gateway/errors.js';
 import { routeForModel, type PipelineCtx, type PipelineDeps, type RouteDecision } from '../gateway/pipeline.js';
@@ -19,18 +20,44 @@ export interface ResilienceConfig {
   streamIdleTimeoutMs: number;
 }
 
-function compositeSignal(client: AbortSignal, totalMs: number): { signal: AbortSignal; dispose: () => void } {
+/** Marker on an abort reason so a hop failure can be classified as a timeout, not a provider fault. */
+class TimeoutAbort extends Error {}
+
+interface Composite {
+  signal: AbortSignal;
+  dispose: () => void;
+  /** true once the total-timeout timer has fired */
+  timedOut: () => boolean;
+  /**
+   * Stop the total-timeout clock (streams call this on the first chunk — after that the
+   * per-hop idle timer governs, so a long-but-progressing generation is never walled by the
+   * total budget). Q-077: the 120s total used to kill every 32k-token local generation.
+   */
+  clearTotalTimeout: () => void;
+}
+
+function compositeSignal(client: AbortSignal, totalMs: number): Composite {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error('total timeout')), totalMs);
+  let fired = false;
+  let timer: ReturnType<typeof setTimeout> | undefined = setTimeout(() => {
+    fired = true;
+    controller.abort(new TimeoutAbort('total timeout'));
+  }, totalMs);
+  const clearTotalTimeout = (): void => {
+    if (timer) clearTimeout(timer);
+    timer = undefined;
+  };
   const onClientAbort = (): void => controller.abort(new Error('client abort'));
   if (client.aborted) onClientAbort();
   else client.addEventListener('abort', onClientAbort, { once: true });
   return {
     signal: controller.signal,
     dispose: () => {
-      clearTimeout(timer);
+      clearTotalTimeout();
       client.removeEventListener('abort', onClientAbort);
     },
+    timedOut: () => fired,
+    clearTotalTimeout,
   };
 }
 
@@ -56,12 +83,20 @@ export function candidateModels(ctx: PipelineCtx): string[] {
   return ids;
 }
 
+/**
+ * Envelope for ONE hop (Q-072): when the primary is local, the scrub stage leaves the
+ * original envelope for local hops and stashes the redacted copy for cloud hops here.
+ */
+function hopEnvelope(route: RouteDecision, ctx: PipelineCtx): PipelineCtx['envelope'] {
+  return !isLocalKind(route.model.providerKind) && ctx.cloudEnvelope ? ctx.cloudEnvelope : ctx.envelope;
+}
+
 async function executeHopOnce(
   route: RouteDecision,
   ctx: PipelineCtx,
   signal: AbortSignal,
 ): Promise<AIResponse> {
-  return route.adapter.execute(ctx.envelope, route.executeCtx, signal);
+  return route.adapter.execute(hopEnvelope(route, ctx), route.executeCtx, signal);
 }
 
 /** retry loop for ONE hop (10.1): retryable codes only, ≤2 retries, Retry-After respected. */
@@ -83,8 +118,12 @@ async function executeHopWithRetries(
     } catch (err) {
       const rerr = toRouterError(err);
       lastErr = rerr;
-      cfg.breaker.record(route.provider.id, false);
-      deps.recordHealth?.(route.provider.id, ctx.auth!.firmId, route.provider.label, false);
+      // client abort / total timeout is NOT a provider fault — recording it would open the
+      // breaker on a healthy provider and mark it down (Q-077)
+      if (!signal.aborted) {
+        cfg.breaker.record(route.provider.id, false);
+        deps.recordHealth?.(route.provider.id, ctx.auth!.firmId, route.provider.label, false);
+      }
       if (!RETRYABLE_CODES.has(rerr.code) || attempt === MAX_RETRIES || signal.aborted) throw rerr;
       await sleep(retryDelayMs(attempt, rerr.retryAfterSeconds), signal).catch(() => {
         throw rerr;
@@ -107,11 +146,13 @@ export async function executeResilient(
 ): Promise<AIResponse> {
   const effective = ctx.effective;
   if (!effective) throw new RouterError('unknown', 'pipeline ordering violation');
-  const { signal, dispose } = compositeSignal(clientSignal, cfg.totalTimeoutMs);
+  const composite = compositeSignal(clientSignal, cfg.totalTimeoutMs);
+  const { signal, dispose } = composite;
   try {
     let lastErr: RouterError | undefined;
     let previousModel = '';
     for (const modelId of candidateModels(ctx)) {
+      if (signal.aborted) break; // client gone or total timeout — stop hopping
       const model = effective.modelsById.get(modelId);
       if (!model) continue;
       let route: RouteDecision;
@@ -153,6 +194,12 @@ export async function executeResilient(
         release();
       }
     }
+    // a total-timeout abort surfaces as a provider timeout, not a generic 500 (Q-077)
+    if (composite.timedOut()) {
+      throw new RouterError('provider_unavailable', 'upstream timed out', {
+        detail: { reason: 'total_timeout' },
+      });
+    }
     throw lastErr ?? new RouterError('provider_unavailable', 'no usable model in policy chain');
   } finally {
     dispose();
@@ -172,11 +219,13 @@ export async function* executeResilientStream(
 ): AsyncGenerator<StreamChunk> {
   const effective = ctx.effective;
   if (!effective) throw new RouterError('unknown', 'pipeline ordering violation');
-  const { signal, dispose } = compositeSignal(clientSignal, cfg.totalTimeoutMs);
+  const composite = compositeSignal(clientSignal, cfg.totalTimeoutMs);
+  const { signal, dispose } = composite;
   try {
     let lastErr: RouterError | undefined;
     let previousModel = '';
     for (const modelId of candidateModels(ctx)) {
+      if (signal.aborted) break;
       const model = effective.modelsById.get(modelId);
       if (!model) continue;
       let route: RouteDecision;
@@ -203,47 +252,67 @@ export async function* executeResilientStream(
       }
 
       let yieldedAnything = false;
-      // idle watchdog (10.5)
-      const idleController = new AbortController();
-      let idleTimer = setTimeout(() => idleController.abort(new Error('stream idle timeout')), cfg.streamIdleTimeoutMs);
-      const resetIdle = (): void => {
-        clearTimeout(idleTimer);
-        idleTimer = setTimeout(() => idleController.abort(new Error('stream idle timeout')), cfg.streamIdleTimeoutMs);
-      };
+      let idleFired = false;
+      // idle watchdog (10.5): armed ONLY after the first chunk (Q-077). Time-to-first-token
+      // — Ollama cold-load of a 14B model can take minutes — is bounded by the TOTAL timeout,
+      // not this 60s idle timer; the idle timer only guards inter-chunk stalls.
+      let idleTimer: ReturnType<typeof setTimeout> | undefined;
       const hopController = new AbortController();
-      const onOuter = (): void => hopController.abort();
-      const onIdle = (): void => hopController.abort(new Error('stream idle timeout'));
+      const armIdle = (): void => {
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => {
+          idleFired = true;
+          hopController.abort(new TimeoutAbort('stream idle timeout'));
+        }, cfg.streamIdleTimeoutMs);
+      };
+      const onOuter = (): void => hopController.abort(signal.reason);
       signal.addEventListener('abort', onOuter, { once: true });
-      idleController.signal.addEventListener('abort', onIdle, { once: true });
 
       try {
         if (previousModel) auditHop(ctx, deps, previousModel, model.canonicalId, lastErr?.message ?? 'fallback');
         ctx.route = route;
-        const stream = route.adapter.executeStream(ctx.envelope, route.executeCtx, hopController.signal);
+        const stream = route.adapter.executeStream(hopEnvelope(route, ctx), route.executeCtx, hopController.signal);
         for await (const chunk of stream) {
-          resetIdle();
+          if (!yieldedAnything) {
+            // first chunk: the generation is progressing — stop the total-timeout wall and
+            // hand off to the idle timer so a long 32k generation can run to completion
+            composite.clearTotalTimeout();
+          }
+          armIdle();
           yieldedAnything = true;
           yield chunk;
         }
         cfg.breaker.record(route.provider.id, true);
-        deps.recordHealth?.(route.provider.id, ctx.auth!.firmId, route.provider.label, true);
+        // stream health is recorded by the SSE relay (routes.ts) — don't double-count here
         return;
       } catch (err) {
-        const rerr = toRouterError(err);
-        cfg.breaker.record(route.provider.id, false);
-        deps.recordHealth?.(route.provider.id, ctx.auth!.firmId, route.provider.label, false);
-        if (yieldedAnything || signal.aborted) {
-          // after first chunk: fail cleanly, never splice providers mid-stream (10.4)
+        const rerr = idleFired
+          ? new RouterError('provider_unavailable', 'upstream stalled (idle timeout)', {
+              detail: { reason: 'stream_idle_timeout' },
+            })
+          : toRouterError(err);
+        // don't blame the provider for a client abort or a total/idle timeout (Q-077)
+        if (!signal.aborted && !idleFired) {
+          cfg.breaker.record(route.provider.id, false);
+          deps.recordHealth?.(route.provider.id, ctx.auth!.firmId, route.provider.label, false);
+        }
+        if (yieldedAnything || signal.aborted || idleFired) {
+          // after first chunk (or on abort/timeout): fail cleanly, never splice providers (10.4)
           throw rerr;
         }
         lastErr = rerr;
         previousModel = model.canonicalId;
         // advance to next hop
       } finally {
-        clearTimeout(idleTimer);
+        if (idleTimer) clearTimeout(idleTimer);
         signal.removeEventListener('abort', onOuter);
         release();
       }
+    }
+    if (composite.timedOut()) {
+      throw new RouterError('provider_unavailable', 'upstream timed out before first token', {
+        detail: { reason: 'total_timeout' },
+      });
     }
     throw lastErr ?? new RouterError('provider_unavailable', 'no usable model in policy chain');
   } finally {

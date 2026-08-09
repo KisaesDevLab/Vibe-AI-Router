@@ -127,9 +127,18 @@ export interface VibeAiClientOptions {
   /** app token minted at provisioning — never a provider key */
   token: string;
   fetch?: typeof fetch;
+  /**
+   * Default per-request timeout (ms). A hung router must never hang the app forever — this is
+   * the floor even when a call passes no signal. Default 120_000; raise for large non-streaming
+   * completions (e.g. 32k statement parses). Set 0 to disable (not recommended).
+   */
+  timeoutMs?: number;
 }
 
 // ── client ───────────────────────────────────────────────────────────────────
+
+/** internal sentinel: the SSE `[DONE]` terminator, distinct from a StreamEvent */
+const DONE = Symbol('sse-done');
 
 interface WireCompletion {
   model: string;
@@ -155,11 +164,32 @@ export class VibeAiClient {
   private readonly baseUrl: string;
   private readonly token: string;
   private readonly fetchFn: typeof fetch;
+  private readonly timeoutMs: number;
 
   constructor(opts: VibeAiClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, '');
     this.token = opts.token;
     this.fetchFn = opts.fetch ?? fetch;
+    this.timeoutMs = opts.timeoutMs ?? 120_000;
+  }
+
+  /**
+   * Combine the caller's signal (if any) with the default timeout so a hung router can never
+   * hang the app indefinitely. Returns the signal to pass to fetch plus a cleanup for the timer.
+   */
+  private withTimeout(signal?: AbortSignal): { signal: AbortSignal | undefined; done: () => void } {
+    if (this.timeoutMs <= 0) return { signal, done: () => {} };
+    const timeoutSignal = AbortSignal.timeout(this.timeoutMs);
+    if (!signal) return { signal: timeoutSignal, done: () => {} };
+    // both: abort when either fires (AbortSignal.any is widely available on Node 20+/modern browsers)
+    const anyFn = (AbortSignal as unknown as { any?: (s: AbortSignal[]) => AbortSignal }).any;
+    if (anyFn) return { signal: anyFn([signal, timeoutSignal]), done: () => {} };
+    // fallback: bridge manually
+    const ctrl = new AbortController();
+    const onAbort = (): void => ctrl.abort();
+    signal.addEventListener('abort', onAbort, { once: true });
+    timeoutSignal.addEventListener('abort', onAbort, { once: true });
+    return { signal: ctrl.signal, done: () => signal.removeEventListener('abort', onAbort) };
   }
 
   private headers(taskClass: string, options?: RequestOptions): Record<string, string> {
@@ -244,13 +274,22 @@ export class VibeAiClient {
     messages: ChatMessage[],
     options?: RequestOptions,
   ): Promise<CompletionResult> {
-    const res = await this.fetchFn(`${this.baseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers: this.headers(taskClass, options),
-      body: this.body(messages, options, false),
-      ...(options?.signal ? { signal: options.signal } : {}),
-    });
+    const { signal, done } = this.withTimeout(options?.signal);
+    let res: Response;
+    try {
+      res = await this.fetchFn(`${this.baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: this.headers(taskClass, options),
+        body: this.body(messages, options, false),
+        ...(signal ? { signal } : {}),
+      });
+    } finally {
+      done();
+    }
     if (!res.ok) await this.throwFor(res);
+    if (!(res.headers.get('content-type') ?? '').includes('application/json')) {
+      throw new VibeAiError('unknown', res.status, 'router returned a non-JSON response (proxy/login page?)');
+    }
     const wire = (await res.json()) as WireCompletion;
     const choice = wire.choices[0];
     return {
@@ -274,14 +313,29 @@ export class VibeAiClient {
     messages: ChatMessage[],
     options?: RequestOptions,
   ): AsyncGenerator<StreamEvent> {
-    const res = await this.fetchFn(`${this.baseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers: this.headers(taskClass, options),
-      body: this.body(messages, options, true),
-      ...(options?.signal ? { signal: options.signal } : {}),
-    });
+    // the timeout bounds time-to-HEADERS only (a hung router that never responds) — NOT the
+    // streaming body, which is legitimately long-running and governed by the router
+    const headerCtrl = new AbortController();
+    const onCallerAbort = (): void => headerCtrl.abort();
+    options?.signal?.addEventListener('abort', onCallerAbort, { once: true });
+    const headerTimer =
+      this.timeoutMs > 0 ? setTimeout(() => headerCtrl.abort(), this.timeoutMs) : undefined;
+    let res: Response;
+    try {
+      res = await this.fetchFn(`${this.baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: this.headers(taskClass, options),
+        body: this.body(messages, options, true),
+        signal: headerCtrl.signal,
+      });
+    } finally {
+      if (headerTimer) clearTimeout(headerTimer); // headers arrived — stop the header clock
+    }
     if (!res.ok) await this.throwFor(res);
     if (!res.body) throw new VibeAiError('unknown', 502, 'no response body');
+    if (!(res.headers.get('content-type') ?? '').includes('text/event-stream')) {
+      throw new VibeAiError('unknown', res.status, 'router returned a non-SSE response to a stream request');
+    }
 
     const decoder = new TextDecoder();
     let buffer = '';
@@ -289,56 +343,77 @@ export class VibeAiClient {
     try {
       for (;;) {
         const { done, value } = (await reader.read()) as { done: boolean; value?: Uint8Array };
-        if (done) break;
+        if (done) {
+          // flush trailing bytes + any final event that arrived without a blank-line terminator
+          buffer += decoder.decode();
+          if (buffer.trim().length > 0) {
+            for (const ev of this.parseSseBlock(buffer)) {
+              if (ev === DONE) return;
+              yield ev;
+            }
+          }
+          break;
+        }
         buffer += decoder.decode(value, { stream: true });
         for (;;) {
           const sep = buffer.search(/\r?\n\r?\n/);
           if (sep === -1) break;
           const rawEvent = buffer.slice(0, sep);
           buffer = buffer.slice(sep).replace(/^\r?\n\r?\n/, '');
-          for (const line of rawEvent.split(/\r?\n/)) {
-            if (!line.startsWith('data:')) continue;
-            const data = line.slice(5).trim();
-            if (data === '[DONE]') return;
-            let parsed: {
-              choices?: {
-                delta?: {
-                  content?: string;
-                  tool_calls?: { index: number; id?: string; function?: { name?: string; arguments?: string } }[];
-                };
-                finish_reason?: string | null;
-              }[];
-              usage?: WireCompletion['usage'];
-              error?: { code?: VibeAiErrorCode; message?: string };
-            };
-            try {
-              parsed = JSON.parse(data) as typeof parsed;
-            } catch {
-              continue;
-            }
-            if (parsed.error) {
-              throw new VibeAiError(parsed.error.code ?? 'unknown', 502, parsed.error.message ?? 'stream error');
-            }
-            const choice = parsed.choices?.[0];
-            if (choice?.delta?.content) yield { delta: choice.delta.content };
-            for (const tc of choice?.delta?.tool_calls ?? []) {
-              yield {
-                toolCallDelta: {
-                  index: tc.index,
-                  ...(tc.id != null ? { id: tc.id } : {}),
-                  ...(tc.function?.name != null ? { name: tc.function.name } : {}),
-                  ...(tc.function?.arguments != null ? { argumentsDelta: tc.function.arguments } : {}),
-                },
-              };
-            }
-            if (choice?.finish_reason) yield { finishReason: choice.finish_reason };
-            if (parsed.usage) yield { usage: toUsage(parsed.usage) };
+          for (const ev of this.parseSseBlock(rawEvent)) {
+            if (ev === DONE) return;
+            yield ev;
           }
         }
       }
     } finally {
       reader.releaseLock();
       await res.body.cancel().catch(() => {});
+    }
+  }
+
+  /** Parse one SSE event block into StreamEvents. Yields the DONE sentinel for `[DONE]`. */
+  private *parseSseBlock(rawEvent: string): Generator<StreamEvent | typeof DONE> {
+    for (const line of rawEvent.split(/\r?\n/)) {
+      if (!line.startsWith('data:')) continue;
+      const data = line.slice(5).trim();
+      if (data === '[DONE]') {
+        yield DONE;
+        return;
+      }
+      let parsed: {
+        choices?: {
+          delta?: {
+            content?: string;
+            tool_calls?: { index: number; id?: string; function?: { name?: string; arguments?: string } }[];
+          };
+          finish_reason?: string | null;
+        }[];
+        usage?: WireCompletion['usage'];
+        error?: { code?: VibeAiErrorCode; message?: string };
+      };
+      try {
+        parsed = JSON.parse(data) as typeof parsed;
+      } catch {
+        continue;
+      }
+      if (parsed.error) {
+        throw new VibeAiError(parsed.error.code ?? 'unknown', 502, parsed.error.message ?? 'stream error');
+      }
+      const choice = parsed.choices?.[0];
+      if (choice?.delta?.content) yield { delta: choice.delta.content };
+      for (const tc of choice?.delta?.tool_calls ?? []) {
+        yield {
+          toolCallDelta: {
+            index: tc.index,
+            ...(tc.id != null ? { id: tc.id } : {}),
+            ...(tc.function?.name != null ? { name: tc.function.name } : {}),
+            ...(tc.function?.arguments != null ? { argumentsDelta: tc.function.arguments } : {}),
+          },
+        };
+      }
+      if (choice?.finish_reason) yield { finishReason: choice.finish_reason };
+      if (parsed.usage) yield { usage: toUsage(parsed.usage) };
     }
   }
 
@@ -374,26 +449,38 @@ export class VibeAiClient {
     }
   }
 
-  /** Declare this app's task classes at startup (12.2). Idempotent; new classes start local_only. */
+  /**
+   * Declare this app's task classes at startup (12.2). Idempotent; new classes start local_only.
+   * Runs on the app's boot path, so it carries the default timeout — a wedged router must not
+   * block app startup forever (Q-078). Pass a signal to override.
+   */
   async registerTaskClasses(params: {
     app: string;
     version: string;
     classes: TaskClassDeclaration[];
+    signal?: AbortSignal;
   }): Promise<{ registered: { key: string; created: boolean; sensitivity: string }[] }> {
-    const res = await this.fetchFn(`${this.baseUrl}/v1/task-classes/register`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${this.token}` },
-      body: JSON.stringify({
-        app: params.app,
-        version: params.version,
-        classes: params.classes.map((c) => ({
-          key: c.key,
-          description: c.description ?? '',
-          requires: c.requires ?? {},
-          defaultMaxTokens: c.defaultMaxTokens ?? 1024,
-        })),
-      }),
-    });
+    const { signal, done } = this.withTimeout(params.signal);
+    let res: Response;
+    try {
+      res = await this.fetchFn(`${this.baseUrl}/v1/task-classes/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${this.token}` },
+        body: JSON.stringify({
+          app: params.app,
+          version: params.version,
+          classes: params.classes.map((c) => ({
+            key: c.key,
+            description: c.description ?? '',
+            requires: c.requires ?? {},
+            defaultMaxTokens: c.defaultMaxTokens ?? 1024,
+          })),
+        }),
+        ...(signal ? { signal } : {}),
+      });
+    } finally {
+      done();
+    }
     if (!res.ok) await this.throwFor(res);
     return res.json() as Promise<{ registered: { key: string; created: boolean; sensitivity: string }[] }>;
   }
@@ -402,12 +489,20 @@ export class VibeAiClient {
   async billingUsage(
     period: string,
     clientRef?: string,
+    signal?: AbortSignal,
   ): Promise<{ period: string; items: Record<string, unknown>[] }> {
     const params = new URLSearchParams({ period });
     if (clientRef) params.set('client_ref', clientRef);
-    const res = await this.fetchFn(`${this.baseUrl}/v1/billing/usage?${params}`, {
-      headers: { authorization: `Bearer ${this.token}` },
-    });
+    const { signal: sig, done } = this.withTimeout(signal);
+    let res: Response;
+    try {
+      res = await this.fetchFn(`${this.baseUrl}/v1/billing/usage?${params}`, {
+        headers: { authorization: `Bearer ${this.token}` },
+        ...(sig ? { signal: sig } : {}),
+      });
+    } finally {
+      done();
+    }
     if (!res.ok) await this.throwFor(res);
     return res.json() as Promise<{ period: string; items: Record<string, unknown>[] }>;
   }

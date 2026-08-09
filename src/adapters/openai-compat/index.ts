@@ -18,15 +18,16 @@ import {
   detectFlavor,
   estimateUsage,
   mapProviderError,
+  OpenAiStreamState,
   providerModelName,
   translateResponse,
   translateStreamChunk,
 } from './translate.js';
 
 export class OpenAiCompatAdapter implements ProviderAdapter {
-  readonly kind: 'openai_compat' | 'local' | 'digitalocean';
+  readonly kind: 'openai_compat' | 'local' | 'digitalocean' | 'local_ocr';
 
-  constructor(kind: 'openai_compat' | 'local' | 'digitalocean' = 'openai_compat') {
+  constructor(kind: 'openai_compat' | 'local' | 'digitalocean' | 'local_ocr' = 'openai_compat') {
     this.kind = kind;
   }
 
@@ -89,6 +90,7 @@ export class OpenAiCompatAdapter implements ProviderAdapter {
     let sawUsage = false;
     let textLength = 0;
     let collected = '';
+    const state = new OpenAiStreamState(); // stateful: correct multi-tool + omitted-index handling
     try {
       for await (const data of postSse(req.url, req.headers, req.body, signal)) {
         if (data === '[DONE]') break;
@@ -98,7 +100,7 @@ export class OpenAiCompatAdapter implements ProviderAdapter {
         } catch {
           continue; // tolerate non-JSON keep-alives
         }
-        for (const chunk of this.translateStreamChunk(raw)) {
+        for (const chunk of state.handle(raw)) {
           if (chunk.type === 'finish') {
             if (chunk.usage) {
               sawUsage = true;
@@ -148,6 +150,9 @@ export class OpenAiCompatAdapter implements ProviderAdapter {
         // some gateways don't expose /models — fall back to a 1-token completion (6.5)
         if (err instanceof ProviderHttpError && (err.status === 404 || err.status === 405)) {
           const model = providerModelName(ctx.model, ctx.modelMapping);
+          // no model to ping with (admin test passes none) — surface the /models failure
+          // honestly instead of a guaranteed-invalid empty-model completion
+          if (!model) throw err;
           await postJson(
             buildUrl(ctx, model, flavor),
             headers,

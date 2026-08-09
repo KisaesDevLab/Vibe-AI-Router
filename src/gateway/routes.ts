@@ -98,10 +98,12 @@ export function registerGateway(app: FastifyInstance, opts: GatewayOptions): voi
         const model = ctx.route?.model.canonicalId ?? 'unknown';
         let first = true;
         let finishChunk: StreamChunk | undefined;
+        let streamedChars = 0; // for usage estimation when the stream dies without a finish
         try {
           for await (const chunk of ctx.stream) {
             if (abort.signal.aborted) break;
             if (chunk.type === 'finish') finishChunk = chunk;
+            if (chunk.type === 'text_delta') streamedChars += chunk.delta.length;
             for (const obj of toChunkObjects(ctx.requestId, model, chunk, first)) {
               reply.raw.write(`data: ${JSON.stringify(obj)}\n\n`);
             }
@@ -124,6 +126,26 @@ export function registerGateway(app: FastifyInstance, opts: GatewayOptions): voi
               message: { role: 'assistant', content: '' },
               finishReason: finishChunk.finishReason,
               usage: finishChunk.usage,
+              served: {
+                model,
+                providerId: ctx.route.provider.id,
+                latencyMs: Date.now() - ctx.startedAt,
+              },
+            };
+          } else if (ctx.route) {
+            // stream died / client aborted before a usage-bearing finish (Q-073): provider
+            // tokens WERE consumed — estimate and flag rather than silently ledger zero
+            // (otherwise abort-before-finish is a budget-evasion loophole)
+            ctx.response = {
+              message: { role: 'assistant', content: '' },
+              finishReason: 'error',
+              usage: {
+                promptTokens: Math.max(1, Math.ceil(JSON.stringify(ctx.envelope.messages).length / 4)),
+                completionTokens: Math.max(streamedChars > 0 ? 1 : 0, Math.ceil(streamedChars / 4)),
+                cachedReadTokens: 0,
+                cacheWriteTokens: 0,
+                estimated: true,
+              },
               served: {
                 model,
                 providerId: ctx.route.provider.id,

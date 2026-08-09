@@ -20,6 +20,9 @@ export function createAdapterRegistry(): AdapterRegistry & {
     ['local', local],
     ['anthropic', new AnthropicAdapter()],
     ['digitalocean', new OpenAiCompatAdapter('digitalocean')],
+    // GLM-OCR llama-server (R4/Q-075): OpenAI wire shape, LOCAL data tier, own kind so it
+    // can coexist with the vibellm `local` row (routing resolves providers by kind)
+    ['local_ocr', new OpenAiCompatAdapter('local_ocr')],
   ]);
   return {
     forKind: (kind) => byKind.get(kind),

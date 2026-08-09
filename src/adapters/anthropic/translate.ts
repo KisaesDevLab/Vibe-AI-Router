@@ -20,6 +20,14 @@ import { ProviderHttpError } from '../http.js';
 import { providerModelName } from '../openai-compat/translate.js';
 
 export const ANTHROPIC_VERSION = '2023-06-01';
+
+/**
+ * Claude 4.7+/5-family wire ids reject manual extended thinking (budget_tokens) and sampling
+ * params with a 400 — thinking budget maps to adaptive thinking and temperature/top_p are
+ * omitted for them (Q-071). 4.6-and-earlier models keep the legacy fields. Extend this list
+ * when Anthropic ships a new family (catalog sync will surface the new ids).
+ */
+export const ADAPTIVE_ONLY_MODEL = /claude-(opus-4-[7-9]|opus-5|sonnet-5|fable-5|mythos)/i;
 /** name of the synthetic tool used to implement json_schema output */
 export function schemaToolName(name: string): string {
   return `emit_${name}`;
@@ -67,15 +75,16 @@ export function buildAnthropicRequest(env: AIRequest, ctx: ExecuteContext): Anth
       continue;
     }
     if (m.role === 'tool') {
+      // tool_result.content must be a string or a block array — mapping the internal
+      // ContentPart[] to text/image blocks (never JSON.stringify the envelope internals,
+      // which fed the model `[{"type":"text",...}]` literally — Q-078)
+      const toolContent =
+        typeof m.content === 'string'
+          ? m.content
+          : m.content.map((p) => (p.type === 'text' ? { type: 'text', text: p.text } : parseImageUrl(p.url)));
       messages.push({
         role: 'user',
-        content: [
-          {
-            type: 'tool_result',
-            tool_use_id: m.toolCallId ?? '',
-            content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-          },
-        ],
+        content: [{ type: 'tool_result', tool_use_id: m.toolCallId ?? '', content: toolContent }],
       });
       continue;
     }
@@ -152,12 +161,20 @@ export function buildAnthropicRequest(env: AIRequest, ctx: ExecuteContext): Anth
   if (systemBlocks.length > 0) body['system'] = systemBlocks;
   if (tools?.length) body['tools'] = tools;
   if (toolChoice) body['tool_choice'] = toolChoice;
-  if (env.temperature !== undefined) body['temperature'] = env.temperature;
-  if (env.topP !== undefined) body['top_p'] = env.topP;
+  const adaptiveOnly = ADAPTIVE_ONLY_MODEL.test(model);
+  if (!adaptiveOnly) {
+    // Claude 4+ rejects temperature AND top_p together — prefer temperature, drop top_p.
+    // Anthropic's temperature range is 0–1 (OpenAI/our ingress allow 0–2), so clamp rather
+    // than let a legal-per-OpenAI 1.3 become a provider 400 (Q-078).
+    if (env.temperature !== undefined) body['temperature'] = Math.min(env.temperature, 1);
+    else if (env.topP !== undefined) body['top_p'] = env.topP;
+  }
   if (env.stop?.length) body['stop_sequences'] = env.stop;
   if (env.stream) body['stream'] = true;
   if (ctx.thinkingBudget !== undefined && ctx.thinkingBudget > 0) {
-    body['thinking'] = { type: 'enabled', budget_tokens: ctx.thinkingBudget };
+    body['thinking'] = adaptiveOnly
+      ? { type: 'adaptive' } // budget_tokens removed on 4.7+/5-family (400 if sent)
+      : { type: 'enabled', budget_tokens: ctx.thinkingBudget };
   }
   return schemaTool !== undefined ? { body, schemaTool } : { body };
 }
@@ -239,7 +256,11 @@ export function translateAnthropicResponse(
         // synthetic schema tool → the structured output IS the content (Q-014)
         content += JSON.stringify(block.input);
       } else {
-        toolCalls.push({ id: block.id, name: block.name, arguments: JSON.stringify(block.input) });
+        // arguments MUST be a JSON string (OpenAI schema requires it); a tool_use with no
+        // input, or a non-object input, would otherwise yield `undefined`/invalid JSON that
+        // breaks any app doing JSON.parse(tc.function.arguments) — Q-078
+        const input = block.input === undefined ? {} : block.input;
+        toolCalls.push({ id: block.id, name: block.name, arguments: JSON.stringify(input) });
       }
     }
   }
@@ -440,6 +461,9 @@ export function mapAnthropicError(err: unknown): RouterError {
       },
       ...(err.retryAfterSeconds !== undefined ? { retryAfterSeconds: err.retryAfterSeconds } : {}),
     });
+  }
+  if (err instanceof Error && err.name === 'TimeoutError') {
+    return new RouterError('provider_unavailable', 'provider request timed out');
   }
   if (err instanceof TypeError) {
     return new RouterError('provider_unavailable', 'provider unreachable', {

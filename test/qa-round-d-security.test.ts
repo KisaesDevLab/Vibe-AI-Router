@@ -372,4 +372,57 @@ describe.skipIf(!url)('QA-D: admin surface security', () => {
     }
     expect(store.size).toBeLessThanOrEqual(1000);
   });
+
+  // ── T4: cross-firm isolation on GLOBAL tables (Q-079) ──────────────────────
+  it('a second firm blocks suite-wide sensitivity/catalog mutations (no cross-firm tampering)', async () => {
+    // single-firm control: the sensitivity PATCH works when this is the only firm
+    const ok = await fetch(`${base}/admin-api/task-classes/tb_classification`, {
+      method: 'PATCH',
+      headers: { cookie: adminCookie, 'x-vibe-admin': '1', 'content-type': 'application/json' },
+      body: JSON.stringify({ description: 'single-firm ok' }),
+    });
+    expect(ok.status).toBe(200);
+
+    // provision a SECOND firm + its admin — now global mutations become cross-firm tampering
+    const [rival] = await handle.db
+      .insert(firms)
+      .values({ name: 'Rival CPA', slug: 'rival-firm-qad', settings: {} })
+      .returning();
+    await handle.db.insert(users).values({
+      firmId: rival!.id,
+      role: 'admin',
+      email: 'admin@rival-qad.firm',
+      displayName: 'Rival Admin',
+      passwordHash: await hashPassword('rival-pw-123'),
+    });
+    const rivalCookie =
+      ((await login('admin@rival-qad.firm', 'rival-pw-123')).headers.get('set-cookie') ?? '').split(';')[0] ?? '';
+
+    const before = await handle.db.query.taskClasses.findFirst({
+      where: (t, { eq: eq_ }) => eq_(t.key, 'tb_classification'),
+    });
+    // rival admin (valid session) tries to WIDEN a class the other firm relies on → refused
+    const attack = await fetch(`${base}/admin-api/task-classes/tb_classification`, {
+      method: 'PATCH',
+      headers: { cookie: rivalCookie, 'x-vibe-admin': '1', 'content-type': 'application/json' },
+      body: JSON.stringify({ sensitivity: 'cloud_allowed' }),
+    });
+    expect(attack.status).toBe(403);
+    const after = await handle.db.query.taskClasses.findFirst({
+      where: (t, { eq: eq_ }) => eq_(t.key, 'tb_classification'),
+    });
+    expect(after?.sensitivity).toBe(before?.sensitivity); // boundary unchanged
+
+    // model-catalog global mutations are likewise refused in multi-firm
+    const model = await handle.db.query.models.findFirst();
+    const retire = await fetch(`${base}/admin-api/models/${model!.id}/retire`, {
+      method: 'POST',
+      headers: { cookie: rivalCookie, 'x-vibe-admin': '1' },
+    });
+    expect(retire.status).toBe(403);
+
+    // cleanup so later ordering-independent runs see one firm again
+    await handle.db.delete(users).where(eq(users.email, 'admin@rival-qad.firm'));
+    await handle.db.delete(firms).where(eq(firms.id, rival!.id));
+  });
 });

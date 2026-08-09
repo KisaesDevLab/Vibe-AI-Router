@@ -9,7 +9,7 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import type { Db } from '../db/client.js';
-import { appTokens, models, providers, taskClasses } from '../../db/schema.js';
+import { appTokens, isLocalKind, models, providers, taskClasses } from '../../db/schema.js';
 import type { AIRequest, AIResponse, StreamChunk } from './envelope.js';
 import { requestHash } from './envelope.js';
 import { RETRYABLE_CODES, RouterError, toRouterError } from './errors.js';
@@ -61,6 +61,16 @@ export interface PipelineCtx {
   error?: RouterError;
   /** set when the scrubber matched (redact/warn modes) — counts only, never values */
   scrubbed?: { mode: 'redact' | 'warn' | 'block'; counts: Partial<Record<MatchType, number>> };
+  /**
+   * Redacted outbound copy for CLOUD hops when the primary model is local (Q-072): fallback
+   * can reach cloud even though the primary-serving path never leaves the box, so the scrub
+   * product is held here and swapped in per hop by the resilience executor.
+   */
+  cloudEnvelope?: AIRequest;
+  /** block mode + local primary: matches found — cloud hops are barred, local still serves */
+  cloudBlockedCounts?: Record<string, number>;
+  /** internal: blocked_scrubber audit emitted once for barred cloud hops */
+  cloudBlockAudited?: boolean;
   /** soft budget warnings for the response header (9.4) */
   budgetWarnings?: string[];
   /** served from the response cache (13.2) */
@@ -246,20 +256,31 @@ export async function stageScrub(ctx: PipelineCtx, deps: PipelineDeps): Promise<
   const auth = ctx.auth;
   if (!effective || !auth) throw new RouterError('unknown', 'pipeline ordering violation');
 
-  let cloudBound: boolean;
+  let cloudPrimary: boolean;
   let report: ScrubReport | undefined;
+  const mode = effective.firmSettings.scrubber_mode ?? 'redact';
   try {
     const model = selectModel(effective, ctx.envelope); // same pure selection route uses
-    cloudBound = model.providerKind !== 'local';
-    if (!cloudBound) return;
+    cloudPrimary = !isLocalKind(model.providerKind);
+    // fallback hops can reach cloud even when the primary is local (Q-072) — the scrub
+    // decision must consider the whole candidate chain, never just the primary
+    const cloudInChain = effective.policy.fallbackChain.some((id) => {
+      const m = effective.modelsById.get(id);
+      return m !== undefined && !isLocalKind(m.providerKind);
+    });
+    if (!cloudPrimary && !cloudInChain) return;
 
-    const mode = effective.firmSettings.scrubber_mode ?? 'redact';
     if (mode === 'redact') {
       const result = redactEnvelope(ctx.envelope);
       report = result.report;
       if (report.total > 0) {
-        // outbound copy only (8.4): original object untouched; downstream sends the copy
-        ctx.envelope = result.envelope;
+        if (cloudPrimary) {
+          // outbound copy only (8.4): original object untouched; downstream sends the copy
+          ctx.envelope = result.envelope;
+        } else {
+          // local primary serves the ORIGINAL; only cloud hops get the redacted copy
+          ctx.cloudEnvelope = result.envelope;
+        }
         ctx.scrubbed = { mode, counts: report.counts };
       }
     } else {
@@ -279,8 +300,12 @@ export async function stageScrub(ctx: PipelineCtx, deps: PipelineDeps): Promise<
     Object.entries(report.counts).map(([k, v]) => [k, v ?? 0]),
   ) as Record<string, number>;
 
-  const mode = effective.firmSettings.scrubber_mode ?? 'redact';
   if (mode === 'block') {
+    if (!cloudPrimary) {
+      // request may still serve locally — cloud hops are barred (enforced in routeForModel)
+      ctx.cloudBlockedCounts = counts;
+      return;
+    }
     deps.audit?.({
       firmId: auth.firmId,
       event: 'blocked_scrubber',
@@ -299,7 +324,7 @@ export async function stageScrub(ctx: PipelineCtx, deps: PipelineDeps): Promise<
     app: auth.app,
     taskClass: effective.taskClass.key,
     requestHash: ctx.requestHash,
-    detail: { matches: counts },
+    detail: { matches: counts, ...(cloudPrimary ? {} : { scope: 'fallback_only' }) },
   });
   await Promise.resolve();
 }
@@ -322,6 +347,24 @@ export async function routeForModel(
 
   const violation = modelViolation(model, effective, ctx.envelope);
   if (violation) throw new RouterError(violation.code, violation.reason);
+
+  // block-mode scrub verdict with a local primary (Q-072): cloud hops are barred outright
+  if (!isLocalKind(model.providerKind) && ctx.cloudBlockedCounts) {
+    if (!ctx.cloudBlockAudited) {
+      ctx.cloudBlockAudited = true;
+      deps.audit?.({
+        firmId: auth.firmId,
+        event: 'blocked_scrubber',
+        app: auth.app,
+        taskClass: effective.taskClass.key,
+        requestHash: ctx.requestHash,
+        detail: { mode: 'block', matches: ctx.cloudBlockedCounts },
+      });
+    }
+    throw new RouterError('scrubber_blocked', 'request contains protected data — cloud fallback barred', {
+      detail: { matches: ctx.cloudBlockedCounts },
+    });
+  }
 
   const provider = await deps.engine.providerFor(auth.firmId, model.providerKind); // cached, 10s TTL
   if (!provider) {
@@ -388,9 +431,29 @@ export async function stageAdapt(ctx: PipelineCtx, deps: PipelineDeps, signal: A
     !ctx.envelope.stream &&
     deps.responseCache !== undefined &&
     cacheTtl > 0 &&
-    (route.model.providerKind === 'local' || req.cache_cloud === true);
+    (isLocalKind(route.model.providerKind) || req.cache_cloud === true);
   const cacheKey = cacheable
-    ? (await import('../ops/cache.js')).ResponseCache.key(ctx.requestHash, route.model.canonicalId)
+    ? (await import('../ops/cache.js')).ResponseCache.key(
+        auth.firmId,
+        route.model.canonicalId,
+        ctx.requestHash,
+        // request-shaping params must be part of the key (Q-073) — same messages with a
+        // different response_format/tools/temperature are NOT the same response
+        createHash('sha256')
+          .update(
+            JSON.stringify([
+              ctx.envelope.tools ?? null,
+              ctx.envelope.toolChoice ?? null,
+              ctx.envelope.responseFormat ?? null,
+              ctx.envelope.maxTokens ?? null,
+              ctx.envelope.temperature ?? null,
+              ctx.envelope.topP ?? null,
+              ctx.envelope.stop ?? null,
+            ]),
+          )
+          .digest('hex')
+          .slice(0, 16),
+      )
     : undefined;
   if (cacheable && cacheKey) {
     const hit = deps.responseCache!.get(cacheKey);

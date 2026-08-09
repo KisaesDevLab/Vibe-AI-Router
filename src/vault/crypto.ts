@@ -29,7 +29,13 @@ export function keyringFromEnv(env: {
   if (env.MASTER_KEY_PREVIOUS) {
     const prev = Buffer.from(env.MASTER_KEY_PREVIOUS, 'base64');
     if (prev.length !== 32) throw new Error('MASTER_KEY_PREVIOUS must be 32 bytes base64');
-    keys.set(env.MASTER_KEY_PREVIOUS_VERSION ?? currentVersion - 1, prev);
+    const prevVersion = env.MASTER_KEY_PREVIOUS_VERSION ?? currentVersion - 1;
+    if (prevVersion === currentVersion) {
+      // would silently OVERWRITE the current key in the ring while currentVersion still
+      // points at it — new encrypts would be wrapped with the old key under the new label
+      throw new Error('MASTER_KEY_PREVIOUS_VERSION must differ from MASTER_KEY_VERSION');
+    }
+    keys.set(prevVersion, prev);
   }
   return { keys, currentVersion };
 }

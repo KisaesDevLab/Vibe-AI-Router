@@ -12,8 +12,10 @@ interface OpenAiUsage {
 }
 
 function toOpenAiUsage(u: AIUsage): OpenAiUsage {
-  // internal semantics are disjoint (9.1); OpenAI wire format includes cached in prompt_tokens
-  const promptWire = u.promptTokens + u.cachedReadTokens;
+  // internal semantics are disjoint (9.1); OpenAI wire format folds cache read AND cache write
+  // into prompt_tokens (matches LiteLLM's Anthropic→OpenAI bridge). Excluding cache-write made
+  // a first request that seeds a large prompt cache under-report billed input on the wire (Q-078).
+  const promptWire = u.promptTokens + u.cachedReadTokens + u.cacheWriteTokens;
   return {
     prompt_tokens: promptWire,
     completion_tokens: u.completionTokens,

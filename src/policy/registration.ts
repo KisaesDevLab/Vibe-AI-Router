@@ -67,6 +67,11 @@ export function registerTaskClassRegistration(
         const existing = await deps.db.query.taskClasses.findFirst({
           where: eq(taskClasses.key, cls.key),
         });
+        // curated pack defaults act as a FLOOR (Q-074): an app re-declaring a stale, lower
+        // defaultMaxTokens must not re-clamp a class whose reviewed default was raised
+        // (operators clamp DOWN via policy.maxTokensOverride, the designed lever)
+        const packEntry = DEFAULT_PACK.find((p) => p.key === cls.key);
+        const defaultMaxTokens = Math.max(cls.defaultMaxTokens, packEntry?.defaultMaxTokens ?? 0);
         if (existing) {
           // requirements/description may evolve with app versions; sensitivity NEVER moves here
           await deps.db
@@ -74,13 +79,12 @@ export function registerTaskClassRegistration(
             .set({
               description: cls.description || existing.description,
               requires: cls.requires,
-              defaultMaxTokens: cls.defaultMaxTokens,
+              defaultMaxTokens,
               registeredByAppVersion: `${body.app}@${body.version}`,
             })
             .where(eq(taskClasses.id, existing.id));
           results.push({ key: cls.key, created: false, sensitivity: existing.sensitivity });
         } else {
-          const packEntry = DEFAULT_PACK.find((p) => p.key === cls.key);
           const sensitivity = packEntry?.sensitivity ?? 'local_only'; // most restrictive default
           await deps.db.insert(taskClasses).values({
             key: cls.key,
@@ -88,7 +92,7 @@ export function registerTaskClassRegistration(
             description: cls.description,
             sensitivity,
             requires: cls.requires,
-            defaultMaxTokens: cls.defaultMaxTokens,
+            defaultMaxTokens,
             registeredByAppVersion: `${body.app}@${body.version}`,
           });
           results.push({ key: cls.key, created: true, sensitivity });

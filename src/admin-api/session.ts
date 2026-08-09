@@ -102,7 +102,11 @@ export function parseCookies(req: FastifyRequest): Record<string, string> {
   for (const part of header.split(';')) {
     const eq = part.indexOf('=');
     if (eq === -1) continue;
-    out[part.slice(0, eq).trim()] = decodeURIComponent(part.slice(eq + 1).trim());
+    try {
+      out[part.slice(0, eq).trim()] = decodeURIComponent(part.slice(eq + 1).trim());
+    } catch {
+      // malformed percent-encoding (e.g. %GG) — treat as absent, not a 500
+    }
   }
   return out;
 }

@@ -59,8 +59,9 @@ const EVENT_SCHEMAS = {
     /** match TYPES + counts only — never matched values (8.3) */
     matches: z.record(z.number()),
   }),
-  scrubber_redacted: z.object({ matches: z.record(z.number()) }),
-  scrubber_warning: z.object({ matches: z.record(z.number()) }),
+  /** scope 'fallback_only': primary is local — the scrub product applies only to cloud hops (Q-072) */
+  scrubber_redacted: z.object({ matches: z.record(z.number()), scope: z.enum(['fallback_only']).optional() }),
+  scrubber_warning: z.object({ matches: z.record(z.number()), scope: z.enum(['fallback_only']).optional() }),
   blocked_policy: z.object({ code: z.string(), reason: z.string().max(300) }),
   provider_error: z.object({
     code: z.string(),
@@ -145,7 +146,9 @@ export async function queryAudit(db: Db, q: AuditQuery): Promise<AuditRow[]> {
 }
 
 function csvEscape(v: unknown): string {
-  const s = v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+  let s = v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+  // formula-injection guard: a leading =,+,@ (or non-numeric -) executes in Excel/Sheets
+  if (/^[=+@]/.test(s) || (/^-/.test(s) && !/^-?\d+(\.\d+)?$/.test(s))) s = `'${s}`;
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

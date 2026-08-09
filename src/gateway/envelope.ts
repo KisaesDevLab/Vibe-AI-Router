@@ -176,6 +176,7 @@ export const openAiChatBodySchema = z
       .optional(),
     max_tokens: z.number().int().positive().optional(),
     max_completion_tokens: z.number().int().positive().optional(),
+    n: z.number().int().positive().optional(),
     temperature: z.number().min(0).max(2).optional(),
     top_p: z.number().min(0).max(1).optional(),
     stop: z.union([z.string(), z.array(z.string())]).optional(),
@@ -229,6 +230,11 @@ export function toEnvelope(
 
   if (body.messages.length > limits.maxMessages) {
     throw new RouterError('invalid_request', `too many messages (max ${limits.maxMessages})`);
+  }
+  // n>1 would silently return a single choice (the router serves one completion) — fail closed
+  // rather than let apps index choices[1] and get undefined (Q-078)
+  if (body.n !== undefined && body.n > 1) {
+    throw new RouterError('invalid_request', 'n>1 is not supported — the router returns a single choice');
   }
 
   const messages: AIMessage[] = body.messages.map((m) => {

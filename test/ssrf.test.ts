@@ -49,6 +49,13 @@ describe('checkBaseUrl by kind', () => {
     expect(checkBaseUrl('local', 'http://169.254.169.254/latest').ok).toBe(false);
   });
 
+  it('local_ocr kind (R4): same LAN pin as local — GLM-OCR is local-tier', () => {
+    expect(checkBaseUrl('local_ocr', 'http://vibe-glm-ocr:8090/v1').ok).toBe(true);
+    expect(checkBaseUrl('local_ocr', 'http://192.168.1.60:8090/v1').ok).toBe(true);
+    expect(checkBaseUrl('local_ocr', 'https://evil.example.com/v1').ok).toBe(false);
+    expect(checkBaseUrl('local_ocr', 'http://169.254.169.254/latest').ok).toBe(false);
+  });
+
   it('DNS gate: cloud hostname resolving privately is rejected; unresolvable rejected', async () => {
     // localhost resolves to loopback — pattern check already rejects; use a name that passes
     // the pattern but resolves privately: craft via hosts is not portable — instead verify the

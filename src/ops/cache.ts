@@ -17,8 +17,13 @@ export class ResponseCache {
 
   constructor(private readonly maxEntries = 1000) {}
 
-  static key(requestHash: string, model: string): string {
-    return `${model}:${requestHash}`;
+  /**
+   * Key includes the FIRM and a digest of the request-shaping params (Q-073): messages hash
+   * alone would serve firm A's cached completion to firm B, or a tool-call answer to a
+   * request that declared no tools.
+   */
+  static key(firmId: string, model: string, requestHash: string, paramsDigest: string): string {
+    return `${firmId}:${model}:${requestHash}:${paramsDigest}`;
   }
 
   get(key: string): AIResponse | undefined {

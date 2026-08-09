@@ -7,7 +7,7 @@
  *   pointing at a public host is a covert cloud route around the sensitivity tiers.
  */
 import { lookup } from 'node:dns/promises';
-import type { ProviderKind } from '../../db/schema.js';
+import { isLocalKind, type ProviderKind } from '../../db/schema.js';
 import { isIP } from 'node:net';
 
 export type HostClass = 'loopback' | 'private' | 'linklocal' | 'metadata' | 'dockerdns' | 'public';
@@ -49,7 +49,7 @@ export function checkBaseUrl(kind: ProviderKind, baseUrl: string): SsrfVerdict {
     return { ok: false, reason: 'base_url is not a valid URL' };
   }
   const cls = classifyHost(url.hostname);
-  if (kind === 'local') {
+  if (isLocalKind(kind)) {
     if (cls === 'public') {
       return {
         ok: false,
@@ -81,7 +81,7 @@ export async function checkBaseUrlWithDns(
   baseUrl: string,
 ): Promise<SsrfVerdict> {
   const shallow = checkBaseUrl(kind, baseUrl);
-  if (!shallow.ok || kind === 'local') return shallow;
+  if (!shallow.ok || isLocalKind(kind)) return shallow;
   const hostname = new URL(baseUrl).hostname;
   if (isIP(hostname.replace(/^\[|\]$/g, ''))) return shallow; // literal already classified
   try {

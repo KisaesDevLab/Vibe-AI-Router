@@ -7,7 +7,7 @@ import fc from 'fast-check';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { createDb, type DbHandle } from '../src/db/client.js';
-import { models, policies, rolePolicies, taskClasses, PROVIDER_KINDS } from '../db/schema.js';
+import { isLocalKind, models, policies, rolePolicies, taskClasses, PROVIDER_KINDS } from '../db/schema.js';
 import {
   applyLimits,
   checkRole,
@@ -128,6 +128,16 @@ describe('modelViolation (7.4/7.5/7.6)', () => {
     const v = modelViolation(cloud, fakeEffective(tc, cloud), baseEnv());
     expect(v?.code).toBe('policy_blocked');
     expect(v?.reason).toMatch(/local_only/);
+  });
+
+  it('local_only ACCEPTS a local_ocr model — GLM-OCR is local-tier (R4/Q-075)', () => {
+    const tc = fakeClass({ sensitivity: 'local_only', requires: { vision: true } });
+    const ocr = fakeModel({
+      providerKind: 'local_ocr',
+      canonicalId: 'glm/GLM-OCR',
+      capabilities: { vision: true },
+    });
+    expect(modelViolation(ocr, fakeEffective(tc, ocr), baseEnv())).toBeUndefined();
   });
 
   it('missing class-required capability names the capability', () => {
@@ -256,8 +266,8 @@ describe('property: random configs never violate the two hard invariants', () =>
           } catch {
             return true; // rejecting is always safe — fail closed
           }
-          // invariant a: local_only → local kind
-          if (tc.sensitivity === 'local_only' && selected.providerKind !== 'local') return false;
+          // invariant a: local_only → local TIER (local | local_ocr, R4/Q-075)
+          if (tc.sensitivity === 'local_only' && !isLocalKind(selected.providerKind)) return false;
           // invariant b: selected model satisfies every class requirement
           const caps = selected.capabilities as Record<string, boolean>;
           for (const [k, v] of Object.entries(requires)) {
@@ -277,7 +287,7 @@ describe('property: random configs never violate the two hard invariants', () =>
         const m = fakeModel({ providerKind: kind, capabilities: caps });
         const eff = fakeEffective(tc, m);
         const v = modelViolation(m, eff, baseEnv());
-        if (tc.sensitivity === 'local_only' && m.providerKind !== 'local') return v !== undefined;
+        if (tc.sensitivity === 'local_only' && !isLocalKind(m.providerKind)) return v !== undefined;
         return true;
       }),
       { numRuns: 200 },

@@ -33,6 +33,16 @@ export function currentPeriod(now = new Date()): string {
   return `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+/**
+ * budgets_state scope_ref keys are FIRM-SCOPED (Q-073): app names are suite-wide constants
+ * (every firm runs `vibe-tb`) and user ids are app-supplied, so bare refs would collide
+ * across firms on one appliance — cross-tenant budget DoS + spend leakage. Mirrors the rate
+ * limiter's `u:${firmId}:${userId}` convention.
+ */
+export function scopeKey(scope: 'firm' | 'app' | 'user', firmId: string, ref: string): string {
+  return scope === 'firm' ? firmId : `${firmId}:${ref}`;
+}
+
 async function spentFor(db: Db, scope: 'firm' | 'app' | 'user', scopeRef: string, period: string): Promise<number> {
   const row = await db.query.budgetsState.findFirst({
     where: and(
@@ -87,7 +97,7 @@ export async function checkBudgets(
       scope: 'app',
       scopeRef: params.app,
       limitCents: appLimit,
-      spentCents: await spentFor(db, 'app', params.app, period),
+      spentCents: await spentFor(db, 'app', scopeKey('app', params.firmId, params.app), period),
     });
   }
   const userLimit = params.userId ? params.settings.users?.[params.userId] : undefined;
@@ -96,7 +106,7 @@ export async function checkBudgets(
       scope: 'user',
       scopeRef: params.userId,
       limitCents: userLimit,
-      spentCents: await spentFor(db, 'user', params.userId, period),
+      spentCents: await spentFor(db, 'user', scopeKey('user', params.firmId, params.userId), period),
     });
   }
 
@@ -132,9 +142,9 @@ export async function recordSpend(
   if (params.costCents <= 0) return;
   const period = currentPeriod(params.now);
   const scopes: { scope: 'firm' | 'app' | 'user'; ref: string }[] = [
-    { scope: 'firm', ref: params.firmId },
-    { scope: 'app', ref: params.app },
-    ...(params.userId ? [{ scope: 'user' as const, ref: params.userId }] : []),
+    { scope: 'firm', ref: scopeKey('firm', params.firmId, params.firmId) },
+    { scope: 'app', ref: scopeKey('app', params.firmId, params.app) },
+    ...(params.userId ? [{ scope: 'user' as const, ref: scopeKey('user', params.firmId, params.userId) }] : []),
   ];
   const amount = params.costCents.toFixed(6);
   for (const { scope, ref } of scopes) {

@@ -9,7 +9,7 @@ import type {
 } from '../contract.js';
 import type { ExecuteContext } from '../../gateway/adapter-types.js';
 import type { AIRequest, AIResponse, StreamChunk } from '../../gateway/envelope.js';
-import { postJson, postSse } from '../http.js';
+import { getJson, postJson, postSse } from '../http.js';
 import { providerModelName } from '../openai-compat/translate.js';
 import {
   AnthropicStreamState,
@@ -97,10 +97,23 @@ export class AnthropicAdapter implements ProviderAdapter {
 
   async testConnection(ctx: ExecuteContext, signal: AbortSignal): Promise<ConnectionTestResult> {
     const started = Date.now();
+    const base = ctx.baseUrl.replace(/\/+$/, '');
     try {
       const model = providerModelName(ctx.model, ctx.modelMapping);
+      if (!model) {
+        // admin "Test connection" passes no model — a /v1/messages ping with model:"" is a
+        // guaranteed 400, so validate auth/reachability via GET /v1/models instead
+        const list = (await getJson(`${base}/v1/models?limit=20`, buildAnthropicHeaders(ctx), signal)) as {
+          data?: unknown[];
+        };
+        return {
+          ok: true,
+          latencyMs: Date.now() - started,
+          detail: Array.isArray(list.data) ? { modelCount: list.data.length } : {},
+        };
+      }
       await postJson(
-        `${ctx.baseUrl.replace(/\/+$/, '')}/v1/messages`,
+        `${base}/v1/messages`,
         buildAnthropicHeaders(ctx),
         { model, max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] },
         signal,

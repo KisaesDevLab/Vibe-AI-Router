@@ -95,7 +95,9 @@ function Editor({
     const req = taskClass.requires as { tools?: boolean; json_schema?: boolean; vision?: boolean };
     return models.filter((m) => {
       if (m.status !== 'active') return false;
-      if (taskClass.sensitivity === 'local_only' && m.providerKind !== 'local') return false;
+      // local TIER = local + local_ocr (R4) — both stay on the appliance network
+      if (taskClass.sensitivity === 'local_only' && m.providerKind !== 'local' && m.providerKind !== 'local_ocr')
+        return false;
       if (req.tools && !m.effective['tools']) return false;
       if (req.json_schema && !m.effective['json_schema']) return false;
       if (req.vision && !m.effective['vision']) return false;
@@ -138,16 +140,51 @@ function Editor({
     return next;
   };
 
+  // sensitivity is adjustable HERE, at the router (audited; registration never reverts it) —
+  // widening a class is what lets its policy route to Anthropic/DigitalOcean/OpenAI models
+  const changeTier = async (next: TaskClass['sensitivity']): Promise<void> => {
+    if (next === taskClass.sensitivity) return;
+    const widening =
+      taskClass.sensitivity === 'local_only' ||
+      (taskClass.sensitivity === 'cloud_deidentified' && next === 'cloud_allowed');
+    const msg = widening
+      ? `Widen ${taskClass.key} to ${next}? Cloud egress becomes possible for this class (the scrubber still applies to every cloud-bound request). The change is audited and affects the firm's "where your data goes" story.`
+      : `Narrow ${taskClass.key} to ${next}? Cloud models in its current policy will stop validating and requests may fail closed until the policy is rebound.`;
+    if (!window.confirm(msg)) return;
+    setBusy(true);
+    setError('');
+    try {
+      await api.patch(`/admin-api/task-classes/${taskClass.key}`, { sensitivity: next });
+      onSaved(); // close + reload so the model picker re-filters under the new tier
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'tier change failed');
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="modal-back" role="dialog" aria-modal="true">
       <div className="modal">
         <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
           <h2 style={{ margin: 0 }}>{taskClass.key}</h2>
-          <Tier tier={taskClass.sensitivity} />
+          <div className="row" style={{ gap: 8 }}>
+            <Tier tier={taskClass.sensitivity} />
+            <select
+              value={taskClass.sensitivity}
+              onChange={(e) => void changeTier(e.target.value as TaskClass['sensitivity'])}
+              disabled={busy}
+              data-testid="tier-select"
+              title="Data tier — controls which provider kinds this class may route to"
+            >
+              <option value="local_only">local_only</option>
+              <option value="cloud_deidentified">cloud_deidentified</option>
+              <option value="cloud_allowed">cloud_allowed</option>
+            </select>
+          </div>
         </div>
         <p className="sub">
           {taskClass.description || 'No description.'}{' '}
-          {taskClass.sensitivity === 'local_only' && 'Only local models are offered — this class never leaves the appliance.'}
+          {taskClass.sensitivity === 'local_only' && 'Only local models are offered — this class never leaves the appliance. Widen the tier above to route it to cloud providers.'}
         </p>
 
         <label>Default model (capability-valid only)</label>

@@ -82,6 +82,54 @@ describe('request translation (4.1/4.5)', () => {
     expect((body['tools'] as unknown[])[0]).toMatchObject({ name: 'lookup', input_schema: { type: 'object' } });
   });
 
+  it('tool_result with ARRAY content → block array, never JSON.stringify of internals (Q-078)', () => {
+    const env: AIRequest = {
+      ...ENV,
+      messages: [
+        { role: 'user', content: 'q' },
+        {
+          role: 'tool',
+          content: [
+            { type: 'text', text: '42' },
+            { type: 'image', url: 'data:image/png;base64,AAAA' },
+          ],
+          toolCallId: 'tu_2',
+        },
+      ],
+    };
+    const messages = buildAnthropicRequest(env, CTX).body['messages'] as Record<string, unknown>[];
+    expect(messages[1]).toEqual({
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'tu_2',
+          content: [
+            { type: 'text', text: '42' },
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('temperature is clamped to Anthropic max 1.0 (ingress allows up to 2) (Q-078)', () => {
+    const { body } = buildAnthropicRequest({ ...ENV, temperature: 1.7 }, CTX);
+    expect(body['temperature']).toBe(1);
+  });
+
+  it('tool_use with missing input → arguments is "{}", never invalid JSON (Q-078)', () => {
+    const res = translateAnthropicResponse(
+      { content: [{ type: 'tool_use', id: 'tu_9', name: 'go' }], stop_reason: 'tool_use', usage: { input_tokens: 1, output_tokens: 1 } },
+      META,
+    );
+    expect(res.message.toolCalls?.[0]).toEqual({ id: 'tu_9', name: 'go', arguments: '{}' });
+    const args = res.message.toolCalls![0]!.arguments;
+    expect(() => {
+      JSON.parse(args);
+    }).not.toThrow();
+  });
+
   it('maps images: data URI → base64 source, https → url source', () => {
     const env: AIRequest = {
       ...ENV,
@@ -145,6 +193,24 @@ describe('request translation (4.1/4.5)', () => {
     // OFF by default
     const { body: plain } = buildAnthropicRequest(env, CTX);
     expect((plain['system'] as Record<string, unknown>[])[0]?.['cache_control']).toBeUndefined();
+  });
+
+  it('4.7+/5-family models get adaptive thinking and no sampling params (Q-071)', () => {
+    const ctx5 = { ...CTX, model: 'anthropic/claude-sonnet-5' };
+    const env: AIRequest = { ...ENV, temperature: 0.3, topP: 0.9 };
+    const { body } = buildAnthropicRequest(env, { ...ctx5, thinkingBudget: 2048 });
+    expect(body['thinking']).toEqual({ type: 'adaptive' });
+    expect(body['temperature']).toBeUndefined();
+    expect(body['top_p']).toBeUndefined();
+  });
+
+  it('Claude 4.x gets temperature OR top_p, never both (Q-071)', () => {
+    const env: AIRequest = { ...ENV, temperature: 0.3, topP: 0.9 };
+    const { body } = buildAnthropicRequest(env, CTX);
+    expect(body['temperature']).toBe(0.3);
+    expect(body['top_p']).toBeUndefined();
+    const envTopP: AIRequest = { ...ENV, topP: 0.9 };
+    expect(buildAnthropicRequest(envTopP, CTX).body['top_p']).toBe(0.9);
   });
 
   it('thinking budget passthrough when task class enables it (4.3)', () => {
@@ -308,6 +374,57 @@ describe('error mapping (4.6)', () => {
     [500, '{"error":{"type":"api_error","message":"boom"}}', 'provider_unavailable'],
   ])('HTTP %s %s → %s', (status, body, want) => {
     expect(mapAnthropicError(new ProviderHttpError(status as number, body as string)).code).toBe(want);
+  });
+});
+
+describe('testConnection (6.5): admin test button passes no model', () => {
+  it('empty model → GET /v1/models (auth check), never an empty-model /v1/messages ping', async () => {
+    const { createServer } = await import('node:http');
+    const seen: { method: string; url: string }[] = [];
+    const server = createServer((req, res) => {
+      seen.push({ method: req.method ?? '', url: req.url ?? '' });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      if (req.method === 'GET' && req.url?.startsWith('/v1/models')) {
+        res.end(JSON.stringify({ data: [{ id: 'claude-sonnet-4-5' }, { id: 'claude-haiku-4-5' }] }));
+      } else {
+        res.end(
+          JSON.stringify({
+            content: [{ type: 'text', text: 'pong' }],
+            stop_reason: 'end_turn',
+            usage: { input_tokens: 1, output_tokens: 1 },
+          }),
+        );
+      }
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const addr = server.address();
+    if (addr === null || typeof addr === 'string') throw new Error('no port');
+    const adapter = new AnthropicAdapter();
+    const signal = new AbortController().signal;
+
+    // no model (vault.test default) → models listing, ok
+    const noModel = await adapter.testConnection(
+      { providerId: 'p', model: '', baseUrl: `http://127.0.0.1:${addr.port}`, apiKey: 'k' },
+      signal,
+    );
+    expect(noModel.ok).toBe(true);
+    expect(noModel.detail).toEqual({ modelCount: 2 });
+    expect(seen).toEqual([{ method: 'GET', url: '/v1/models?limit=20' }]);
+
+    // explicit model → 1-token /v1/messages ping (validates the model too)
+    seen.length = 0;
+    const withModel = await adapter.testConnection(
+      {
+        providerId: 'p',
+        model: 'anthropic/claude-sonnet-4-5',
+        baseUrl: `http://127.0.0.1:${addr.port}`,
+        apiKey: 'k',
+      },
+      signal,
+    );
+    server.close();
+    expect(withModel.ok).toBe(true);
+    expect(seen).toEqual([{ method: 'POST', url: '/v1/messages' }]);
   });
 });
 

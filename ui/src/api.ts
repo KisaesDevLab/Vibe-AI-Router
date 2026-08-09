@@ -65,7 +65,7 @@ export interface CredentialMeta {
 
 export interface Provider {
   id: string;
-  kind: 'openai_compat' | 'anthropic' | 'local' | 'digitalocean';
+  kind: 'openai_compat' | 'anthropic' | 'local' | 'digitalocean' | 'local_ocr';
   label: string;
   baseUrl: string;
   authType: 'api_key' | 'none';

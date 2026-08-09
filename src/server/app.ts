@@ -71,7 +71,29 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
     });
   });
 
-  app.get('/healthz', () => ({ status: 'ok' }));
+  /**
+   * /healthz probes the DB (Q-073): the appliance healthcheck chain and the console
+   * container's dependency wait both trust this endpoint, so "process is up" alone is a lie
+   * when Postgres is down and every request 500s. Result cached 2s — the probe must not
+   * become load. No deps wired (bare skeleton) → process-liveness only, as before.
+   */
+  const healthDb = opts.gateway?.deps.db ?? opts.adminApi?.deps?.db;
+  let healthCache: { ok: boolean; at: number } = { ok: true, at: 0 };
+  app.get('/healthz', async (_req, reply) => {
+    if (!healthDb) return reply.send({ status: 'ok' });
+    if (Date.now() - healthCache.at > 2_000) {
+      const ok = await Promise.race([
+        import('drizzle-orm').then(({ sql }) => healthDb.execute(sql`SELECT 1`)).then(
+          () => true,
+          () => false,
+        ),
+        new Promise<boolean>((r) => setTimeout(() => r(false), 1_500)),
+      ]);
+      healthCache = { ok, at: Date.now() };
+    }
+    if (!healthCache.ok) return reply.code(503).send({ status: 'degraded', db: 'unreachable' });
+    return reply.send({ status: 'ok' });
+  });
 
   app.get('/version', () => ({
     name: 'vibe-ai-router',

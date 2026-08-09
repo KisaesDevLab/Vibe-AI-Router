@@ -140,6 +140,7 @@ function AddModel({ onDone, onError }: { onDone: () => void; onError: (e: string
           <label>Kind</label>
           <select value={form.providerKind} onChange={(e) => setForm({ ...form, providerKind: e.target.value })}>
             <option value="local">local</option>
+            <option value="local_ocr">local_ocr (GLM-OCR)</option>
             <option value="openai_compat">openai_compat</option>
             <option value="anthropic">anthropic</option>
             <option value="digitalocean">digitalocean</option>

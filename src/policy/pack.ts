@@ -6,7 +6,7 @@
  */
 import { eq } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
-import { models, policies, taskClasses } from '../../db/schema.js';
+import { isLocalKind, models, policies, taskClasses } from '../../db/schema.js';
 import { effectiveCapabilities } from '../catalog/service.js';
 import type { TaskClassRequires } from './engine.js';
 
@@ -99,7 +99,9 @@ export const DEFAULT_PACK: PackEntry[] = [
   // ── Vibe Payroll ──────────────────────────────────────────────────────────
   {
     key: 'payroll_anomaly_review',
-    app: 'vibe-payroll',
+    // matches the app's actual registration identity (vibe-payroll-time) — a token minted
+    // under the old name made registration 403 forever (Q-074)
+    app: 'vibe-payroll-time',
     description: 'Payroll run anomaly detection narrative',
     sensitivity: 'local_only',
     requires: { json_schema: true },
@@ -142,7 +144,9 @@ export const DEFAULT_PACK: PackEntry[] = [
     description: 'Bank statement structure detection assistance',
     sensitivity: 'local_only',
     requires: { json_schema: true },
-    defaultMaxTokens: 4096,
+    // multi-page statement extraction emits large JSON arrays — the app requests 32k and a
+    // 4096 clamp truncated extractions mid-array (Q-074); operators clamp down per policy
+    defaultMaxTokens: 32768,
     rationale: 'Full statements: account numbers + transaction detail throughout.',
   },
   // ── Vibe Time & Billing ───────────────────────────────────────────────────
@@ -181,9 +185,9 @@ function pickDefaultModel(
     return true;
   });
   const pool =
-    entry.sensitivity === 'local_only' ? capable.filter((m) => m.providerKind === 'local') : capable;
+    entry.sensitivity === 'local_only' ? capable.filter((m) => isLocalKind(m.providerKind)) : capable;
   // local-first even for cloud-permitted classes (principle 2)
-  const locals = pool.filter((m) => m.providerKind === 'local');
+  const locals = pool.filter((m) => isLocalKind(m.providerKind));
   // Operator-registered models (source 'custom' — e.g. "the model MY server actually serves",
   // written by the appliance bootstrap) always beat a synced catalog entry. Sorting purely by
   // context window used to pick whatever the feed listed as biggest, which is not a model the

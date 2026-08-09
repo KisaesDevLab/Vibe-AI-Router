@@ -8,7 +8,17 @@ import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Db } from '../db/client.js';
-import { appTokens, firms, models, providers, taskClasses, users, PROVIDER_KINDS } from '../../db/schema.js';
+import {
+  appTokens,
+  firms,
+  isLocalKind,
+  models,
+  providerCredentials,
+  providers,
+  taskClasses,
+  users,
+  PROVIDER_KINDS,
+} from '../../db/schema.js';
 import { RouterError, errorBody, toRouterError } from '../gateway/errors.js';
 import {
   emitTerminalAudit,
@@ -109,6 +119,33 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
     return reply.code(rerr.status).send(errorBody(rerr));
   };
 
+  /**
+   * Guard for mutations of GLOBAL suite-wide tables — task-class sensitivity and the model
+   * catalog (`task_classes`/`models` have no firm_id). On the supported single-firm appliance
+   * (bootstrap-firm provisions exactly one firm) a firm admin IS the operator, so these run
+   * unchanged. If a second firm is ever provisioned, a firm admin mutating global state would
+   * silently affect the other firm — most critically task-class SENSITIVITY, the data
+   * boundary — so refuse (Q-079). Cross-firm tampering fails closed rather than latent.
+   */
+  const assertSoleFirm = async (session: SessionData, reply: FastifyReply): Promise<boolean> => {
+    const firmRows = await db.query.firms.findMany({ columns: { id: true } });
+    if (firmRows.length > 1) {
+      void reply
+        .code(403)
+        .send(
+          errorBody(
+            new RouterError(
+              'policy_blocked',
+              'suite-wide catalog/sensitivity changes are operator-only on a multi-firm deployment',
+            ),
+          ),
+        );
+      return false;
+    }
+    void session;
+    return true;
+  };
+
   // ── auth ───────────────────────────────────────────────────────────────────
   app.post('/admin-api/auth/login', async (req, reply) => {
     const body = z.object({ email: z.string().email(), password: z.string().min(1) }).safeParse(req.body);
@@ -146,9 +183,11 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
 
   // ── providers (11.3 backend) ────────────────────────────────────────────────
   app.get('/admin-api/providers', async (req, reply) => {
-    if (!requireAdmin(req, reply)) return reply;
+    const session = requireAdmin(req, reply);
+    if (!session) return reply;
     const rows = await db.query.providers.findMany({
-      where: (p, { isNull }) => isNull(p.deletedAt),
+      where: (p, { and: and_, eq: eq_, isNull }) =>
+        and_(eq_(p.firmId, session.firmId), isNull(p.deletedAt)),
       orderBy: providers.createdAt,
     });
     const withCreds = await Promise.all(
@@ -196,8 +235,11 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
     const body = providerBody.partial().safeParse(req.body);
     if (!params.success || !body.success)
       return fail(reply, new RouterError('invalid_request', 'bad request'));
+    if (Object.keys(body.data).length === 0)
+      return fail(reply, new RouterError('invalid_request', 'empty update'));
     const before = await db.query.providers.findFirst({ where: eq(providers.id, params.data.id) });
-    if (!before || before.deletedAt) return fail(reply, new RouterError('invalid_request', 'provider not found'));
+    if (!before || before.deletedAt || before.firmId !== session.firmId)
+      return fail(reply, new RouterError('invalid_request', 'provider not found'));
     if (body.data.baseUrl || body.data.kind) {
       const verdict = await checkBaseUrlWithDns(body.data.kind ?? before.kind, body.data.baseUrl ?? before.baseUrl);
       if (!verdict.ok)
@@ -220,7 +262,15 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
     if (!session) return reply;
     const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
     if (!params.success) return fail(reply, new RouterError('invalid_request', 'bad id'));
+    const target = await db.query.providers.findFirst({ where: eq(providers.id, params.data.id) });
+    if (!target || target.firmId !== session.firmId)
+      return fail(reply, new RouterError('invalid_request', 'provider not found'));
     await db.update(providers).set({ deletedAt: new Date() }).where(eq(providers.id, params.data.id));
+    // credential lifecycle: a deleted provider must not keep decryptable ACTIVE secrets
+    await db
+      .update(providerCredentials)
+      .set({ status: 'revoked' })
+      .where(eq(providerCredentials.providerId, params.data.id));
     auditConfig(session, 'provider', params.data.id, 'delete');
     return reply.send({ ok: true });
   });
@@ -232,7 +282,8 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
     const body = z.object({ model: z.string().optional() }).safeParse(req.body ?? {});
     if (!params.success || !body.success) return fail(reply, new RouterError('invalid_request', 'bad request'));
     const provider = await db.query.providers.findFirst({ where: eq(providers.id, params.data.id) });
-    if (!provider) return fail(reply, new RouterError('invalid_request', 'provider not found'));
+    if (!provider || provider.deletedAt || provider.firmId !== session.firmId)
+      return fail(reply, new RouterError('invalid_request', 'provider not found'));
     const adapter = opts.adapterFor(provider.kind);
     if (!adapter) return fail(reply, new RouterError('invalid_request', 'no adapter'));
     try {
@@ -268,6 +319,9 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
     const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
     const body = z.object({ apiKey: z.string().min(8) }).safeParse(req.body);
     if (!params.success || !body.success) return fail(reply, new RouterError('invalid_request', 'bad request'));
+    const owner = await db.query.providers.findFirst({ where: eq(providers.id, params.data.id) });
+    if (!owner || owner.firmId !== session.firmId)
+      return fail(reply, new RouterError('invalid_request', 'provider not found'));
     try {
       return await reply.code(201).send(await opts.vault.add(params.data.id, body.data.apiKey, session.userId));
     } catch (err) {
@@ -275,11 +329,24 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
     }
   });
 
+  /** credential :id → owning provider must belong to the session's firm (multi-firm hygiene) */
+  const credentialInFirm = async (credentialId: string, firmId: string): Promise<boolean> => {
+    const cred = await db.query.providerCredentials.findFirst({
+      where: eq(providerCredentials.id, credentialId),
+    });
+    if (!cred) return false;
+    const owner = await db.query.providers.findFirst({ where: eq(providers.id, cred.providerId) });
+    return owner?.firmId === firmId;
+  };
+
   app.post('/admin-api/credentials/:id/promote', async (req, reply) => {
-    if (!requireAdmin(req, reply)) return reply;
+    const session = requireAdmin(req, reply);
+    if (!session) return reply;
     if (!opts.vault) return fail(reply, new RouterError('unknown', 'vault unavailable'));
     const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
     if (!params.success) return fail(reply, new RouterError('invalid_request', 'bad id'));
+    if (!(await credentialInFirm(params.data.id, session.firmId)))
+      return fail(reply, new RouterError('invalid_request', 'credential not found'));
     try {
       return await reply.send(await opts.vault.promote(params.data.id));
     } catch (err) {
@@ -288,10 +355,13 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
   });
 
   app.post('/admin-api/credentials/:id/revoke', async (req, reply) => {
-    if (!requireAdmin(req, reply)) return reply;
+    const session = requireAdmin(req, reply);
+    if (!session) return reply;
     if (!opts.vault) return fail(reply, new RouterError('unknown', 'vault unavailable'));
     const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
     if (!params.success) return fail(reply, new RouterError('invalid_request', 'bad id'));
+    if (!(await credentialInFirm(params.data.id, session.firmId)))
+      return fail(reply, new RouterError('invalid_request', 'credential not found'));
     try {
       await opts.vault.revoke(params.data.id);
       return await reply.send({ ok: true });
@@ -332,6 +402,7 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
   app.post('/admin-api/models', async (req, reply) => {
     const session = requireAdmin(req, reply);
     if (!session) return reply;
+    if (!(await assertSoleFirm(session, reply))) return reply;
     try {
       const row = await createCustomModel(db, req.body);
       auditConfig(session, 'model', row.id, 'create', { canonicalId: row.canonicalId });
@@ -346,6 +417,7 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
     if (!session) return reply;
     const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
     if (!params.success) return fail(reply, new RouterError('invalid_request', 'bad id'));
+    if (!(await assertSoleFirm(session, reply))) return reply;
     try {
       await setCapabilityOverrides(db, params.data.id, req.body);
       opts.deps.engine.invalidate();
@@ -361,6 +433,7 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
     if (!session) return reply;
     const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
     if (!params.success) return fail(reply, new RouterError('invalid_request', 'bad id'));
+    if (!(await assertSoleFirm(session, reply))) return reply;
     try {
       const outcome = await retireCustomModel(db, params.data.id);
       auditConfig(session, 'model', params.data.id, 'delete', { outcome });
@@ -388,6 +461,9 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
       })
       .safeParse(req.body);
     if (!params.success || !body.success) return fail(reply, new RouterError('invalid_request', 'bad request'));
+    // task_classes is global — sensitivity is the data boundary, so a multi-firm deployment
+    // must not let one firm's admin widen it for another (Q-079)
+    if (!(await assertSoleFirm(session, reply))) return reply;
     const before = await db.query.taskClasses.findFirst({ where: eq(taskClasses.key, params.data.key) });
     if (!before) return fail(reply, new RouterError('invalid_request', 'unknown task class'));
     await db.update(taskClasses).set(body.data).where(eq(taskClasses.id, before.id));
@@ -470,7 +546,9 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
       scrubber_mode: z.enum(['block', 'redact', 'warn']).optional(),
       banned_provider_kinds: z.array(z.enum(PROVIDER_KINDS)).optional(),
       banned_model_patterns: z.array(z.string().max(200)).max(50).optional(),
-      global_temperature_max: z.number().min(0).max(2).optional(),
+      // null = explicit clear — merge semantics keep omitted keys, so without a null
+      // convention a cap could never be removed from the console (Q-073)
+      global_temperature_max: z.number().min(0).max(2).nullable().optional(),
       budgets: z
         .object({
           firm_monthly_cents: z.number().int().positive().optional(),
@@ -489,7 +567,8 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
     if (!body.success)
       return fail(reply, new RouterError('invalid_request', body.error.issues[0]?.message ?? 'bad settings'));
     const firm = await db.query.firms.findFirst({ where: eq(firms.id, session.firmId) });
-    const merged = { ...((firm?.settings ?? {}) as Record<string, unknown>), ...body.data };
+    const merged: Record<string, unknown> = { ...((firm?.settings ?? {}) as Record<string, unknown>), ...body.data };
+    for (const [k, v] of Object.entries(merged)) if (v === null) delete merged[k]; // null = clear
     await db.update(firms).set({ settings: merged }).where(eq(firms.id, session.firmId));
     opts.deps.engine.invalidate(session.firmId);
     auditConfig(session, 'firm_settings', session.firmId, 'update', {
@@ -526,9 +605,12 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
     const providerRows = await db.query.providers.findMany({
       where: (p, { isNull }) => isNull(p.deletedAt),
     });
-    const budgets = await db.query.budgetsState.findMany({
-      where: (b, { eq: eq_ }) => eq_(b.period, currentPeriod()),
-    });
+    // firm-scoped: scope_ref keys are firmId or firmId-prefixed (Q-073)
+    const budgets = (
+      await db.query.budgetsState.findMany({
+        where: (b, { eq: eq_ }) => eq_(b.period, currentPeriod()),
+      })
+    ).filter((b) => b.scopeRef === session.firmId || b.scopeRef.startsWith(`${session.firmId}:`));
     const firm = await db.query.firms.findFirst({ where: eq(firms.id, session.firmId) });
     return reply.send({
       providers: providerRows.map((p) => ({
@@ -541,7 +623,7 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
       })),
       breakers: opts.breakerSnapshot?.() ?? [],
       budgets: { period: currentPeriod(), state: budgets, settings: (firm?.settings as { budgets?: unknown })?.budgets ?? {} },
-      zeroCloud: providerRows.every((p) => p.kind === 'local'),
+      zeroCloud: providerRows.every((p) => isLocalKind(p.kind)),
     });
   });
 
@@ -598,7 +680,10 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
   app.get('/admin-api/app-tokens', async (req, reply) => {
     const session = requireAdmin(req, reply);
     if (!session) return reply;
-    const rows = await db.query.appTokens.findMany({ orderBy: appTokens.createdAt });
+    const rows = await db.query.appTokens.findMany({
+      where: eq(appTokens.firmId, session.firmId),
+      orderBy: appTokens.createdAt,
+    });
     return reply.send(
       rows.map((t) => ({
         id: t.id,
@@ -636,6 +721,9 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
     if (!session) return reply;
     const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
     if (!params.success) return fail(reply, new RouterError('invalid_request', 'bad id'));
+    const token = await db.query.appTokens.findFirst({ where: eq(appTokens.id, params.data.id) });
+    if (!token || token.firmId !== session.firmId)
+      return fail(reply, new RouterError('invalid_request', 'token not found'));
     await db.update(appTokens).set({ revokedAt: new Date() }).where(eq(appTokens.id, params.data.id));
     auditConfig(session, 'app_token', params.data.id, 'delete');
     return reply.send({ ok: true });

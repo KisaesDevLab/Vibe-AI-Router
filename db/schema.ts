@@ -36,8 +36,21 @@ export const userRole = pgEnum('user_role', ['admin', 'partner', 'staff']);
  * inference) reuses the openai-compat adapter but routes independently. Order matters:
  * migrations append with ADD VALUE, so new kinds go LAST here to match the DB enum order.
  */
-export const PROVIDER_KINDS = ['openai_compat', 'anthropic', 'local', 'digitalocean'] as const;
+export const PROVIDER_KINDS = ['openai_compat', 'anthropic', 'local', 'digitalocean', 'local_ocr'] as const;
 export type ProviderKind = (typeof PROVIDER_KINDS)[number];
+
+/**
+ * The LOCAL TIER (R4/Q-075): kinds whose endpoints live on the appliance network. Everything
+ * that used to test `kind === 'local'` for data-boundary purposes tests membership here —
+ * `local_only` sensitivity, scrubber exemption, SSRF LAN-pinning, response-cache tiering.
+ * `local_ocr` is the shared GLM-OCR llama-server (OpenAI wire shape, port 8090); its own
+ * kind because routing resolves the firm's provider BY KIND and a second `local` row would
+ * be unreachable next to vibellm (same rationale as `digitalocean`, Q-060).
+ */
+export const LOCAL_TIER_KINDS: readonly ProviderKind[] = ['local', 'local_ocr'] as const;
+export function isLocalKind(kind: string): boolean {
+  return (LOCAL_TIER_KINDS as readonly string[]).includes(kind);
+}
 export const providerKind = pgEnum('provider_kind', PROVIDER_KINDS);
 export const providerAuthType = pgEnum('provider_auth_type', ['api_key', 'none']);
 export const providerStatus = pgEnum('provider_status', ['unknown', 'healthy', 'degraded', 'down']);

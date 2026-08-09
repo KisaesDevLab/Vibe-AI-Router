@@ -5,7 +5,7 @@ interface SettingsShape {
   scrubber_mode?: 'block' | 'redact' | 'warn';
   banned_provider_kinds?: string[];
   banned_model_patterns?: string[];
-  global_temperature_max?: number;
+  global_temperature_max?: number | null;
   budgets?: { firm_monthly_cents?: number; soft_pct?: number };
 }
 
@@ -26,9 +26,8 @@ export function Settings(): JSX.Element {
     const body: SettingsShape = {
       scrubber_mode: settings.scrubber_mode ?? 'block',
       ...(settings.banned_model_patterns ? { banned_model_patterns: settings.banned_model_patterns } : {}),
-      ...(settings.global_temperature_max !== undefined
-        ? { global_temperature_max: settings.global_temperature_max }
-        : {}),
+      // null = explicit clear; omitting the key would keep the old value server-side
+      global_temperature_max: settings.global_temperature_max ?? null,
       ...(settings.budgets ? { budgets: settings.budgets } : {}),
     };
     await api.put('/admin-api/settings', body);

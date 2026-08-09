@@ -6,7 +6,7 @@
 import { z } from 'zod';
 import { and, eq } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
-import { firms, models, policies, taskClasses } from '../../db/schema.js';
+import { firms, isLocalKind, models, policies, taskClasses } from '../../db/schema.js';
 import { RouterError } from '../gateway/errors.js';
 import { effectiveCapabilities, type CapabilityKey } from '../catalog/service.js';
 import { writeAudit } from '../protect/audit.js';
@@ -30,7 +30,7 @@ export interface SavePolicyInput {
 
 /** The config-time gate (7.3): returns the specific reason a model may not serve this class. */
 export function configTimeViolation(model: ModelRow, tc: TaskClassRow): string | undefined {
-  if (tc.sensitivity === 'local_only' && model.providerKind !== 'local') {
+  if (tc.sensitivity === 'local_only' && !isLocalKind(model.providerKind)) {
     return `${model.canonicalId}: local_only class requires a local model (model is ${model.providerKind})`;
   }
   const req = classRequires(tc);

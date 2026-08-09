@@ -354,3 +354,153 @@ describe.skipIf(!url)('chaos: fault-injecting provider through the full pipeline
     expect(hits).toBe(0); // no upstream call — breaker short-circuited every hop
   }, 20_000);
 });
+
+// ── fallback-scrub gap (Q-072) ───────────────────────────────────────────────
+
+describe.skipIf(!url)('fallback-scrub gap (Q-072): local primary, cloud fallback', () => {
+  let app: FastifyInstance;
+  let handle: DbHandle;
+  let base: string;
+  let upstream: Server;
+  let engine: PolicyEngine;
+  let firmId: string;
+  /** captured upstream request bodies in arrival order (leg 1 = local, leg 2 = cloud) */
+  const legs: { path: string; content: string }[] = [];
+  let failFirstLeg = true;
+
+  beforeAll(async () => {
+    const dbUrl = url as string;
+    await resetDb(dbUrl);
+    handle = createDb(dbUrl, 5);
+    engine = new PolicyEngine(handle.db, 50);
+    firmId = (await handle.db.query.firms.findFirst())!.id;
+
+    upstream = createServer((req, res) => {
+      let body = '';
+      req.on('data', (c: Buffer) => (body += c.toString()));
+      req.on('end', () => {
+        const parsed = JSON.parse(body) as { messages: { content: string }[] };
+        legs.push({ path: req.url ?? '', content: parsed.messages.map((m) => m.content).join('\n') });
+        if (failFirstLeg && legs.length === 1) {
+          // 401 → auth_error → NON-retryable → the executor advances to the next hop
+          // immediately (a 500 would be retried on the same local hop, never hopping)
+          res.writeHead(401, { 'content-type': 'application/json' });
+          res.end('{"error":{"message":"local auth misconfig"}}');
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            choices: [{ message: { content: 'served' }, finish_reason: 'stop' }],
+            usage: { prompt_tokens: 2, completion_tokens: 1 },
+          }),
+        );
+      });
+    });
+    await new Promise<void>((r) => upstream.listen(0, '127.0.0.1', r));
+    const uAddr = upstream.address();
+    const uPort = typeof uAddr === 'object' && uAddr ? uAddr.port : 0;
+
+    // both the local provider (seed) and a cloud provider point at the capture server
+    await handle.db
+      .update(providers)
+      .set({ baseUrl: `http://127.0.0.1:${uPort}/v1` })
+      .where(eq(providers.kind, 'local'));
+    await handle.db.insert(providers).values({
+      firmId,
+      kind: 'openai_compat',
+      label: 'Capture Cloud',
+      baseUrl: `http://127.0.0.1:${uPort}/v1`,
+      authType: 'none',
+    });
+
+    // policy inversion: LOCAL primary with a CLOUD fallback on a cloud-allowed class
+    await savePolicy(handle.db, engine, {
+      firmId,
+      taskClassKey: 'tb_research_summary',
+      defaultModelCanonicalId: 'ollama/qwen3:14b',
+      allowedModelCanonicalIds: ['ollama/qwen3:14b'],
+      fallbackChainCanonicalIds: ['openai/gpt-4o-mini'],
+    });
+
+    app = buildApp({
+      env: loadEnv({ DATABASE_URL: dbUrl, NODE_ENV: 'test' }),
+      gateway: {
+        deps: {
+          db: handle.db,
+          adapters: createAdapterRegistry(),
+          ledger: new DbLedger(handle.db),
+          log: createLogger('silent', false),
+          engine,
+          ssrfDenyPrivateCloud: false,
+          resilience: {
+            breaker: new CircuitBreaker({ minSamples: 100, openThreshold: 0.99, openDurationMs: 10 }),
+            shed: new LoadShedGuard(8, 8),
+            totalTimeoutMs: 3_000,
+            streamIdleTimeoutMs: 500,
+          },
+          rateLimits: { perToken: new RateLimiter(0), perUser: new RateLimiter(0) },
+        },
+      },
+    });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const addr = app.server.address();
+    if (addr === null || typeof addr === 'string') throw new Error('no port');
+    base = `http://127.0.0.1:${addr.port}`;
+  });
+
+  afterAll(async () => {
+    await app?.close();
+    upstream?.close();
+    await handle?.close();
+  });
+
+  const chat = (content: string): Promise<Response> =>
+    fetch(`${base}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${DEMO.appToken}`,
+        'x-vibe-task-class': 'tb_research_summary',
+      },
+      body: JSON.stringify({ messages: [{ role: 'user', content }] }),
+    });
+
+  it('redact mode: local leg sees the original, cloud fallback leg sees REDACTED content', async () => {
+    legs.length = 0;
+    failFirstLeg = true; // local primary fails → hop to cloud
+    const res = await chat('client SSN 123-45-6789 needs guidance');
+    expect(res.status).toBe(200);
+    expect(legs.length).toBe(2);
+    // leg 1 (local): original content, unredacted — local tier is exempt (8.2)
+    expect(legs[0]!.content).toContain('123-45-6789');
+    // leg 2 (cloud): the redacted copy — the raw SSN must never leave the box
+    expect(legs[1]!.content).not.toContain('123-45-6789');
+    expect(legs[1]!.content).toContain('[SSN]');
+  });
+
+  it('block mode: local serves the original; when local dies, the cloud hop is barred', async () => {
+    await handle.db
+      .update((await import('../db/schema.js')).firms)
+      .set({ settings: { scrubber_mode: 'block' } })
+      .where(eq((await import('../db/schema.js')).firms.id, firmId));
+    engine.invalidate();
+
+    // healthy local: request with PII serves locally, content intact
+    legs.length = 0;
+    failFirstLeg = false;
+    const ok = await chat('client SSN 123-45-6789 needs guidance');
+    expect(ok.status).toBe(200);
+    expect(legs.length).toBe(1);
+    expect(legs[0]!.content).toContain('123-45-6789');
+
+    // dead local: the only remaining hop is cloud → barred, request fails 422 scrubber_blocked
+    legs.length = 0;
+    failFirstLeg = true;
+    const blocked = await chat('client SSN 123-45-6789 needs guidance');
+    expect(blocked.status).toBe(422);
+    const body = (await blocked.json()) as { error: { code: string } };
+    expect(body.error.code).toBe('scrubber_blocked');
+    expect(legs.length).toBe(1); // cloud leg never hit
+  });
+});

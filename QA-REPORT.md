@@ -197,6 +197,154 @@ automated rounds missed — a useful record of *why* they were missed:
 Kurt also added `rootServedOnly` and `health_extra` manifest fields — before that, *nothing*
 health-checked the gateway tier (it has no vhost, so no edge probe ever touched it).
 
+## Round I — provider-connectivity code review (Anthropic + DigitalOcean)
+
+Operator-reported symptom: "trouble connecting to Anthropic." Deep review of both adapter
+families, the HTTP/SSE plumbing, provider resolution, SSRF gates, and the credential test
+path (2026-08-08; Q-071).
+
+| # | Severity | Defect | Why QA missed it | Fix (0.0.4) |
+| --- | --- | --- | --- | --- |
+| 1 | **High** (the reported symptom) | Anthropic "Test connection" could never succeed: the admin UI and wizard POST `{}`, `vault.test` defaults `model` to `""`, and the adapter sent `model:""` to `/v1/messages` — a guaranteed 400 → `invalid_request` → provider marked `down`, wizard reports "check the key or URL" even when both are valid | no test exercised `testConnection` on the Anthropic adapter without a model; the openai-compat family masked the same gap because it tests via `GET /models` first | empty-model test now calls `GET /v1/models` (validates key + reachability, mirrors openai-compat); explicit model still runs the 1-token ping |
+| 2 | Medium (latent 400s) | Request translation sent `thinking:{type:"enabled",budget_tokens}` and `temperature`/`top_p` unconditionally — all three are rejected with 400 by Claude 4.7+/5-family models, so adding any newer model to a policy would have produced opaque `invalid_request` failures | seeded models (Sonnet 4.5 / Haiku 4.5) still accept the legacy fields | `ADAPTIVE_ONLY_MODEL` guard: budget → `{type:"adaptive"}`, sampling params omitted for those families |
+| 3 | Medium (latent 400) | `temperature` and `top_p` sent together — Claude 4+ rejects the pair | no fixture set both | prefer `temperature`, drop `top_p` for Anthropic requests |
+| 4 | Low | openai-compat `/models`-404 fallback pinged with `model:""` when no model given (affects DigitalOcean only if DO ever drops `GET /v1/models`) | same missing-model blind spot as #1 | fallback rethrows the `/models` error when there is no model to ping |
+
+DigitalOcean path otherwise verified clean end-to-end: own `digitalocean` kind registered and
+migrated, wizard preset `https://inference.do-ai.run/v1` + bearer auth, `generic` flavor →
+`/chat/completions`, curated catalog rows namespaced `digitalocean/<id>`, SSRF cloud rules
+apply, and the 7-test DB-backed integration suite passes. Full suite after fixes: 26 files,
+247/247 green (DB rounds included, run against a dedicated `airouter_test` database).
+
+## Round J — deep code review + suite compatibility sweep (2026-08-08)
+
+Operator-requested full review: does the router function as intended, and is it compatible
+with every integrated Vibe app? Three parallel review passes (pipeline/protection/ledger,
+config/admin/ops, cross-repo app compat over all 7 integrated apps) + a manual core-pipeline
+review. Fixes shipped as 0.0.5 (Q-072/Q-073/Q-074); app-side findings recorded in
+`docs/app-compat-review-2026-08-08.md`.
+
+| # | Severity | Defect | Why earlier QA missed it | Fix (0.0.5) |
+| --- | --- | --- | --- | --- |
+| 1 | **High** (PII egress) | Scrubber decided cloud-bound-ness from the PRIMARY model only; a local-default policy with a cloud fallback egressed **unscrubbed** content on a fallback hop (found independently by two passes) | every scrub test used a cloud primary; no fixture inverted the chain | scrub decision spans the candidate chain: redacted copy swapped in per cloud hop; block mode bars cloud hops while local serves; regression tests in resilience.test.ts |
+| 2 | **High** (tenant isolation) | `budgets_state` app/user scope keys were bare app names / user ids — two firms on one appliance shared one budget row (cross-tenant DoS + spend leak) | all budget tests are single-firm | firm-scoped scope_ref keys (`firmId:app`), dashboard read scoped |
+| 3 | Medium | Response-cache key was model+messages-hash only — cross-firm hits and wrong-shape hits (json_schema answer served to a text request) | cache tests never varied firm or params | key = firm + model + messages-hash + params digest |
+| 4 | Medium | Streams dying/aborting before the finish chunk ledgered ZERO usage unflagged — an abort-early client burns provider tokens with no budget accrual | soak/chaos asserted row **presence**, not usage accuracy | estimated usage (flagged) synthesized for dead streams |
+| 5 | Medium | Admin API not firm-scoped (providers list/patch/delete/test, credential promote/revoke, app-tokens list/revoke, dashboard budgets); provider delete left credentials active | single-firm dev rig | firm ownership checks everywhere; delete revokes credentials |
+| 6 | Medium | `/healthz` unconditionally `ok` — the appliance healthcheck chain and the console dependency wait trusted a process-liveness lie while every request 500d | health tests only asserted 200 | DB probe with 2s cache; 503 `degraded` when Postgres is unreachable |
+| 7 | Medium (compat) | `txconv_statement_parse` clamped to 4096 output tokens vs the 32k TxConvertor's multi-page extraction needs — hard failure in router mode; app registration re-stamped the low value every boot | no cross-repo request-shape audit before this round | pack default 32768; pack defaults now a registration floor |
+| 8 | Medium (compat) | Payroll registers app `vibe-payroll-time`; pack/docs said `vibe-payroll` — a token minted under the documented name 403s registration forever (infinite retry, all AI fail closed) | ditto | pack renamed to the app's real identity |
+| 9 | Low | CSV exports (audit, ledger) vulnerable to formula injection; malformed cookie → 500; empty provider PATCH → 500; keyring silently overwrote current key when PREVIOUS_VERSION == VERSION; UI could never clear `global_temperature_max` | — | all fixed |
+
+**Accepted/recorded, not fixed** (each has a rationale on file): budget check-then-act race
+window (bounded by request concurrency; fast-path design), split-deployment 30s policy-cache
+staleness (TTL backstop), REDIS_URL validated-but-unused (single-container deployment; docs
+overstate), login endpoint unthrottled (Q-052), ledger `lte` boundary double-count on
+chained export windows, migration 0003 down leaving dangling chain UUIDs, catalog
+double-append pricing race on concurrent manual+cron sync, `budget_exceeded` hard stops not
+audited (metric only), silent model substitution semantics (Q-024, by design).
+
+**Verified enforced** (re-confirmed this round): fail-closed on unknown/missing task class +
+scrubber errors; `local_only` never reaches cloud incl. per-hop re-checks and tampered-row
+tests; exactly-one idempotent ledger row; no prompt bodies persisted anywhere (zod-gated
+audit detail); dual capability gating; vault crypto (fresh IVs, per-credential DEKs, no
+plaintext readback); session hardening (timing-safe, fixation-proof, CSRF belt); catalog
+additive-only sync with append-only pricing history; migrations reversible and
+schema-matched; scheduler role gating; Docker/appliance contract.
+
+**Suite compatibility:** all 7 integrated apps speak the 0.2.0 SDK contract exactly (3
+vendored copies byte-identical, 4 git deps pinned to the 0.2.0 commit); env conventions
+uniform; no app assumes unbuilt router surface. Two HIGH app-side gaps (Time-Billing cost
+recovery dead end-to-end; the 18 unbound non-pack classes needing day-one policy rows) plus
+seven smaller app-side defects are ticketed in `docs/app-compat-review-2026-08-08.md`.
+
+## Round K — exhaustive connection + wire-format QA (2026-08-08)
+
+Operator-directed: hunt errors and gaps that cause connection issues or incorrectly formatted
+results. Two adversarial review passes (one per failure class) over every IO/translation
+surface, plus a **live black-box harness**: a real router booted against mock OpenAI and
+Anthropic upstreams, driven through the official `openai` npm client (contract suite), the
+`@kisaes/vibe-ai-client` SDK end-to-end, a 40-way concurrency burst, and an end-to-end
+scrubber-redaction check with wire capture. Fixes shipped as 0.0.7 (Q-077 connection,
+Q-078 format).
+
+**Live-verified working before any fix** (28/28 clean-room + captured wire): non-streaming
+and streaming completions on both adapter families; tool calls; the Anthropic request
+translation (system extraction, max_tokens injection, model-prefix stripping); disjoint-token
+math round-trip; fail-closed on missing/unknown class and bad token; the Q-072 fallback-scrub
+path (a failing local primary hopped to cloud with the SSN redacted to `[SSN]` on the wire);
+one-ledger-row-per-request under 40× concurrency; SDK complete/stream/error-taxonomy/abort.
+
+| # | Severity | Class | Defect | Fix (0.0.7) |
+| --- | --- | --- | --- | --- |
+| 1 | **High** | conn | Total timeout (120s) aborted every long generation — the 32k-token txconv case is guaranteed to die at 2 min | Stream total-timeout is a first-token bound only; idle timer governs after; default 120s→300s |
+| 2 | **High** | conn | Client aborts / total-timeouts recorded as provider failures → could open the breaker and mark a healthy provider `down` | Record failure only when the signal wasn't aborted; stream health recorded once |
+| 3 | **High** | format | Streamed tool calls corrupted when a provider omits `index` or splits id/name across frames (Ollama, parallel calls) — official client merged two calls into one garbage argument string | Stateful stream translator keeps calls distinct + synthesizes ids |
+| 4 | **High** | format | Anthropic tool-result array content sent as `JSON.stringify` of envelope internals — model saw `[{"type":"text",...}]` literally | Map to Anthropic text/image block array |
+| 5 | Med | conn | Idle watchdog armed before the fetch → Ollama cold-load killed at 60s before first token | Arm idle timer only after the first chunk |
+| 6 | Med | conn | Timeouts mapped to `unknown`/500 (incl. `AbortSignal.timeout` on admin/vault tests) | Map to `provider_unavailable`/502 with a timeout reason |
+| 7 | Med | conn | `postSse` dropped a final event with no trailing blank line (provider closes after the usage frame) → measured billing silently downgraded to estimated | Flush decoder + emit trailing event; same in SDK |
+| 8 | Med | format | Cumulative per-chunk usage (vLLM) injected a phantom mid-stream `finish` that truncated the response | Only treat content-free, finish-free usage chunks as the terminal usage frame |
+| 9 | Med | format | Cache-write tokens excluded from wire `prompt_tokens` → under-report on a cache-seeding request | Fold cache-write into wire `prompt_tokens` |
+| 10 | Med | format | `temperature` in (1,2] passed ingress but 400'd on Anthropic | Clamp to Anthropic's 0–1 |
+| 11 | Med | format | Anthropic `tool_use` with missing input → `arguments: undefined` (invalid JSON) | `JSON.stringify(input ?? {})` |
+| 12 | Med | conn | SDK: no default timeout; `registerTaskClasses`/`billingUsage` couldn't take a signal → a wedged router hangs app boot forever | Default timeout + signal on every method + content-type guard |
+| 13 | Low | format | `n>1` accepted and silently ignored (one choice) | Reject at ingress |
+| 14 | Low | ops | `/version` hard-pinned at 0.0.3 through three releases | Read package.json at runtime |
+
+**Recorded, not fixed** (lower severity, documented rationale on file): internal `error`
+finish reason emitted as wire `"stop"`; DeepSeek `reasoning_content` not surfaced;
+`AIResponse.thinking` dropped at the OpenAI boundary (envelope comment says "caller only");
+message `name` field parsed then dropped; `created` recomputed per chunk; graceful-shutdown
+force-window can skip in-flight-stream ledger rows; SSE buffer unbounded within the idle
+window; relay backpressure not handled; admin test-prompt abort not wired. Full list in the
+Round K review notes.
+
+## Round L — unauthorized-access security test (2026-08-08)
+
+Operator-directed: prove no unauthorized user can reach the AI endpoints or the config
+surface. A dedicated auth-bypass code audit (every auth-critical path read line-by-line +
+a full route→auth table) plus **live penetration testing** against a running instance
+provisioned with two firms, an admin, a non-admin staff user, and rival firm credentials.
+
+**Verdict: the auth surface holds.** No unauthenticated route reaches AI inference, secrets,
+or an admin session; no role escalation into admin; cross-firm isolation holds on every
+firm-owned table. Live attack matrix (all correctly rejected):
+
+- **Gateway** `/v1/chat/completions` — 10 unauthorized bearer variants (none, empty, garbage,
+  sha256-of-known-token, lowercase `bearer`, raw token, Basic auth, SQLi, `x-api-key`) → all
+  401; a valid token reaches routing (control).
+- **Scope/revocation** — a token without `chat` scope → 401; a revoked token → 401 instantly.
+- **Registration** — an app token minting classes for a *different* app → 401; no token → 401.
+- **Billing feed** — no token → 401; a valid token returns only its own firm's data.
+- **Admin role** — a valid *staff* session on every admin endpoint (including the AI-reaching
+  `test-prompt`) → 401; admin control → 200.
+- **Cross-firm** — a valid *rival-firm admin* listing/testing/deleting/patching/crediting the
+  demo firm's provider, and revoking its token → all rejected (400), demo resources verified
+  untouched; rival sees only its own provider.
+- **Cookie forgery** — stripped/replaced signature, tampered id, empty, bare dot, fully forged
+  id.sig → all 401.
+- **CSRF** — every mutation without the `x-vibe-admin` header → 403.
+- **Bootstrap** `/admin/*` — no token / wrong token → 401; correct token → 200.
+
+| # | Severity | Finding | Fix (0.0.8) |
+| --- | --- | --- | --- |
+| 1 | Med (multi-firm only) | `task_classes` + `models` are global (no `firmId`) — a firm admin could change a class's **sensitivity** (the data boundary) or the model catalog suite-wide, affecting another firm in a multi-firm deployment. Confirmed live: rival admin flipped `tb_classification` local_only→cloud_allowed (200) | The four global-mutating routes (task-class PATCH, model create/override/retire) now refuse (403) when >1 firm exists (`assertSoleFirm`); single-firm appliance unchanged. Two-firm regression test added |
+
+**Accepted residuals** (documented rationale): no throttle on `/admin-api/auth/login` or
+pre-auth bearer guessing (Q-052 — LAN-only vhost + scrypt/sha256 cost; session growth capped
+at 1000); the client-asserted `X-Vibe-User-Role` is advisory within the trusted-app model
+(`firmId` is never client-sourced); the bootstrap `/admin/*` surface is the intentional
+global-operator token channel (constant-time guard, unregistered when the token is unset).
+
+**Verified locked** (re-confirmed): app-token sha256 + exact-hash lookup + `revokedAt`
+filter + `chat`-scope gate; `firmId` sourced only from token/session rows; HMAC session
+cookies with length-checked `timingSafeEqual` and per-login id (no fixation); `requireAdmin`
+role + CSRF on every mutation; secret-exposure sweep (tokens mint-once, credentials
+metadata-only, no key/hash/session-id read-back); role-split unmounts `/v1` on console and
+`/admin-api` on gateway; generic ≥500 error body (no SQL/stack leak); login timing-oracle
+closed by the warmed dummy hash.
+
 ## Standing QA assets (run these every round)
 
 ```bash

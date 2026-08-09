@@ -256,36 +256,74 @@ const chunkSchema = z.object({
 });
 
 /**
- * One provider chunk → zero or more internal chunks. Stateless by design; the adapter's
- * stream loop pairs a trailing usage-only chunk with the finish it already saw.
+ * One provider chunk → zero or more internal chunks. NOT stateless for tool calls: a provider
+ * may omit `index` on every frame (Ollama /v1) or send the tool name/id only on a later frame,
+ * so we track per-block start emission across the stream. Instantiate one per stream.
+ */
+export class OpenAiStreamState {
+  /** provider tool_call index → whether we've emitted tool_call_start for it */
+  private readonly started = new Map<number, boolean>();
+  /** monotonic fallback index when the provider omits `index` entirely */
+  private nextImplicitIndex = 0;
+  /** provider index → the internal index we assigned (stable across frames) */
+  private readonly indexMap = new Map<number, number>();
+
+  private resolveIndex(rawIndex: number | undefined, isStart: boolean): number {
+    if (rawIndex !== undefined) {
+      if (!this.indexMap.has(rawIndex)) this.indexMap.set(rawIndex, rawIndex);
+      return this.indexMap.get(rawIndex)!;
+    }
+    // provider omitted index: a frame that starts a NEW call opens a new slot; argument-only
+    // frames with no index belong to the most recently opened call
+    if (isStart) this.nextImplicitIndex = this.started.size;
+    return this.nextImplicitIndex;
+  }
+
+  handle(raw: unknown): StreamChunk[] {
+    const parsed = chunkSchema.safeParse(raw);
+    if (!parsed.success) return []; // tolerate unknown keep-alive shapes (3.3 quirk tolerance)
+    const out: StreamChunk[] = [];
+    const choice = parsed.data.choices?.[0];
+    if (choice?.delta?.content) out.push({ type: 'text_delta', delta: choice.delta.content });
+    for (const tc of choice?.delta?.tool_calls ?? []) {
+      const isStart = tc.function?.name != null;
+      const index = this.resolveIndex(tc.index, isStart);
+      if (!this.started.get(index) && isStart) {
+        this.started.set(index, true);
+        // synthesize an id when the provider omits one (mirrors the non-stream call_${i} path)
+        out.push({ type: 'tool_call_start', index, id: tc.id ?? `call_${index}`, name: tc.function!.name! });
+      }
+      if (tc.function?.arguments) {
+        out.push({ type: 'tool_call_delta', index, argumentsDelta: tc.function.arguments });
+      }
+    }
+    if (choice?.finish_reason) {
+      out.push({ type: 'finish', finishReason: normalizeFinishReason(choice.finish_reason) });
+    }
+    // usage-only trailing chunk (stream_options.include_usage): ONLY treat as a usage-bearing
+    // finish when the chunk carries no content and no finish of its own — otherwise a provider
+    // that reports cumulative usage on every chunk (vLLM) injects a phantom mid-stream finish
+    // and truncates the response (Q-078)
+    const hasUsage = parsed.data.usage && parsed.data.usage.prompt_tokens !== undefined;
+    const isUsageOnly = !choice?.delta?.content && !choice?.finish_reason && !choice?.delta?.tool_calls?.length;
+    if (hasUsage && isUsageOnly) {
+      out.push({ type: 'finish', finishReason: 'stop', usage: extractUsage(parsed.data.usage) });
+    } else if (hasUsage && choice?.finish_reason) {
+      // usage AND finish in the same chunk (DeepSeek) — attach usage to the real finish
+      const last = out[out.length - 1];
+      if (last?.type === 'finish') last.usage = extractUsage(parsed.data.usage);
+    }
+    return out;
+  }
+}
+
+/**
+ * Stateless single-chunk translation kept for the adapter contract's translateStreamChunk
+ * (best-effort; the streaming executor path uses OpenAiStreamState for correct multi-tool
+ * handling). Delegates to a fresh state so a lone frame still translates.
  */
 export function translateStreamChunk(raw: unknown): StreamChunk[] {
-  const parsed = chunkSchema.safeParse(raw);
-  if (!parsed.success) return []; // tolerate unknown keep-alive shapes (3.3 quirk tolerance)
-  const out: StreamChunk[] = [];
-  const choice = parsed.data.choices?.[0];
-  if (choice?.delta?.content) out.push({ type: 'text_delta', delta: choice.delta.content });
-  for (const tc of choice?.delta?.tool_calls ?? []) {
-    const index = tc.index ?? 0;
-    if (tc.id != null && tc.function?.name != null) {
-      out.push({ type: 'tool_call_start', index, id: tc.id, name: tc.function.name });
-    }
-    if (tc.function?.arguments) {
-      out.push({ type: 'tool_call_delta', index, argumentsDelta: tc.function.arguments });
-    }
-  }
-  if (choice?.finish_reason) {
-    out.push({ type: 'finish', finishReason: normalizeFinishReason(choice.finish_reason) });
-  }
-  if (parsed.data.usage && parsed.data.usage.prompt_tokens !== undefined) {
-    // usage-only trailing chunk (stream_options.include_usage)
-    out.push({
-      type: 'finish',
-      finishReason: 'stop',
-      usage: extractUsage(parsed.data.usage),
-    });
-  }
-  return out;
+  return new OpenAiStreamState().handle(raw);
 }
 
 // ── error mapping (3.8) ──────────────────────────────────────────────────────
@@ -310,6 +348,10 @@ export function mapProviderError(err: unknown): RouterError {
       detail: { providerStatus: err.status, providerBody: err.bodyText.slice(0, 500) },
       ...(err.retryAfterSeconds !== undefined ? { retryAfterSeconds: err.retryAfterSeconds } : {}),
     });
+  }
+  if (err instanceof Error && err.name === 'TimeoutError') {
+    // AbortSignal.timeout(...) fired (admin test-connection, vault test) — a provider timeout
+    return new RouterError('provider_unavailable', 'provider request timed out');
   }
   if (err instanceof Error && err.name === 'AbortError') {
     return new RouterError('unknown', 'request aborted');

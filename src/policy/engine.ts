@@ -5,7 +5,7 @@
  */
 import { and, eq } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
-import { firms, models, policies, providers, rolePolicies, taskClasses } from '../../db/schema.js';
+import { firms, isLocalKind, models, policies, providers, rolePolicies, taskClasses } from '../../db/schema.js';
 import { RouterError } from '../gateway/errors.js';
 import type { AIRequest } from '../gateway/envelope.js';
 import { effectiveCapabilities, type CapabilityKey } from '../catalog/service.js';
@@ -94,8 +94,8 @@ export function modelViolation(
   if (model.status === 'sunset') {
     return { code: 'policy_blocked', reason: `model ${model.canonicalId} is sunset` };
   }
-  // sensitivity (7.5): local_only may NEVER resolve to a non-local model — hard invariant
-  if (effective.taskClass.sensitivity === 'local_only' && model.providerKind !== 'local') {
+  // sensitivity (7.5): local_only may NEVER resolve to a non-local-tier model — hard invariant
+  if (effective.taskClass.sensitivity === 'local_only' && !isLocalKind(model.providerKind)) {
     return {
       code: 'policy_blocked',
       reason: `local_only task class cannot use non-local model ${model.canonicalId}`,

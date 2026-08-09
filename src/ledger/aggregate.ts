@@ -121,7 +121,9 @@ export async function billingUsage(
 }
 
 function csvEscape(v: unknown): string {
-  const s = v == null ? '' : String(v);
+  let s = v == null ? '' : String(v);
+  // formula-injection guard: a leading =,+,@ (or non-numeric -) executes in Excel/Sheets
+  if (/^[=+@]/.test(s) || (/^-/.test(s) && !/^-?\d+(\.\d+)?$/.test(s))) s = `'${s}`;
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
