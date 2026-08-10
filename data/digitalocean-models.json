@@ -1,12 +1,13 @@
 {
   "sample_spec": {
-    "_doc": "First-party curated catalog for DigitalOcean Gradient serverless inference (Q-061). Open-source models only — the platform's commercial Anthropic/OpenAI models are reachable through their own provider kinds with the firm's own keys, which is the product's compliance story. Shape mirrors LiteLLM entries (costs are USD per TOKEN). Sources: docs.digitalocean.com/products/inference/details/models + /pricing, retrieved 2026-07-29. Capabilities are conservative by design (Q-062): DO documents tool calling only for its commercial models, so tools/json_schema are left unset (= false) here and operators enable them per model via capability overrides after verifying against their account; vision is set only where DO documents multimodal input (Kimi K2.5/K2.6); caching only where DO publishes a cached-input price. kimi-k3 is omitted: DO does not publish its context window.",
+    "_doc": "First-party curated catalog for DigitalOcean Gradient serverless inference (Q-061). Open-source models only — the platform's commercial Anthropic/OpenAI models are reachable through their own provider kinds with the firm's own keys, which is the product's compliance story. Shape mirrors LiteLLM entries (costs are USD per TOKEN). Sources: docs.digitalocean.com/products/inference/details/models + /pricing, retrieved 2026-07-29. Capabilities: json_schema is set true across DO chat models (Q-083 — DO's inference API is OpenAI-compatible and JSON/structured output is broadly supported, so these are selectable for cloud JSON task classes out of the box); tools is left unset (= false, DO documents tool calling only for its commercial models) and operators enable it per model via capability overrides after verifying against their account; vision is set only where DO documents multimodal input (Kimi K2.5/K2.6); caching only where DO publishes a cached-input price. kimi-k3 is omitted: DO does not publish its context window.",
     "litellm_provider": "digitalocean"
   },
   "digitalocean/llama3.3-70b-instruct": {
     "max_input_tokens": 128000,
     "input_cost_per_token": 0.00000065,
     "output_cost_per_token": 0.00000065,
+    "supports_response_schema": true,
     "litellm_provider": "digitalocean",
     "mode": "chat"
   },
@@ -14,6 +15,7 @@
     "max_input_tokens": 128000,
     "input_cost_per_token": 0.00000025,
     "output_cost_per_token": 0.00000087,
+    "supports_response_schema": true,
     "litellm_provider": "digitalocean",
     "mode": "chat"
   },
@@ -21,6 +23,7 @@
     "max_input_tokens": 32678,
     "input_cost_per_token": 0.00000099,
     "output_cost_per_token": 0.00000099,
+    "supports_response_schema": true,
     "litellm_provider": "digitalocean",
     "mode": "chat"
   },
@@ -30,6 +33,7 @@
     "output_cost_per_token": 0.000002784,
     "cache_read_input_token_cost": 0.000000348,
     "supports_prompt_caching": true,
+    "supports_response_schema": true,
     "litellm_provider": "digitalocean",
     "mode": "chat"
   },
@@ -39,6 +43,7 @@
     "output_cost_per_token": 0.000000224,
     "cache_read_input_token_cost": 0.000000028,
     "supports_prompt_caching": true,
+    "supports_response_schema": true,
     "litellm_provider": "digitalocean",
     "mode": "chat"
   },
@@ -48,6 +53,7 @@
     "output_cost_per_token": 0.00000136,
     "cache_read_input_token_cost": 0.00000015,
     "supports_prompt_caching": true,
+    "supports_response_schema": true,
     "litellm_provider": "digitalocean",
     "mode": "chat"
   },
@@ -55,6 +61,7 @@
     "max_input_tokens": 32768,
     "input_cost_per_token": 0.00000025,
     "output_cost_per_token": 0.00000055,
+    "supports_response_schema": true,
     "litellm_provider": "digitalocean",
     "mode": "chat"
   },
@@ -64,6 +71,7 @@
     "output_cost_per_token": 0.0000017,
     "cache_read_input_token_cost": 0.00000009,
     "supports_prompt_caching": true,
+    "supports_response_schema": true,
     "litellm_provider": "digitalocean",
     "mode": "chat"
   },
@@ -73,6 +81,7 @@
     "output_cost_per_token": 0.00000245,
     "cache_read_input_token_cost": 0.000000111,
     "supports_prompt_caching": true,
+    "supports_response_schema": true,
     "litellm_provider": "digitalocean",
     "mode": "chat"
   },
@@ -80,6 +89,7 @@
     "max_input_tokens": 262144,
     "input_cost_per_token": 0.0000002,
     "output_cost_per_token": 0.0000002,
+    "supports_response_schema": true,
     "litellm_provider": "digitalocean",
     "mode": "chat"
   },
@@ -87,6 +97,7 @@
     "max_input_tokens": 128000,
     "input_cost_per_token": 0.0000001,
     "output_cost_per_token": 0.0000007,
+    "supports_response_schema": true,
     "litellm_provider": "digitalocean",
     "mode": "chat"
   },
@@ -94,6 +105,7 @@
     "max_input_tokens": 128000,
     "input_cost_per_token": 0.00000005,
     "output_cost_per_token": 0.00000045,
+    "supports_response_schema": true,
     "litellm_provider": "digitalocean",
     "mode": "chat"
   },
@@ -104,6 +116,7 @@
     "cache_read_input_token_cost": 0.00000019,
     "supports_prompt_caching": true,
     "supports_vision": true,
+    "supports_response_schema": true,
     "litellm_provider": "digitalocean",
     "mode": "chat"
   },
@@ -114,6 +127,7 @@
     "cache_read_input_token_cost": 0.000000203,
     "supports_prompt_caching": true,
     "supports_vision": true,
+    "supports_response_schema": true,
     "litellm_provider": "digitalocean",
     "mode": "chat"
   }

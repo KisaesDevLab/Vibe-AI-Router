@@ -90,20 +90,33 @@ function Editor({
   onClose: () => void;
   onSaved: () => void;
 }): JSX.Element {
-  // config-time gating preview: only capability-valid models are offered (11.5)
-  const eligible = useMemo(() => {
-    const req = taskClass.requires as { tools?: boolean; json_schema?: boolean; vision?: boolean };
-    return models.filter((m) => {
-      if (m.status !== 'active') return false;
-      // local TIER = local + local_ocr (R4) — both stay on the appliance network
-      if (taskClass.sensitivity === 'local_only' && m.providerKind !== 'local' && m.providerKind !== 'local_ocr')
-        return false;
-      if (req.tools && !m.effective['tools']) return false;
-      if (req.json_schema && !m.effective['json_schema']) return false;
-      if (req.vision && !m.effective['vision']) return false;
-      return true;
-    });
-  }, [models, taskClass]);
+  const req = taskClass.requires as { tools?: boolean; json_schema?: boolean; vision?: boolean };
+  const localOnly = taskClass.sensitivity === 'local_only';
+  const isLocalKind = (k: string): boolean => k === 'local' || k === 'local_ocr';
+
+  // active models this class's DATA TIER permits (local tier = local + local_ocr, R4)
+  const tierEligible = useMemo(
+    () => models.filter((m) => m.status === 'active' && (!localOnly || isLocalKind(m.providerKind))),
+    [models, localOnly],
+  );
+  // config-time gating preview: of the tier-permitted models, only capability-valid ones (11.5)
+  const eligible = useMemo(
+    () =>
+      tierEligible.filter((m) => {
+        if (req.tools && !m.effective['tools']) return false;
+        if (req.json_schema && !m.effective['json_schema']) return false;
+        if (req.vision && !m.effective['vision']) return false;
+        return true;
+      }),
+    [tierEligible, req.tools, req.json_schema, req.vision],
+  );
+  // why models the operator might expect are not offered — surfaced below the picker
+  const cloudHiddenByTier = useMemo(
+    () => models.filter((m) => m.status === 'active' && !isLocalKind(m.providerKind)).length,
+    [models],
+  );
+  const missingCaps = (['tools', 'json_schema', 'vision'] as const).filter((c) => req[c]);
+  const hiddenByCapability = tierEligible.length - eligible.length;
 
   const [defaultModel, setDefaultModel] = useState(policy?.defaultModel ?? eligible[0]?.canonicalId ?? '');
   const [allowed, setAllowed] = useState<string[]>(policy?.allowedModels ?? []);
@@ -195,6 +208,19 @@ function Editor({
             </option>
           ))}
         </select>
+        {localOnly && cloudHiddenByTier > 0 && (
+          <p className="sub" style={{ marginTop: 4 }}>
+            {cloudHiddenByTier} cloud model{cloudHiddenByTier === 1 ? '' : 's'} (including any DigitalOcean) are
+            hidden because this class is <strong>local_only</strong>. Widen the tier above to route to them.
+          </p>
+        )}
+        {!localOnly && missingCaps.length > 0 && hiddenByCapability > 0 && (
+          <p className="sub" style={{ marginTop: 4 }}>
+            {hiddenByCapability} model{hiddenByCapability === 1 ? '' : 's'} hidden because they don't advertise{' '}
+            <strong>{missingCaps.join(' + ')}</strong>. Enable it per model in{' '}
+            <strong>Catalog → capability overrides</strong> after verifying the model supports it.
+          </p>
+        )}
 
         <label>Also allowed (apps may request these)</label>
         <div className="row" style={{ gap: 6 }}>

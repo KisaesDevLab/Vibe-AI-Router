@@ -10,6 +10,7 @@ import { createDb, type DbHandle } from '../src/db/client.js';
 import { resetDb } from './helpers.js';
 import { modelPricing, models, providers } from '../db/schema.js';
 import {
+  DISCOVERED_CAPABILITIES,
   DISCOVERED_CONTEXT_WINDOW,
   discoverDigitalOceanModels,
   planDiscovery,
@@ -87,7 +88,9 @@ describe.skipIf(!url)('discoverDigitalOceanModels (DB)', () => {
     expect(added?.source).toBe('provider');
     expect(added?.providerKind).toBe('digitalocean');
     expect(added?.contextWindow).toBe(DISCOVERED_CONTEXT_WINDOW);
-    expect(added?.capabilities).toEqual({});
+    // json_schema-capable by default (Q-083) so it's selectable for cloud JSON classes
+    expect(added?.capabilities).toEqual(DISCOVERED_CAPABILITIES);
+    expect(added?.capabilities).toEqual({ json_schema: true });
     const pricing = await handle.db.query.modelPricing.findMany({
       where: eq(modelPricing.modelId, added!.id),
     });

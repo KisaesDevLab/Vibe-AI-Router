@@ -435,3 +435,19 @@ Grouped by phase. This file is the Phase 15 review agenda.
   on-demand can't double-insert. Audited as provider_models_discovered only when something new
   is added.** → additive/gated/reversible; DO-only by design (other cloud kinds are covered by
   the LiteLLM feed, locals are pinned) → **S/M**
+- [Q-083] DigitalOcean models weren't selectable when binding a policy task → **Diagnosed as
+  the two config-time gates in the policy editor, not a bug: (1) DATA TIER — a local_only class
+  offers only local/local_ocr models, so DO (a cloud kind) is hidden until the tier is widened
+  (audited); (2) CAPABILITIES — a class requiring json_schema/tools/vision only offers models
+  advertising it, and NO DO model advertised json_schema (curated ones off by design per Q-062;
+  discovered ones had empty caps), so DO was hidden for every JSON-extraction class even after
+  widening. Fix (user chose "json_schema on"): mark json_schema=true across DO chat models —
+  both the 14 curated data/digitalocean-models.json entries (superseding the Q-062 conservative
+  stance for json_schema only) AND the discovery default (DISCOVERED_CAPABILITIES). tools/vision
+  stay off (more model-specific; enable per model via overrides). This is safe: the router
+  re-checks capability at request time, and DO's OpenAI-compatible API supports JSON/structured
+  output broadly, so a mismatch fails visibly at the provider, never silently. Also added a
+  policy-editor hint that explains WHY models are hidden (widen tier / enable capability) instead
+  of silently omitting them.** → curated capability change reaches an existing appliance's DO
+  model rows on the next catalog sync (nightly cron, or manual POST /admin/catalog/sync); then
+  widen the class tier to cloud → DO models appear for JSON classes. Reversible via overrides → **S**

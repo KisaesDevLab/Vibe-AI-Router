@@ -29,11 +29,15 @@ type ProviderRow = typeof providers.$inferSelect;
  * - contextWindow: a modest floor so a discovered model is never PREFERRED over a curated
  *   large-context one by the default-pack picker (which tie-breaks on context window); the
  *   curated feed corrects it on adoption.
- * - capabilities: none (all false) — an operator enables tools/json_schema/vision per model
- *   via capability overrides after verifying against their account (same rule as Q-062).
+ * - capabilities: json_schema only (Q-083) — DigitalOcean's inference API is OpenAI-compatible
+ *   and JSON/structured output is broadly supported, so discovered models are immediately
+ *   selectable for cloud JSON task classes without per-model setup. tools/vision stay off
+ *   (more model-specific); an operator enables them via capability overrides after verifying.
  * - pricing: NONE inserted → the ledger flags cost_unknown (never silently zero).
  */
 export const DISCOVERED_CONTEXT_WINDOW = 8192;
+/** Capabilities every discovered DO model advertises by default (Q-083). */
+export const DISCOVERED_CAPABILITIES: Record<string, boolean> = { json_schema: true };
 const DO_NAMESPACE = 'digitalocean';
 
 export interface DiscoveryPlan {
@@ -124,7 +128,7 @@ export async function discoverDigitalOceanModels(
         displayName: m.displayName,
         contextWindow: DISCOVERED_CONTEXT_WINDOW,
         maxOutput: null,
-        capabilities: {},
+        capabilities: DISCOVERED_CAPABILITIES,
         source: 'provider',
       })
       .onConflictDoNothing({ target: models.canonicalId })

@@ -5,6 +5,26 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.11 — 2026-08-09
+
+**DigitalOcean models selectable for JSON policy classes** (follow-up to 0.0.10, Q-083).
+
+- DO models weren't offered when binding a policy for a JSON-extraction task class. Root cause
+  was the two config-time gates (data tier + capability), not a bug: DO is a cloud kind (hidden
+  for `local_only` classes until the tier is widened), and no DO model advertised `json_schema`
+  (curated ones off by design per Q-062; auto-discovered ones had empty capabilities), so DO was
+  hidden for every `json_schema` class even after widening.
+- **Fix.** Mark `json_schema` capable across DO chat models — the 14 curated
+  `data/digitalocean-models.json` entries and the auto-discovery default
+  (`DISCOVERED_CAPABILITIES`). `tools`/`vision` stay off (more model-specific; enable per model
+  via Catalog capability overrides). Safe because the router re-checks capability at request
+  time and DO's API is OpenAI-compatible with broad JSON/structured-output support.
+- **UX.** The policy editor now explains *why* models are hidden — "N cloud models hidden
+  because this class is local_only; widen the tier" and "N models hidden because they don't
+  advertise <cap>; enable in Catalog → overrides" — instead of silently omitting them.
+- On an upgraded appliance the curated capability change applies on the next catalog sync
+  (nightly, or manual `POST /admin/catalog/sync`); then widen the class tier to cloud.
+
 ## 0.0.10 — 2026-08-09
 
 **MyBooks/Time-Billing task-class pack coverage** + **DigitalOcean model auto-discovery**.
