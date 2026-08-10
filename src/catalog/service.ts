@@ -91,6 +91,82 @@ export async function createCustomModel(db: Db, input: unknown): Promise<ModelRo
   return row;
 }
 
+const pricingInputSchema = z.object({
+  inputPerMtok: z.number().nonnegative(),
+  outputPerMtok: z.number().nonnegative(),
+  cacheReadPerMtok: z.number().nonnegative().optional(),
+  cacheWritePerMtok: z.number().nonnegative().optional(),
+});
+
+export const updateModelSchema = z
+  .object({
+    displayName: z.string().min(1).max(200).optional(),
+    contextWindow: z.number().int().positive().optional(),
+    maxOutput: z.number().int().positive().nullable().optional(),
+    /** written to capability_overrides (survives re-sync, 5.5) — full replace, not a merge */
+    capabilities: capabilitiesSchema.optional(),
+    /** appends a new model_pricing row effective now (history is append-only, 5.4) */
+    pricing: pricingInputSchema.optional(),
+  })
+  .strict();
+
+export type UpdateModelInput = z.infer<typeof updateModelSchema>;
+
+/**
+ * Edit a model (11.4). Capability edits write to capability_overrides for ANY source — they
+ * win over synced capabilities and survive re-sync (5.5). Base specs (name / context window /
+ * max output) and pricing are operator-owned only for 'custom' and 'provider' (discovered)
+ * models; a 'synced' row is feed-managed and would be clobbered on the next sync, so base
+ * edits there are rejected with a clear message (use capability overrides instead). Discovered
+ * models are the intended target: they ship with a placeholder context window and no pricing.
+ */
+export async function updateModel(db: Db, modelId: string, input: unknown): Promise<ModelRow> {
+  const parsed = updateModelSchema.safeParse(input);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    throw new RouterError('invalid_request', `invalid edit: ${issue?.path.join('.')}: ${issue?.message}`);
+  }
+  const patch = parsed.data;
+  const model = await db.query.models.findFirst({ where: eq(models.id, modelId) });
+  if (!model) throw new RouterError('invalid_request', 'model not found');
+
+  const touchesBase =
+    patch.displayName !== undefined ||
+    patch.contextWindow !== undefined ||
+    patch.maxOutput !== undefined ||
+    patch.pricing !== undefined;
+  if (touchesBase && model.source === 'synced') {
+    throw new RouterError(
+      'invalid_request',
+      'synced models are feed-managed; only capability overrides can be edited (they survive re-sync)',
+    );
+  }
+
+  const set: Partial<typeof models.$inferInsert> = {};
+  if (patch.displayName !== undefined) set.displayName = patch.displayName;
+  if (patch.contextWindow !== undefined) set.contextWindow = patch.contextWindow;
+  if (patch.maxOutput !== undefined) set.maxOutput = patch.maxOutput; // null clears it
+  if (patch.capabilities !== undefined) set.capabilityOverrides = patch.capabilities;
+  if (Object.keys(set).length > 0) await db.update(models).set(set).where(eq(models.id, modelId));
+
+  if (patch.pricing !== undefined) {
+    await db.insert(modelPricing).values({
+      modelId,
+      effectiveFrom: new Date(),
+      inputPerMtok: String(patch.pricing.inputPerMtok),
+      outputPerMtok: String(patch.pricing.outputPerMtok),
+      cacheReadPerMtok:
+        patch.pricing.cacheReadPerMtok !== undefined ? String(patch.pricing.cacheReadPerMtok) : null,
+      cacheWritePerMtok:
+        patch.pricing.cacheWritePerMtok !== undefined ? String(patch.pricing.cacheWritePerMtok) : null,
+    });
+  }
+
+  const updated = await db.query.models.findFirst({ where: eq(models.id, modelId) });
+  if (!updated) throw new Error('model vanished during update');
+  return updated;
+}
+
 export async function setCapabilityOverrides(db: Db, modelId: string, overrides: unknown): Promise<void> {
   const parsed = capabilitiesSchema.safeParse(overrides);
   if (!parsed.success) throw new RouterError('invalid_request', 'invalid capability overrides');

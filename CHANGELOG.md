@@ -5,6 +5,20 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.12 — 2026-08-09
+
+**Edit any model from the Catalog** (Q-084).
+
+- New **Edit** action on every Catalog row (`PATCH /admin-api/models/:id`). Capability
+  overrides are editable for any model (they win over synced capabilities and survive re-sync);
+  display name, context window, max output, and pricing are editable for operator-owned models
+  — `custom` and auto-discovered `provider` rows. `synced` (feed-managed) rows accept capability
+  overrides only; base-spec edits there are rejected with a clear message, since the next sync
+  would overwrite them. Pricing edits append a new `model_pricing` row (history stays
+  append-only). The edit invalidates the policy engine (context/capabilities affect gating).
+- Directly fixes the discovered-DigitalOcean-model rough edge from 0.0.10/0.0.11: those arrive
+  with a placeholder 8192 context window and `cost_unknown` pricing, now correctable in the UI.
+
 ## 0.0.11 — 2026-08-09
 
 **DigitalOcean models selectable for JSON policy classes** (follow-up to 0.0.10, Q-083).

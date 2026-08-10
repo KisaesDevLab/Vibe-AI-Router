@@ -14,6 +14,7 @@ import {
   findRetiredModelReferences,
   pricingAt,
   setCapabilityOverrides,
+  updateModel,
 } from '../src/catalog/service.js';
 
 const url = process.env['VIBE_ROUTER_TEST_DATABASE_URL'];
@@ -219,5 +220,92 @@ describe.skipIf(!url)('syncCatalog (DB)', () => {
 
     const refs = await findRetiredModelReferences(handle.db);
     expect(refs.some((r) => r.canonicalId === 'anthropic/claude-test-1' && r.role === 'fallback')).toBe(true);
+  });
+});
+
+describe.skipIf(!url)('updateModel (DB)', () => {
+  let handle: DbHandle;
+
+  beforeAll(async () => {
+    const dbUrl = url as string;
+    await resetDb(dbUrl);
+    handle = createDb(dbUrl, 2);
+    return async () => handle.close();
+  });
+
+  it('edits base specs + capabilities + pricing on a custom model', async () => {
+    const m = await createCustomModel(handle.db, {
+      canonicalId: 'ollama/editable:7b',
+      providerKind: 'local',
+      displayName: 'Editable',
+      contextWindow: 8192,
+    });
+    expect(await pricingAt(handle.db, m.id, new Date())).toBeNull(); // starts cost_unknown
+
+    const updated = await updateModel(handle.db, m.id, {
+      displayName: 'Editable v2',
+      contextWindow: 65536,
+      maxOutput: 4096,
+      capabilities: { json_schema: true, tools: true },
+      pricing: { inputPerMtok: 0.5, outputPerMtok: 1.5 },
+    });
+    expect(updated.displayName).toBe('Editable v2');
+    expect(updated.contextWindow).toBe(65536);
+    expect(updated.maxOutput).toBe(4096);
+    expect(effectiveCapabilities(updated)).toMatchObject({ json_schema: true, tools: true });
+    const price = await pricingAt(handle.db, m.id, new Date());
+    expect(Number(price?.inputPerMtok)).toBe(0.5);
+    expect(Number(price?.outputPerMtok)).toBe(1.5);
+  });
+
+  it('edits a discovered (provider) model — the placeholder-spec fixup path', async () => {
+    const [prov] = await handle.db
+      .insert(models)
+      .values({
+        canonicalId: 'digitalocean/discovered-z',
+        providerKind: 'digitalocean',
+        displayName: 'discovered-z',
+        contextWindow: 8192,
+        capabilities: { json_schema: true },
+        source: 'provider',
+      })
+      .returning();
+    const updated = await updateModel(handle.db, prov!.id, {
+      contextWindow: 131072,
+      pricing: { inputPerMtok: 0.65, outputPerMtok: 0.65 },
+    });
+    expect(updated.contextWindow).toBe(131072);
+    expect(updated.source).toBe('provider');
+    expect(Number((await pricingAt(handle.db, prov!.id, new Date()))?.inputPerMtok)).toBe(0.65);
+  });
+
+  it('rejects base-spec edits on a synced model but allows capability overrides', async () => {
+    const [synced] = await handle.db
+      .insert(models)
+      .values({
+        canonicalId: 'openai/synced-fixture',
+        providerKind: 'openai_compat',
+        displayName: 'synced fixture',
+        contextWindow: 128000,
+        capabilities: {},
+        source: 'synced',
+      })
+      .returning();
+    await expect(updateModel(handle.db, synced!.id, { contextWindow: 999 })).rejects.toThrow(/feed-managed/);
+    // capability-only edit is allowed and pins an override that survives sync
+    const ok = await updateModel(handle.db, synced!.id, { capabilities: { vision: true } });
+    expect(effectiveCapabilities(ok).vision).toBe(true);
+    // base spec unchanged by the rejected edit
+    expect((await handle.db.query.models.findFirst({ where: eq(models.id, synced!.id) }))?.contextWindow).toBe(
+      128000,
+    );
+  });
+
+  it('rejects unknown fields (strict) and non-existent ids', async () => {
+    await expect(updateModel(handle.db, '00000000-0000-0000-0000-000000000000', { contextWindow: 1 })).rejects.toThrow(
+      /not found/,
+    );
+    const anyModel = await handle.db.query.models.findFirst();
+    await expect(updateModel(handle.db, anyModel!.id, { bogus: true } as never)).rejects.toThrow(/invalid edit/);
   });
 });

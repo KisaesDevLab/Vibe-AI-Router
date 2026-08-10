@@ -451,3 +451,14 @@ Grouped by phase. This file is the Phase 15 review agenda.
   of silently omitting them.** → curated capability change reaches an existing appliance's DO
   model rows on the next catalog sync (nightly cron, or manual POST /admin/catalog/sync); then
   widen the class tier to cloud → DO models appear for JSON classes. Reversible via overrides → **S**
+- [Q-084] Add the ability to edit each model → **New PATCH /admin-api/models/:id + updateModel
+  service + an Edit modal on the Catalog page. Editable: capability overrides for ANY source
+  (written to capability_overrides, which win over synced caps and survive re-sync, 5.5); and
+  base specs (display name, context window, max output) + pricing for operator-owned models
+  only — source 'custom' and 'provider' (discovered). A 'synced' row is feed-managed, so base
+  edits there are rejected with a clear message (capability overrides only) since the next sync
+  would clobber them. Pricing edits append a new model_pricing row (history stays append-only,
+  5.4). The endpoint invalidates the policy engine (context/caps affect config- and request-time
+  gating). This directly fixes the discovered-DO-model rough edge from Q-082/Q-083: those ship
+  with a placeholder 8192 context window and no pricing, now correctable in the UI.** → the Add
+  Custom Model form was the only prior model-authoring surface; edit closes the loop → **S**

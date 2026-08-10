@@ -43,6 +43,7 @@ import {
   effectiveCapabilities,
   retireCustomModel,
   setCapabilityOverrides,
+  updateModel,
 } from '../catalog/service.js';
 import { latencyStats, ledgerRows, rowsToCsv, spendBy } from '../ledger/aggregate.js';
 import { currentPeriod } from '../ledger/budget.js';
@@ -446,6 +447,25 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
       const row = await createCustomModel(db, req.body);
       auditConfig(session, 'model', row.id, 'create', { canonicalId: row.canonicalId });
       return await reply.code(201).send(row);
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  // general per-model edit (11.4): name/context/max-output/pricing for custom + discovered
+  // models, capability overrides for any source. Base edits on synced models are rejected in
+  // updateModel (feed-managed). Invalidates the policy engine — context/caps affect gating.
+  app.patch('/admin-api/models/:id', async (req, reply) => {
+    const session = requireAdmin(req, reply);
+    if (!session) return reply;
+    const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
+    if (!params.success) return fail(reply, new RouterError('invalid_request', 'bad id'));
+    if (!(await assertSoleFirm(session, reply))) return reply;
+    try {
+      const row = await updateModel(db, params.data.id, req.body);
+      opts.deps.engine.invalidate();
+      auditConfig(session, 'model', row.id, 'update', { canonicalId: row.canonicalId });
+      return await reply.send(row);
     } catch (err) {
       return fail(reply, err);
     }

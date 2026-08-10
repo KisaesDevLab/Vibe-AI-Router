@@ -83,7 +83,7 @@ export interface Model {
   contextWindow: number;
   maxOutput: number | null;
   status: 'active' | 'deprecated' | 'sunset';
-  source: 'synced' | 'custom';
+  source: 'synced' | 'custom' | 'provider';
   effective: Record<string, boolean>;
   pricing: { inputPerMtok: string | null; outputPerMtok: string | null } | null;
 }
