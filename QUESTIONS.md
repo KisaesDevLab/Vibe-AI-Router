@@ -462,3 +462,17 @@ Grouped by phase. This file is the Phase 15 review agenda.
   gating). This directly fixes the discovered-DO-model rough edge from Q-082/Q-083: those ship
   with a placeholder 8192 context window and no pricing, now correctable in the UI.** → the Add
   Custom Model form was the only prior model-authoring surface; edit closes the loop → **S**
+- [Q-085] Models should update automatically when a provider API connection exists → **Catalog
+  refresh now triggers on connection events, not just the nightly cron: a successful
+  POST /admin-api/providers/:id/test (both keyless and vault paths), a stored credential
+  (POST /admin-api/providers/:id/credentials — a key is what makes the API reachable), and a
+  manual discover that added models all fire a background runCatalogSync pass — the same
+  discovery (DigitalOcean /models) + vendored-feed sync the cron runs, so it is additive and
+  idempotent and racing the cron is safe. In-flight guard collapses bursts (add key → test) to
+  one run; failures log + audit and never fail the admin request (fire-and-forget). Hook is
+  injectable via AdminApiOptions.refreshCatalog for tests (test/catalog-refresh-on-connection).
+  Also: the policy editor now lists exactly WHICH active models are not offered to a task class
+  and why (tier vs missing capability, with the Catalog-overrides pointer), per model — the
+  aggregate counts alone left operators believing models were missing after an update.** →
+  connection-triggered refresh complements, not replaces, the cron; UI change is presentational
+  only (server-side gating untouched) → **S**

@@ -6,6 +6,7 @@ export function Policies(): JSX.Element {
   const [data, setData] = useState<PolicyExport | null>(null);
   const [models, setModels] = useState<Model[]>([]);
   const [editing, setEditing] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
 
   const reload = (): void => {
     void api.get<PolicyExport>('/admin-api/policies').then(setData);
@@ -40,7 +41,25 @@ export function Policies(): JSX.Element {
               return (
                 <tr key={tc.key}>
                   <td>
-                    <div style={{ fontFamily: 'var(--mono)', fontSize: 12.5 }}>{tc.key}</div>
+                    <button
+                      onClick={() => setInfo(tc.key)}
+                      data-testid={`info-${tc.key}`}
+                      title="What does this task class do?"
+                      style={{
+                        fontFamily: 'var(--mono)',
+                        fontSize: 12.5,
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        cursor: 'pointer',
+                        color: 'var(--ink)',
+                        textDecoration: 'underline',
+                        textDecorationStyle: 'dotted',
+                        textUnderlineOffset: 3,
+                      }}
+                    >
+                      {tc.key}
+                    </button>
                     <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{tc.app}</div>
                   </td>
                   <td><Tier tier={tc.sensitivity} /></td>
@@ -61,6 +80,14 @@ export function Policies(): JSX.Element {
         </table>
       </div>
 
+      {info && (
+        <TaskClassInfo
+          taskClass={data.taskClasses.find((t) => t.key === info)!}
+          policy={data.policies.find((p) => p.taskClassKey === info)}
+          onClose={() => setInfo(null)}
+        />
+      )}
+
       {editing && (
         <Editor
           taskClass={data.taskClasses.find((t) => t.key === editing)!}
@@ -74,6 +101,76 @@ export function Policies(): JSX.Element {
         />
       )}
     </>
+  );
+}
+
+const TIER_EXPLANATIONS: Record<TaskClass['sensitivity'], string> = {
+  local_only:
+    'Requests never leave the appliance. Only local models (Ollama/vibellm) can serve this class — cloud egress is structurally impossible, including via fallbacks.',
+  cloud_deidentified:
+    'Requests may route to the firm’s configured cloud providers, but every cloud-bound request passes through the PII scrubber first. Local models remain available.',
+  cloud_allowed:
+    'Requests may route to the firm’s configured cloud providers using the firm’s own keys. The router still enforces policy, capability checks, and budgets on every request.',
+};
+
+function TaskClassInfo({
+  taskClass,
+  policy,
+  onClose,
+}: {
+  taskClass: TaskClass;
+  policy: PolicyView | undefined;
+  onClose: () => void;
+}): JSX.Element {
+  const req = taskClass.requires as { tools?: boolean; json_schema?: boolean; vision?: boolean };
+  const caps = (['tools', 'json_schema', 'vision'] as const).filter((c) => req[c]);
+
+  return (
+    <div className="modal-back" role="dialog" aria-modal="true" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
+          <h2 style={{ margin: 0, fontFamily: 'var(--mono)', fontSize: 16 }}>{taskClass.key}</h2>
+          <Tier tier={taskClass.sensitivity} />
+        </div>
+        <p className="sub" style={{ marginTop: 0 }}>
+          Declared by <strong>{taskClass.app}</strong>
+        </p>
+
+        <p>{taskClass.description || 'The app that declared this task class did not provide a description.'}</p>
+
+        <label>Data boundary</label>
+        <p className="sub" style={{ marginTop: 2 }}>{TIER_EXPLANATIONS[taskClass.sensitivity]}</p>
+
+        <label>Required capabilities</label>
+        <p className="sub" style={{ marginTop: 2 }}>
+          {caps.length > 0
+            ? `Models bound to this class must support: ${caps.join(', ')}. The router rejects both saving an incapable model here and any request that would reach one.`
+            : 'None — any model permitted by the data boundary can serve it.'}
+        </p>
+
+        <label>Current routing</label>
+        <p className="sub" style={{ marginTop: 2 }}>
+          {policy?.defaultModel ? (
+            <>
+              Default model <span style={{ fontFamily: 'var(--mono)' }}>{policy.defaultModel}</span>
+              {policy.fallbackChain.length > 0 && (
+                <>
+                  {' '}with fallback{policy.fallbackChain.length === 1 ? '' : 's'}{' '}
+                  <span style={{ fontFamily: 'var(--mono)' }}>{policy.fallbackChain.join(' → ')}</span>
+                </>
+              )}
+              . Up to {policy.maxTokensOverride ?? taskClass.defaultMaxTokens} tokens per response.
+            </>
+          ) : (
+            'Unconfigured — requests naming this task class are blocked (fail closed) until a policy is saved.'
+          )}
+        </p>
+
+        <div className="row" style={{ marginTop: 16, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} data-testid="info-close">Close</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -117,6 +214,22 @@ function Editor({
   );
   const missingCaps = (['tools', 'json_schema', 'vision'] as const).filter((c) => req[c]);
   const hiddenByCapability = tierEligible.length - eligible.length;
+  // per-model reasons, so "why isn't model X offered?" has a concrete, actionable answer
+  const hiddenModels = useMemo(
+    () =>
+      models
+        .filter((m) => m.status === 'active' && !eligible.some((e) => e.canonicalId === m.canonicalId))
+        .map((m) => {
+          if (localOnly && !isLocalKind(m.providerKind))
+            return { id: m.canonicalId, reason: 'cloud model — this class is local_only' };
+          const missing = missingCaps.filter((c) => !m.effective[c]);
+          return {
+            id: m.canonicalId,
+            reason: `doesn't advertise ${missing.join(' + ')} — enable in Catalog → capability overrides if the model supports it`,
+          };
+        }),
+    [models, eligible, localOnly, missingCaps],
+  );
 
   const [defaultModel, setDefaultModel] = useState(policy?.defaultModel ?? eligible[0]?.canonicalId ?? '');
   const [allowed, setAllowed] = useState<string[]>(policy?.allowedModels ?? []);
@@ -220,6 +333,21 @@ function Editor({
             <strong>{missingCaps.join(' + ')}</strong>. Enable it per model in{' '}
             <strong>Catalog → capability overrides</strong> after verifying the model supports it.
           </p>
+        )}
+        {hiddenModels.length > 0 && (
+          <details style={{ marginTop: 6 }} data-testid="hidden-models">
+            <summary className="sub" style={{ cursor: 'pointer' }}>
+              {hiddenModels.length} active model{hiddenModels.length === 1 ? ' is' : 's are'} not offered — why?
+            </summary>
+            <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+              {hiddenModels.map((h) => (
+                <li key={h.id} style={{ fontSize: 12, marginBottom: 2 }}>
+                  <span style={{ fontFamily: 'var(--mono)' }}>{h.id}</span>{' '}
+                  <span style={{ color: 'var(--ink-soft)' }}>{h.reason}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
         )}
 
         <label>Also allowed (apps may request these)</label>

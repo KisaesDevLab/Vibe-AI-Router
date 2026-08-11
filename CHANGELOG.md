@@ -5,6 +5,25 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.13 — 2026-08-11
+
+**Task-class explainer, connection-triggered catalog refresh, per-model "why hidden" list**
+(Q-085).
+
+- **Policies page.** Clicking a task class title opens a popup explaining the class: its
+  description and declaring app, what its data boundary means in plain language, which
+  capabilities it requires, and its current routing (default model, fallback chain, token cap —
+  or the fail-closed "unconfigured" state).
+- **Catalog refresh on provider connection.** A successful connection test, a newly stored
+  API key, or a manual discover that added models now fires the same background discovery +
+  vendored-sync pass the nightly cron runs — so newly served models (DigitalOcean live
+  discovery included) and curated-spec enrichment appear without waiting for the cron.
+  Additive and idempotent; an in-flight guard collapses bursts; failures never break the
+  admin request.
+- **Policy editor.** The aggregate "N models hidden" notes are now backed by an expandable
+  per-model list naming each active model that is not offered and the exact reason (data tier
+  vs missing capability, with the Catalog → capability overrides pointer).
+
 ## 0.0.12 — 2026-08-09
 
 **Edit any model from the Catalog** (Q-084).

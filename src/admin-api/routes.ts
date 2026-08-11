@@ -37,6 +37,7 @@ import { checkBaseUrlWithDns } from '../lib/ssrf.js';
 import { safeString } from '../lib/safe-string.js';
 import { queryAudit, auditToCsv, writeAudit } from '../protect/audit.js';
 import { discoverDigitalOceanModels } from '../catalog/discovery.js';
+import { runCatalogSync } from '../catalog/scheduler.js';
 import { savePolicy, exportPolicies, importPolicies } from '../policy/save.js';
 import {
   createCustomModel,
@@ -69,6 +70,12 @@ export interface AdminApiOptions {
   breakerSnapshot?: () => BreakerSnapshot[];
   /** ledger metadata retention (days) — surfaced in the WISP appendix; absent = indefinite */
   retentionDays?: number;
+  /**
+   * Called when a provider connection is established (successful test / credential stored) to
+   * refresh the model catalog (Q-085). Absent → the built-in background runCatalogSync pass.
+   * Injectable so tests can assert the wiring without running a full feed sync.
+   */
+  refreshCatalog?: (reason: string) => void;
 }
 
 /**
@@ -89,6 +96,25 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
 
   const sessionOf = (req: FastifyRequest): SessionData | undefined =>
     opts.sessions.get(parseCookies(req)[SESSION_COOKIE]);
+
+  // Catalog refresh on provider connection (Q-085): a successful connection test or a newly
+  // stored credential proves the provider API is reachable — run the same discovery + vendored
+  // sync pass the nightly cron runs (DigitalOcean live discovery included), in the background,
+  // so newly served models appear without waiting for the cron. Additive and idempotent, so
+  // racing the cron is safe; the in-flight guard collapses bursts (add key → test) to one run.
+  let catalogRefreshInFlight = false;
+  const refreshCatalogOnConnection =
+    opts.refreshCatalog ??
+    ((reason: string): void => {
+      if (catalogRefreshInFlight) return;
+      catalogRefreshInFlight = true;
+      opts.deps.log.info({ reason }, 'provider connection established — refreshing model catalog');
+      void runCatalogSync(db, opts.deps.log, undefined, opts.deps.getApiKey)
+        .catch(() => {})
+        .finally(() => {
+          catalogRefreshInFlight = false;
+        });
+    });
 
   const requireAdmin = (req: FastifyRequest, reply: FastifyReply): SessionData | undefined => {
     const session = sessionOf(req);
@@ -305,12 +331,13 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
           .update(providers)
           .set({ status: result.ok ? 'healthy' : 'down', lastHealthAt: new Date(), health: { lastTest: result } })
           .where(eq(providers.id, provider.id));
+        if (result.ok) refreshCatalogOnConnection(`test:${provider.label}`);
         return await reply.send(result);
       }
       if (!opts.vault) return fail(reply, new RouterError('unknown', 'vault unavailable (MASTER_KEY unset)'));
-      return await reply.send(
-        await opts.vault.test(provider.id, adapter, body.data.model ? { model: body.data.model } : {}),
-      );
+      const result = await opts.vault.test(provider.id, adapter, body.data.model ? { model: body.data.model } : {});
+      if (result.ok) refreshCatalogOnConnection(`test:${provider.label}`);
+      return await reply.send(result);
     } catch (err) {
       return fail(reply, err);
     }
@@ -334,6 +361,9 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
       const apiKey = await opts.vault.getActiveApiKey(provider.id);
       const result = await discoverDigitalOceanModels(db, provider, apiKey);
       if (result.discovered.length > 0) {
+        // enrich placeholder rows from the vendored feed right away (context/caps/pricing)
+        // instead of waiting for the nightly sync
+        refreshCatalogOnConnection(`discover:${provider.label}`);
         await writeAudit(db, {
           firmId: provider.firmId,
           event: 'provider_models_discovered',
@@ -363,7 +393,10 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
     if (!owner || owner.firmId !== session.firmId)
       return fail(reply, new RouterError('invalid_request', 'provider not found'));
     try {
-      return await reply.code(201).send(await opts.vault.add(params.data.id, body.data.apiKey, session.userId));
+      const meta = await opts.vault.add(params.data.id, body.data.apiKey, session.userId);
+      // a stored key makes the provider reachable — pick up its served models in the background
+      refreshCatalogOnConnection(`credential:${owner.label}`);
+      return await reply.code(201).send(meta);
     } catch (err) {
       return fail(reply, err);
     }
