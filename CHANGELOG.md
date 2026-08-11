@@ -5,6 +5,16 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.14 — 2026-08-11
+
+**Dependency security patches** (CI audit gate, 14.3).
+
+- pnpm overrides force patched transitive dependencies: `fast-uri` 4.1.2 / 3.1.5
+  (GHSA-7p8r-x3mc-p8w7, host confusion via backslash authority introducer — reached via
+  fastify/ajv) and `brace-expansion` 5.0.9 (GHSA-rgw5-rvv9-x895, DoS — via @fastify/static).
+  `pnpm audit --prod` is clean again; no code changes. The v0.0.13 image shipped before the
+  audit gate ran — use this one.
+
 ## 0.0.13 — 2026-08-11
 
 **Task-class explainer, connection-triggered catalog refresh, per-model "why hidden" list**
