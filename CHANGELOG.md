@@ -5,6 +5,18 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.15 — 2026-08-11
+
+**Task-class explainers: what each class actually does in its app.**
+
+- The Policies task-class popup now leads with a curated plain-language explanation of the
+  workflow behind each of the 31 known task classes (e.g. `mybooks_doc_classify` decides what
+  KIND of uploaded document it is and routes it to the right extraction pipeline — it does not
+  categorize transactions; that's `mybooks_txn_categorize`). Sourced from the default policy
+  pack and the per-app integration runbooks (`ui/src/task-class-explainers.ts`). The app's
+  registered one-line description moves to the header as secondary context; unknown/custom
+  classes fall back to it as before.
+
 ## 0.0.14 — 2026-08-11
 
 **Dependency security patches** (CI audit gate, 14.3).

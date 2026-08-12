@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, ApiError, type Model, type PolicyExport, type PolicyView, type TaskClass } from '../api';
 import { Tier } from '../components';
+import { TASK_CLASS_EXPLAINERS } from '../task-class-explainers';
 
 export function Policies(): JSX.Element {
   const [data, setData] = useState<PolicyExport | null>(null);
@@ -124,6 +125,7 @@ function TaskClassInfo({
 }): JSX.Element {
   const req = taskClass.requires as { tools?: boolean; json_schema?: boolean; vision?: boolean };
   const caps = (['tools', 'json_schema', 'vision'] as const).filter((c) => req[c]);
+  const explainer = TASK_CLASS_EXPLAINERS[taskClass.key];
 
   return (
     <div className="modal-back" role="dialog" aria-modal="true" onClick={onClose}>
@@ -134,9 +136,14 @@ function TaskClassInfo({
         </div>
         <p className="sub" style={{ marginTop: 0 }}>
           Declared by <strong>{taskClass.app}</strong>
+          {taskClass.description ? <> — {taskClass.description}</> : null}
         </p>
 
-        <p>{taskClass.description || 'The app that declared this task class did not provide a description.'}</p>
+        <p>
+          {explainer ??
+            (taskClass.description ||
+              'The app that declared this task class did not provide a description.')}
+        </p>
 
         <label>Data boundary</label>
         <p className="sub" style={{ marginTop: 2 }}>{TIER_EXPLANATIONS[taskClass.sensitivity]}</p>
