@@ -73,5 +73,5 @@ export const TASK_CLASS_EXPLAINERS: Record<string, string> = {
   timebill_support_chat:
     'The KB-grounded support chat for staff and the client portal; also parses report parameters from natural language.',
   timebill_file_naming:
-    'Looks at the first pages of a client-uploaded document (text or page images) and proposes a filename following the firm’s naming pattern, returned as structured JSON. Needs a vision + JSON-schema capable model; document images bypass the text scrubber, so widening beyond local means the raw pages reach the cloud model.',
+    'Looks at the first pages of a client-uploaded document (text or page images) and proposes a filename following the firm’s naming pattern, returned as structured JSON. Needs a vision + JSON-schema capable model (locally, or e.g. DigitalOcean’s Kimi models). Cloud-permitted after the scrubber — but the scrubber redacts text parts only, so document page images reach a cloud model as-is.',
 };

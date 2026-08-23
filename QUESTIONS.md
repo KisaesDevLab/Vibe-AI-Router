@@ -488,3 +488,15 @@ Grouped by phase. This file is the Phase 15 review agenda.
   and A8 shipped app-side (TB 5bbe405), routing mode now firm-config driven with env as
   appliance default (TB 0222), and the policy table gains the new class.** → pack entry is
   additive and mirrors registration behavior; no egress change → **S**
+- [Q-087] Allow DigitalOcean models for `timebill_file_naming` in addition to the local tier
+  (operator request, 2026-08-23) → **Pack sensitivity widened local_only → cloud_deidentified.
+  That is the designed lever: config-time gating already limits the class to vision+json_schema
+  models, and the DO curated catalog's qualifying entries are kimi-k2.5/kimi-k2.6 (Q-083 set
+  json_schema across DO chat models; only the Kimis carry vision). pickDefaultModel stays
+  local-first, so a capable local model still wins the default slot and DO is an explicit
+  allowed/fallback binding in the policy editor. Caveat re-recorded from Q-086: the scrubber
+  redacts text parts only, so document page images reach the cloud model unscrubbed — Kurt
+  accepted this exposure (parallels mybooks_receipt_extract). NOTE pack seeding never widens an
+  existing class: appliances that already created the class local_only must widen via the admin
+  console (audited), which is the designed path for tier changes.** → single-field pack change,
+  reversible by narrowing in console or pack → **S**

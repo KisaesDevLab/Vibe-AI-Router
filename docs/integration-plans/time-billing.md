@@ -22,7 +22,7 @@ Shared P1–P8. App-specifics:
 | `tb_invoice_narrative` | cloud_deidentified (seeded) | — | cloud drafting model (scrubbed) |
 | `timebill_practice_analytics` | local_only (seeded, Q-081) | — | local chat model (cloud-widen candidate, P8) |
 | `timebill_support_chat` | local_only (seeded, Q-081) | — | local chat model |
-| `timebill_file_naming` | local_only (seeded, Q-086) | vision + json_schema | local vision model. **No local vision+JSON model configured → the feature fails closed by design.** Widening sends raw document page images to the cloud model — images bypass the text scrubber (see SENSITIVITY-REVIEW.md Q-086). |
+| `timebill_file_naming` | cloud_deidentified (seeded, Q-086/Q-087) | vision + json_schema | local vision model first; DigitalOcean `kimi-k2.5`/`kimi-k2.6` are the catalog's vision+JSON cloud options (bind as allowed/fallback). **No capable model bound → the feature fails closed by design.** Note: the scrubber redacts text parts only — page images reach a cloud model unscrubbed (accepted, Q-087). On an appliance where the class already exists as local_only, widen it in the router admin console — pack seeding and app registration never change an existing class's tier. |
 
 ## 2. App configuration
 

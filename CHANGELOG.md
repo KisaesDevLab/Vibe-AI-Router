@@ -5,6 +5,20 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.17 — 2026-08-23
+
+**`timebill_file_naming` widened to cloud_deidentified — DigitalOcean vision models usable**
+(Q-087, operator decision).
+
+- The pack tier moves local_only → cloud_deidentified so DO Gradient's vision + json_schema
+  models (`kimi-k2.5`/`kimi-k2.6` — the catalog's only qualifying entries) can be bound
+  alongside the local tier. Defaults stay local-first; DO is an explicit allowed/fallback
+  choice in the policy editor. Caveat kept on record: the scrubber redacts text parts only,
+  so document page images reach a cloud model unscrubbed (same accepted exposure as
+  `mybooks_receipt_extract`).
+- Pack seeding never widens an existing class: appliances that already registered the class
+  local_only widen it in the admin console (audited) — see the Time & Billing runbook.
+
 ## 0.0.16 — 2026-08-23
 
 **Time & Billing 0223 compat: `timebill_file_naming` task class** (Q-086).

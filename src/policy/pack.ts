@@ -241,18 +241,21 @@ export const DEFAULT_PACK: PackEntry[] = [
     defaultMaxTokens: 1024,
     rationale: 'Assistant grounds on internal KB and can surface firm data; conservative default.',
   },
-  // Registered at boot by vibe-time-billing 0223 (Q-086). Sends first-page images of
-  // client-uploaded documents — the scrubber redacts text parts only, so images would reach a
-  // cloud model unscrubbed if widened. Stays local_only until an operator deliberately widens.
+  // Registered at boot by vibe-time-billing 0223 (Q-086), widened to cloud_deidentified per
+  // Q-087 (operator decision, 2026-08-23) so DigitalOcean Gradient vision models (kimi-k2.5/2.6
+  // are the catalog's vision+json_schema entries) are selectable alongside the local tier.
+  // pickDefaultModel stays local-first, so a capable local model still wins the default slot.
+  // Caveat stands: the scrubber redacts TEXT parts only — document page images reach the cloud
+  // model unscrubbed (same accepted property as mybooks_receipt_extract).
   {
     key: 'timebill_file_naming',
     app: 'vibe-time-billing',
     description: 'Filename proposal from an uploaded document’s first pages (firm naming pattern)',
-    sensitivity: 'local_only',
+    sensitivity: 'cloud_deidentified',
     requires: { vision: true, json_schema: true },
     defaultMaxTokens: 300,
     rationale:
-      'Client document pages carry identifying content, and image parts bypass the scrubber.',
+      'Filename proposal has receipt-extract-grade exposure; text scrubbed, images pass as-is (Q-087).',
   },
 ];
 
