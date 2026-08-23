@@ -5,6 +5,20 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.16 — 2026-08-23
+
+**Time & Billing 0223 compat: `timebill_file_naming` task class** (Q-086).
+
+- Curated-pack entry for the new class TB registers at boot: **local_only**, requires
+  vision + json_schema, defaultMaxTokens 300 — identical to what runtime registration
+  produces, so seeding is additive and changes no egress behavior. Explainer added to the
+  Policies popup; SENSITIVITY-REVIEW.md row added (PENDING review) recording that image
+  parts bypass the text scrubber, so widening this class beyond local sends raw document
+  page images to the cloud model.
+- Time & Billing runbook refreshed: A1 cost recovery + A8 shipped app-side, routing mode is
+  now firm-config driven (TB 0222) with the env vars as appliance default, policy table and
+  verification steps cover the file-naming class.
+
 ## 0.0.15 — 2026-08-11
 
 **Task-class explainers: what each class actually does in its app.**

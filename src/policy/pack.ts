@@ -241,6 +241,19 @@ export const DEFAULT_PACK: PackEntry[] = [
     defaultMaxTokens: 1024,
     rationale: 'Assistant grounds on internal KB and can surface firm data; conservative default.',
   },
+  // Registered at boot by vibe-time-billing 0223 (Q-086). Sends first-page images of
+  // client-uploaded documents — the scrubber redacts text parts only, so images would reach a
+  // cloud model unscrubbed if widened. Stays local_only until an operator deliberately widens.
+  {
+    key: 'timebill_file_naming',
+    app: 'vibe-time-billing',
+    description: 'Filename proposal from an uploaded document’s first pages (firm naming pattern)',
+    sensitivity: 'local_only',
+    requires: { vision: true, json_schema: true },
+    defaultMaxTokens: 300,
+    rationale:
+      'Client document pages carry identifying content, and image parts bypass the scrubber.',
+  },
 ];
 
 /**

@@ -14,6 +14,13 @@ to what runtime registration produced (no egress-behavior change). Four are **cl
 `mybooks_report_narrative`, and — with app-side prompt discipline — `timebill_practice_analytics`.
 Widening is a deliberate, audited admin action; until then they stay local.
 
+**⏳ 1 row added 2026-08-23 (Q-086) — PENDING review.** Time & Billing 0223 added AI file
+naming: `timebill_file_naming` sends the first pages of client-uploaded documents (text or page
+images) to a vision + json_schema model. **local_only**, and note the scrubber redacts *text*
+parts only — image parts would reach a cloud model unscrubbed, so widening this class is
+effectively a cloud_allowed-grade decision even at the cloud_deidentified tier (same property
+as `mybooks_receipt_extract`, which Kurt reviewed with that understanding).
+
 Tiers: **local_only** — never leaves the appliance. **cloud_deidentified** — cloud permitted
 only after the deterministic scrubber passes (redact mode default per Q-056; block available
 per firm). **cloud_allowed** — cloud permitted without scrubbing (prompts contain no client
@@ -43,6 +50,7 @@ data by construction).
 | vibe-time-billing | `tb_invoice_narrative` | **cloud_deidentified** | WIP narratives name clients/matters; scrub then draft | ✅ KEEP |
 | vibe-time-billing | `timebill_practice_analytics` | **local_only** | Internal billing/practice metrics with client + engagement names | ⏳ NEW (Q-081) |
 | vibe-time-billing | `timebill_support_chat` | **local_only** | KB-grounded support chat can surface firm data | ⏳ NEW (Q-081) |
+| vibe-time-billing | `timebill_file_naming` | **local_only** | Client document first pages (vision); image parts bypass the scrubber | ⏳ NEW (Q-086) |
 
 Registration-time rule (enforced in `src/policy/registration.ts`): a task class an app registers
 that is NOT in this pack is created **local_only**, and registration can never widen an

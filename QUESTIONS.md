@@ -476,3 +476,15 @@ Grouped by phase. This file is the Phase 15 review agenda.
   aggregate counts alone left operators believing models were missing after an update.** →
   connection-triggered refresh complements, not replaces, the cron; UI change is presentational
   only (server-side gating untouched) → **S**
+- [Q-086] Time & Billing 0223 (2026-08-23) registers a fourth task class, `timebill_file_naming`
+  (vision + json_schema, filename proposal from a document's first pages) — how should the router
+  absorb it? → **Added to the curated pack as `local_only` (requires vision+json_schema,
+  defaultMaxTokens 300), matching what runtime registration would have produced, plus an
+  explainer and a SENSITIVITY-REVIEW.md row (PENDING review). Key consideration recorded in the
+  review row: the scrubber redacts text parts only, so document images bypass it — widening this
+  class to cloud_deidentified would still send raw page images to the cloud model, making any
+  widening effectively a cloud_allowed-grade call (same property Kurt already accepted for
+  `mybooks_receipt_extract`). Also refreshed the Time & Billing runbook: MIG-8 A1 cost recovery
+  and A8 shipped app-side (TB 5bbe405), routing mode now firm-config driven with env as
+  appliance default (TB 0222), and the policy table gains the new class.** → pack entry is
+  additive and mirrors registration behavior; no egress change → **S**
