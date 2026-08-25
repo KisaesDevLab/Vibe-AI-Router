@@ -5,6 +5,15 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.19 — 2026-08-25
+
+**Policies view: filter by declaring app.**
+
+- The Policies table gains an app filter (default "all apps" with a task-class count). With
+  30+ classes across the suite, working on one app meant scanning the whole table; picking an
+  app narrows it and shows how many classes that app declared. Client-side filter over the
+  existing `/admin-api/policies` payload — no API or enforcement change.
+
 ## 0.0.18 — 2026-08-24
 
 **DigitalOcean capability + pricing automation (kimi-k3), catalog workflow, admin account.**
