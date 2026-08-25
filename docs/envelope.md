@@ -55,6 +55,7 @@ finish chunk.
 | `content_filtered` | 422 | no |
 | `scrubber_blocked` | 422 | no |
 | `capability_missing` | 400 | no |
+| `no_vision_provider` | 409 | no |
 | `provider_unavailable` | 502 | yes |
 | `unknown` | 500 | no |
 

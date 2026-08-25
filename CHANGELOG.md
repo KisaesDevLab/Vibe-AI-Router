@@ -14,6 +14,44 @@ completeness. See "Not yet verified" in the README.
   app narrows it and shows how many classes that app declared. Client-side filter over the
   existing `/admin-api/policies` payload — no API or enforcement change.
 
+## 0.0.20 — 2026-08-25
+
+**AN-2 review fixes (Q-094): 10-finding code review of 0.0.19, all adopted.**
+
+- **`no_vision_provider` now keys on what is MISSING, not what is required**: a vision-capable
+  default that lacks tools correctly fails `capability_missing`; the skip fires only when
+  vision itself is unsatisfiable across the default and every configured candidate.
+- **Upgrade scan covers the fallback chain**, is deterministic (configured order) and
+  local-first; every substitution emits a `capability_upgrade` audit event +
+  `vibe_router_capability_upgrades_total` metric — no more silent substitution.
+- **Chain exhaustion prefers provider-side errors over policy-side hop skips** (`preferError`):
+  a dead vision provider surfaces as retryable 502, not a masking 400.
+- **Ledger: distinct `no_vision_provider` request_status** (migration 0006, reversible) so
+  by-design vision skips are countable separately from misconfiguration.
+- **Precheck resolves through PolicyEngine**: missing/disabled policy → `policy_blocked`
+  instead of a false `ok:true`; both billing routes now ride the per-token rate limiter.
+- Perf: capability needs computed once per selection; test hygiene: budget mutations in the
+  precheck test wrapped in try/finally.
+
+## 0.0.19 — 2026-08-25
+
+**AN-2 gap closure: structured vision skip, capability-upgrade selection, budget precheck (SDK 0.2.2).**
+
+- **New error code `no_vision_provider` (HTTP 409, Q-092)**: emitted when a vision-requiring
+  task class (or a request carrying image parts) has no configured provider/model that can
+  serve it. Distinct from `capability_missing` so clients (T&B file naming) can treat it as a
+  structured skip — file keeps its original name — instead of a failure. Ledger buckets it
+  under `capability_missing` (no `request_status` enum migration); audit emits `blocked_policy`.
+- **`selectModel` capability upgrade (Q-092)**: a default failing ONLY on capabilities may now
+  upgrade to a capability-valid model from the operator-approved allowed set (e.g. a text
+  default with a vision model in the allowed set serves image-bearing requests). Policy
+  violations (sunset/banned/sensitivity) still never substitute.
+- **`POST /v1/budget/precheck` (Q-093)**: app-token authed "can I afford this batch?" reusing
+  `checkBudgets`; an exhausted budget returns `{ ok:false, reason:'budget_exceeded' }` at
+  HTTP 200 — a precheck reports, never throws. Soft warnings included.
+- **SDK 0.2.2**: `no_vision_provider` in `VibeAiErrorCode`, `budgetPrecheck()` wrapper, and
+  the `timebill_*` task-class keys (`TIMEBILL_FILE_NAMING` et al.) in `TASK_CLASSES`.
+
 ## 0.0.18 — 2026-08-24
 
 **DigitalOcean capability + pricing automation (kimi-k3), catalog workflow, admin account.**

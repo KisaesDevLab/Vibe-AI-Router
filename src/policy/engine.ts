@@ -82,15 +82,28 @@ export function modelBanned(model: ModelRow, settings: FirmSettings): string | u
   return undefined;
 }
 
+/** Class-required + request-implied capabilities, computed once per selection (review #9). */
+export function requiredCapabilities(effective: EffectivePolicy, env: AIRequest): CapabilityKey[] {
+  const req = classRequires(effective.taskClass);
+  const needs = new Set<CapabilityKey>(requestRequires(env));
+  if (req.tools) needs.add('tools');
+  if (req.json_schema) needs.add('json_schema');
+  if (req.vision) needs.add('vision');
+  return [...needs];
+}
+
 /**
  * Full request-time validation of ONE candidate model (7.4/7.5/7.6). Returns the reason it is
  * unusable, or undefined if it passes. Fallback hops re-run this (10.3 uses it too).
+ * `missing` names the capability gap when code is capability_missing (Q-092 diagnosis).
+ * Pass `needs` when validating many candidates so the request is scanned once.
  */
 export function modelViolation(
   model: ModelRow,
   effective: EffectivePolicy,
   env: AIRequest,
-): { code: 'capability_missing' | 'policy_blocked'; reason: string } | undefined {
+  needs?: CapabilityKey[],
+): { code: 'capability_missing' | 'policy_blocked'; reason: string; missing?: CapabilityKey[] } | undefined {
   if (model.status === 'sunset') {
     return { code: 'policy_blocked', reason: `model ${model.canonicalId} is sunset` };
   }
@@ -104,16 +117,12 @@ export function modelViolation(
   const banned = modelBanned(model, effective.firmSettings);
   if (banned) return { code: 'policy_blocked', reason: banned };
 
-  const req = classRequires(effective.taskClass);
-  const needs = new Set<CapabilityKey>(requestRequires(env));
-  if (req.tools) needs.add('tools');
-  if (req.json_schema) needs.add('json_schema');
-  if (req.vision) needs.add('vision');
-  const missing = missingCapabilities(model, [...needs]);
+  const missing = missingCapabilities(model, needs ?? requiredCapabilities(effective, env));
   if (missing.length > 0) {
     return {
       code: 'capability_missing',
       reason: `model ${model.canonicalId} lacks required capabilities: ${missing.join(', ')}`,
+      missing,
     };
   }
   return undefined;
@@ -217,18 +226,72 @@ export function checkRole(effective: EffectivePolicy, role: Role | undefined): v
  * Model selection (7.4): the app's requested model is honored only when it is in the allowed
  * set AND passes validation; otherwise the policy default serves. Never silently degrade a
  * failing default — that is an error, not a substitution.
+ *
+ * AN-2 exception (Q-092): when the default fails ONLY on capabilities (e.g. the class or the
+ * request needs vision the default lacks), the policy's configured models (allowed set, then
+ * fallback chain) are scanned for a capability-valid candidate before failing — selecting a
+ * MORE capable configured model is an upgrade, not a degradation. Local-tier candidates are
+ * preferred (local-first principle); within a tier the operator's configured order decides,
+ * so selection is deterministic. Policy violations (sunset/banned/sensitivity) never
+ * substitute. `no_vision_provider` is thrown only when VISION itself is unsatisfiable across
+ * the default and every scanned candidate — a tools/json_schema gap stays capability_missing
+ * (review finding: diagnose by what is MISSING, not by what is required). `onUpgrade` fires
+ * when a substitute is chosen so call sites can audit the substitution (review finding #5).
  */
-export function selectModel(effective: EffectivePolicy, env: AIRequest): ModelRow {
+export function selectModel(
+  effective: EffectivePolicy,
+  env: AIRequest,
+  onUpgrade?: (info: { from: string; to: string; missing: CapabilityKey[] }) => void,
+): ModelRow {
+  const needs = requiredCapabilities(effective, env);
   if (env.modelRequested) {
     const allowedIds = new Set([effective.policy.defaultModelId, ...effective.policy.allowedModelIds]);
     const match = [...effective.modelsById.values()].find(
       (m) => m.canonicalId === env.modelRequested && allowedIds.has(m.id),
     );
-    if (match && !modelViolation(match, effective, env)) return match;
+    if (match && !modelViolation(match, effective, env, needs)) return match;
   }
-  const violation = modelViolation(effective.defaultModel, effective, env);
-  if (violation) throw new RouterError(violation.code, violation.reason);
-  return effective.defaultModel;
+  const violation = modelViolation(effective.defaultModel, effective, env, needs);
+  if (!violation) return effective.defaultModel;
+
+  if (violation.code === 'capability_missing') {
+    // Deterministic candidate order: allowed set then fallback chain (both
+    // operator-configured), deduped, default excluded — local tier first.
+    const configured = [...effective.policy.allowedModelIds, ...effective.policy.fallbackChain]
+      .filter((id, i, a) => a.indexOf(id) === i && id !== effective.policy.defaultModelId)
+      .map((id) => effective.modelsById.get(id))
+      .filter((m): m is ModelRow => m !== undefined);
+    const ordered = [
+      ...configured.filter((m) => isLocalKind(m.providerKind)),
+      ...configured.filter((m) => !isLocalKind(m.providerKind)),
+    ];
+    // Capabilities unsatisfiable ANYWHERE = missing on the default and on every
+    // candidate that failed for capability reasons (policy-blocked candidates
+    // can never serve, so they don't narrow the gap).
+    let unsatisfiable = new Set(violation.missing ?? []);
+    for (const m of ordered) {
+      const v = modelViolation(m, effective, env, needs);
+      if (!v) {
+        onUpgrade?.({
+          from: effective.defaultModel.canonicalId,
+          to: m.canonicalId,
+          missing: violation.missing ?? [],
+        });
+        return m;
+      }
+      if (v.code === 'capability_missing') {
+        unsatisfiable = new Set([...unsatisfiable].filter((c) => v.missing?.includes(c)));
+      }
+    }
+    if (unsatisfiable.has('vision')) {
+      throw new RouterError(
+        'no_vision_provider',
+        `no vision-capable model is configured for ${effective.taskClass.key} — mark one vision-capable in Catalog or add it to the policy`,
+        { detail: { taskClass: effective.taskClass.key } },
+      );
+    }
+  }
+  throw new RouterError(violation.code, violation.reason);
 }
 
 /** Limit application (7.6/7.8): clamp temperature, inject + clamp max_tokens. Mutates env. */

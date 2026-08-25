@@ -71,6 +71,8 @@ export const requestStatus = pgEnum('request_status', [
   'budget_exceeded',
   'rate_limited',
   'capability_missing',
+  // 0006 (Q-092 revision): by-design vision skips, distinct from misconfiguration
+  'no_vision_provider',
   'client_abort',
   'error',
 ]);

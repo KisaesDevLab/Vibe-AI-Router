@@ -4,7 +4,7 @@
  * 100-parallel-requests concurrency test (9.11).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/server/app.js';
 import { loadEnv } from '../src/config/env.js';
@@ -17,7 +17,7 @@ import { checkBudgets, currentPeriod, recordSpend } from '../src/ledger/budget.j
 import { billingUsage, latencyStats, spendBy } from '../src/ledger/aggregate.js';
 import { StubAdapter } from '../src/gateway/stub-adapter.js';
 import { createLogger } from '../src/lib/logger.js';
-import { firms, providers, usageLedger, budgetsState } from '../db/schema.js';
+import { firms, policies, providers, usageLedger, budgetsState } from '../db/schema.js';
 import { resetDb } from './helpers.js';
 import { DEMO } from '../db/seed.js';
 import type { AIUsage } from '../src/gateway/envelope.js';
@@ -266,6 +266,69 @@ describe.skipIf(!url)('ledger + budgets end-to-end', () => {
     const latency = await latencyStats(handle.db, { firmId });
     expect(latency.requests).toBeGreaterThan(100);
     expect(latency.p95Ms).not.toBeNull();
+  });
+
+  // AN-2 (Q-093) — precheck reports budget state instead of throwing, and
+  // answers through the same policy gate the chat pipeline enforces.
+  it('budget precheck: ok, exhausted as ok:false, unknown class / disabled policy as policy_blocked', async () => {
+    const post = (body: unknown): Promise<Response> =>
+      fetch(`${base}/v1/budget/precheck`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${DEMO.appToken}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+    const ok = await post({ task_class: 'tb_research_summary' });
+    expect(ok.status).toBe(200);
+    const okBody = (await ok.json()) as { ok: boolean; soft_warnings: unknown[] };
+    expect(okBody.ok).toBe(true);
+
+    // Zero firm budget → exhausted, reported not thrown. try/finally so a
+    // failing assertion cannot leave the shared suite DB with a 0¢ budget.
+    const [firm] = await handle.db.query.firms.findMany({ where: eq(firms.id, firmId) });
+    const prevSettings = firm!.settings;
+    try {
+      await handle.db
+        .update(firms)
+        .set({ settings: { ...(prevSettings as object), budgets: { firm_monthly_cents: 0 } } })
+        .where(eq(firms.id, firmId));
+      engine.invalidate(firmId);
+      const broke = await post({ task_class: 'tb_research_summary' });
+      expect(broke.status).toBe(200);
+      const brokeBody = (await broke.json()) as { ok: boolean; reason?: string };
+      expect(brokeBody.ok).toBe(false);
+      expect(brokeBody.reason).toBe('budget_exceeded');
+    } finally {
+      await handle.db.update(firms).set({ settings: prevSettings }).where(eq(firms.id, firmId));
+      engine.invalidate(firmId);
+    }
+
+    const unknown = await post({ task_class: 'no_such_class' });
+    expect(unknown.status).toBe(403);
+
+    // Disabled policy → policy_blocked, matching what stagePolicy would do —
+    // never a false ok:true the batch would then trip over (review finding).
+    const tc = await handle.db.query.taskClasses.findFirst({
+      where: (t, { eq: eq_ }) => eq_(t.key, 'tb_research_summary'),
+    });
+    try {
+      await handle.db
+        .update(policies)
+        .set({ enabled: false })
+        .where(and(eq(policies.firmId, firmId), eq(policies.taskClassId, tc!.id)));
+      engine.invalidate(firmId);
+      const disabled = await post({ task_class: 'tb_research_summary' });
+      expect(disabled.status).toBe(403);
+    } finally {
+      await handle.db
+        .update(policies)
+        .set({ enabled: true })
+        .where(and(eq(policies.firmId, firmId), eq(policies.taskClassId, tc!.id)));
+      engine.invalidate(firmId);
+    }
   });
 
   it('idempotency: double write for the same requestId leaves one row and one spend increment', async () => {

@@ -199,6 +199,115 @@ describe('selectModel + role gating + limits', () => {
     expect(() => selectModel(fakeEffective(tc, def), baseEnv())).toThrow(/vision/);
   });
 
+  // AN-2 (Q-092) — capability gaps may upgrade to a capable ALLOWED model;
+  // policy violations never substitute; exhausted vision → no_vision_provider.
+  it('capability-missing default upgrades to a capable allowed model', () => {
+    const tc = fakeClass({ requires: { vision: true } });
+    const def = fakeModel({ capabilities: {} });
+    const seeing = fakeModel({ capabilities: { vision: true } });
+    const eff = fakeEffective(tc, def, { allowed: [seeing] });
+    expect(selectModel(eff, baseEnv()).id).toBe(seeing.id);
+  });
+
+  it('vision required + nothing capable anywhere → no_vision_provider', () => {
+    const tc = fakeClass({ requires: { vision: true } });
+    const def = fakeModel({ capabilities: {} });
+    const blind = fakeModel({ capabilities: { tools: true } });
+    const eff = fakeEffective(tc, def, { allowed: [blind] });
+    try {
+      selectModel(eff, baseEnv());
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect((err as { code: string }).code).toBe('no_vision_provider');
+      expect((err as { status: number }).status).toBe(409);
+    }
+  });
+
+  it('request-implied vision (image parts) also maps to no_vision_provider', () => {
+    const tc = fakeClass({});
+    const def = fakeModel({ capabilities: {} });
+    const withImage = baseEnv({
+      messages: [{ role: 'user', content: [{ type: 'image', url: 'data:image/png;base64,x' }] }],
+    });
+    try {
+      selectModel(fakeEffective(tc, def), withImage);
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect((err as { code: string }).code).toBe('no_vision_provider');
+    }
+  });
+
+  it('a POLICY-violating default never substitutes, even with a capable alternative', () => {
+    const tc = fakeClass({ requires: { vision: true } });
+    const def = fakeModel({ status: 'sunset', capabilities: { vision: true } });
+    const alt = fakeModel({ capabilities: { vision: true } });
+    const eff = fakeEffective(tc, def, { allowed: [alt] });
+    try {
+      selectModel(eff, baseEnv());
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect((err as { code: string }).code).toBe('policy_blocked');
+    }
+  });
+
+  it('non-vision capability gap with no capable alternative stays capability_missing', () => {
+    const tc = fakeClass({ requires: { json_schema: true } });
+    const def = fakeModel({ capabilities: {} });
+    try {
+      selectModel(fakeEffective(tc, def), baseEnv());
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect((err as { code: string }).code).toBe('capability_missing');
+    }
+  });
+
+  it('vision-requiring class whose default HAS vision but lacks tools → capability_missing, not a vision skip', () => {
+    // Review finding: diagnose by what is MISSING, not by what is required.
+    const tc = fakeClass({ requires: { vision: true, tools: true } });
+    const def = fakeModel({ capabilities: { vision: true } });
+    try {
+      selectModel(fakeEffective(tc, def), baseEnv());
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect((err as { code: string }).code).toBe('capability_missing');
+      expect((err as Error).message).toContain('tools');
+    }
+  });
+
+  it('a vision-capable model in the FALLBACK CHAIN is found by the upgrade scan', () => {
+    const tc = fakeClass({ requires: { vision: true } });
+    const def = fakeModel({ capabilities: {} });
+    const chainSeeing = fakeModel({ capabilities: { vision: true } });
+    const eff = fakeEffective(tc, def, { fallback: [chainSeeing] });
+    expect(selectModel(eff, baseEnv()).id).toBe(chainSeeing.id);
+  });
+
+  it('upgrade scan is deterministic and local-first', () => {
+    const tc = fakeClass({ requires: { vision: true } });
+    const def = fakeModel({ capabilities: {} });
+    const cloudSeeing = fakeModel({ providerKind: 'anthropic', capabilities: { vision: true } });
+    const localSeeing = fakeModel({ providerKind: 'local', capabilities: { vision: true } });
+    // cloud listed FIRST in the allowed set — local still wins the upgrade
+    const eff = fakeEffective(tc, def, { allowed: [cloudSeeing, localSeeing] });
+    expect(selectModel(eff, baseEnv()).id).toBe(localSeeing.id);
+  });
+
+  it('onUpgrade reports the substitution (from default, to substitute, missing caps)', () => {
+    const tc = fakeClass({ requires: { vision: true } });
+    const def = fakeModel({ canonicalId: 'test/blind-default', capabilities: {} });
+    const seeing = fakeModel({ canonicalId: 'test/seeing', capabilities: { vision: true } });
+    const eff = fakeEffective(tc, def, { allowed: [seeing] });
+    const events: Array<{ from: string; to: string; missing: string[] }> = [];
+    selectModel(eff, baseEnv(), (e) => events.push(e));
+    expect(events).toEqual([
+      { from: 'test/blind-default', to: 'test/seeing', missing: ['vision'] },
+    ]);
+    // no upgrade → no callback
+    const cleanEff = fakeEffective(tc, seeing);
+    selectModel(cleanEff, baseEnv(), (e) => events.push(e));
+    expect(events).toHaveLength(1);
+  });
+
   it('explicit role deny blocks; absent rule allows; app-only traffic passes (7.7)', () => {
     const tc = fakeClass({});
     const def = fakeModel({});
