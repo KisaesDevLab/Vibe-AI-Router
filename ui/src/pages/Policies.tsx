@@ -8,12 +8,24 @@ export function Policies(): JSX.Element {
   const [models, setModels] = useState<Model[]>([]);
   const [editing, setEditing] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [app, setApp] = useState('');
 
   const reload = (): void => {
     void api.get<PolicyExport>('/admin-api/policies').then(setData);
     void api.get<Model[]>('/admin-api/models').then(setModels);
   };
   useEffect(reload, []);
+
+  // hooks run before the loading guard below — an app with no classes left after a reload
+  // would otherwise strand the filter on a value nothing matches
+  const apps = useMemo(
+    () => [...new Set((data?.taskClasses ?? []).map((tc) => tc.app))].sort(),
+    [data],
+  );
+  const visible = useMemo(
+    () => (data?.taskClasses ?? []).filter((tc) => !app || tc.app === app),
+    [data, app],
+  );
 
   if (!data) return <div />;
 
@@ -25,6 +37,27 @@ export function Policies(): JSX.Element {
         router on every request, not by this page.
       </p>
       <div className="card">
+        <div className="row" style={{ marginBottom: 10 }}>
+          <select
+            value={app}
+            onChange={(e) => setApp(e.target.value)}
+            style={{ width: 220 }}
+            data-testid="filter-app"
+          >
+            <option value="">all apps ({data.taskClasses.length} task classes)</option>
+            {apps.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+          </select>
+          {app && (
+            <span className="sub">
+              {visible.length} task class{visible.length === 1 ? '' : 'es'} declared by{' '}
+              <strong>{app}</strong>
+            </span>
+          )}
+        </div>
         <table>
           <thead>
             <tr>
@@ -37,7 +70,7 @@ export function Policies(): JSX.Element {
             </tr>
           </thead>
           <tbody>
-            {data.taskClasses.map((tc) => {
+            {visible.map((tc) => {
               const policy = data.policies.find((p) => p.taskClassKey === tc.key);
               return (
                 <tr key={tc.key}>
@@ -77,6 +110,18 @@ export function Policies(): JSX.Element {
                 </tr>
               );
             })}
+            {visible.length === 0 && (
+              <tr>
+                <td colSpan={6}>
+                  <div className="empty">
+                    <div className="big">No task classes</div>
+                    {app
+                      ? `${app} has not registered any task classes with this router yet — apps declare them at boot.`
+                      : 'No app has registered a task class yet.'}
+                  </div>
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
