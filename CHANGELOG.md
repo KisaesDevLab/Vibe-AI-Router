@@ -5,7 +5,7 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
-## 0.0.19 — 2026-08-25
+## 0.0.21 — 2026-08-25
 
 **Policies view: filter by declaring app.**
 
