@@ -1,6 +1,6 @@
 {
   "sample_spec": {
-    "_doc": "First-party curated catalog for DigitalOcean Gradient serverless inference (Q-061). Open-source models only — the platform's commercial Anthropic/OpenAI models are reachable through their own provider kinds with the firm's own keys, which is the product's compliance story. Shape mirrors LiteLLM entries (costs are USD per TOKEN). Sources: docs.digitalocean.com/products/inference/details/models + /pricing, retrieved 2026-07-29. Capabilities: json_schema is set true across DO chat models (Q-083 — DO's inference API is OpenAI-compatible and JSON/structured output is broadly supported, so these are selectable for cloud JSON task classes out of the box); tools is left unset (= false, DO documents tool calling only for its commercial models) and operators enable it per model via capability overrides after verifying against their account; vision is set only where DO documents multimodal input (Kimi K2.5/K2.6); caching only where DO publishes a cached-input price. kimi-k3 is omitted: DO does not publish its context window.",
+    "_doc": "First-party curated catalog for DigitalOcean Gradient serverless inference (Q-061). Open-source models only — the platform's commercial Anthropic/OpenAI models are reachable through their own provider kinds with the firm's own keys, which is the product's compliance story. Shape mirrors LiteLLM entries (costs are USD per TOKEN). Sources: docs.digitalocean.com/products/inference/details/models + /pricing, retrieved 2026-07-29, pricing refreshed 2026-08-24. Capabilities: json_schema is set true across DO chat models (Q-083 — DO's inference API is OpenAI-compatible and JSON/structured output is broadly supported, so these are selectable for cloud JSON task classes out of the box); tools is left unset (= false, DO documents tool calling only for its commercial models) and operators enable it per model via capability overrides after verifying against their account; vision is set only where DO documents multimodal input (Kimi family); caching only where DO publishes a cached-input price. kimi-k3 carries no max_input_tokens because DO has not published its context window — the sync treats such entries as ENRICH-ONLY (Q-088): they never create a catalog row, but enrich a discovered row's capabilities and pricing in place, leaving its operator-editable specs alone.",
     "litellm_provider": "digitalocean"
   },
   "digitalocean/llama3.3-70b-instruct": {
@@ -111,8 +111,9 @@
   },
   "digitalocean/kimi-k2.6": {
     "max_input_tokens": 262144,
-    "input_cost_per_token": 0.00000076,
-    "output_cost_per_token": 0.0000032,
+    "max_output_tokens": 262144,
+    "input_cost_per_token": 0.00000095,
+    "output_cost_per_token": 0.000004,
     "cache_read_input_token_cost": 0.00000019,
     "supports_prompt_caching": true,
     "supports_vision": true,
@@ -122,9 +123,20 @@
   },
   "digitalocean/kimi-k2.5": {
     "max_input_tokens": 262144,
-    "input_cost_per_token": 0.000000375,
-    "output_cost_per_token": 0.000002025,
+    "max_output_tokens": 262144,
+    "input_cost_per_token": 0.0000005,
+    "output_cost_per_token": 0.0000027,
     "cache_read_input_token_cost": 0.000000203,
+    "supports_prompt_caching": true,
+    "supports_vision": true,
+    "supports_response_schema": true,
+    "litellm_provider": "digitalocean",
+    "mode": "chat"
+  },
+  "digitalocean/kimi-k3": {
+    "input_cost_per_token": 0.00000285,
+    "output_cost_per_token": 0.00001425,
+    "cache_read_input_token_cost": 0.000000285,
     "supports_prompt_caching": true,
     "supports_vision": true,
     "supports_response_schema": true,

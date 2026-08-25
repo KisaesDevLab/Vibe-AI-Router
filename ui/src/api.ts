@@ -86,6 +86,29 @@ export interface Model {
   source: 'synced' | 'custom' | 'provider';
   effective: Record<string, boolean>;
   pricing: { inputPerMtok: string | null; outputPerMtok: string | null } | null;
+  /** the firm has a provider of this model's kind configured — i.e. it is routable today */
+  configured: boolean;
+}
+
+export interface ProbeResponse {
+  results: {
+    capability: 'vision' | 'json_schema' | 'tools';
+    outcome: 'supported' | 'unsupported' | 'inconclusive';
+    detail: string;
+    latencyMs: number;
+  }[];
+  applied: boolean;
+  overrides: Record<string, boolean>;
+}
+
+export interface ScrapeReport {
+  scraped: number;
+  matched: number;
+  capabilitiesUpdated: string[];
+  specsUpdated: string[];
+  pricingChanged: string[];
+  skippedCurated: string[];
+  unmatched: number;
 }
 
 export interface TaskClass {

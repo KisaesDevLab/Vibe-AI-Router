@@ -198,9 +198,14 @@ function Editor({
   const localOnly = taskClass.sensitivity === 'local_only';
   const isLocalKind = (k: string): boolean => k === 'local' || k === 'local_ocr';
 
-  // active models this class's DATA TIER permits (local tier = local + local_ocr, R4)
+  // active models this class's DATA TIER permits (local tier = local + local_ocr, R4), and
+  // whose provider kind the firm has actually configured — a model no provider can serve is
+  // not a real choice (presentational: request-time routing re-resolves providers anyway)
   const tierEligible = useMemo(
-    () => models.filter((m) => m.status === 'active' && (!localOnly || isLocalKind(m.providerKind))),
+    () =>
+      models.filter(
+        (m) => m.status === 'active' && m.configured && (!localOnly || isLocalKind(m.providerKind)),
+      ),
     [models, localOnly],
   );
   // config-time gating preview: of the tier-permitted models, only capability-valid ones (11.5)
@@ -229,6 +234,11 @@ function Editor({
         .map((m) => {
           if (localOnly && !isLocalKind(m.providerKind))
             return { id: m.canonicalId, reason: 'cloud model — this class is local_only' };
+          if (!m.configured)
+            return {
+              id: m.canonicalId,
+              reason: `no ${m.providerKind} provider configured — add one under Providers to route here`,
+            };
           const missing = missingCaps.filter((c) => !m.effective[c]);
           return {
             id: m.canonicalId,

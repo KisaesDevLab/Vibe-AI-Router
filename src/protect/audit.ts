@@ -35,6 +35,25 @@ const EVENT_SCHEMAS = {
     discovered: z.array(z.string()),
     alreadyKnown: z.number(),
   }),
+  /** operator-triggered capability probe (Q-089) — synthetic requests, results are metadata */
+  model_capabilities_probed: z.object({
+    modelCanonicalId: z.string(),
+    providerId: z.string(),
+    providerLabel: z.string(),
+    results: z.record(z.enum(['supported', 'unsupported', 'inconclusive'])),
+    applied: z.boolean(),
+  }),
+  /** operator-triggered DO docs scrape (Q-090) — counts + canonical ids only */
+  catalog_docs_scraped: z.object({
+    source: z.string(),
+    scraped: z.number(),
+    matched: z.number(),
+    capabilitiesUpdated: z.number(),
+    specsUpdated: z.number(),
+    pricingChanged: z.number(),
+    skippedCurated: z.number(),
+    unmatched: z.number(),
+  }),
   credential_test: z.object({
     ok: z.boolean(),
     latencyMs: z.number(),

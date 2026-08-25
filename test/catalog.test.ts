@@ -101,10 +101,14 @@ describe.skipIf(!url)('syncCatalog (DB)', () => {
 
     await syncCatalog(handle.db, feed, { source: 'vendored', sourceSha256: 'v1' });
     const afterFirst = await handle.db.query.models.findMany();
-    // completeness: EVERY parsed model reached the DB (the bug applied only the models
-    // preceding the first duplicate, leaving the rest of the feed silently unsynced)
+    // completeness: EVERY parsed model with published specs reached the DB (the bug applied
+    // only the models preceding the first duplicate, leaving the rest silently unsynced).
+    // Enrich-only entries (contextWindow null, Q-088) never insert by design.
     const present = new Set(afterFirst.map((m) => m.canonicalId));
-    const missing = entries.map((e) => e.canonicalId).filter((id) => !present.has(id));
+    const missing = entries
+      .filter((e) => e.contextWindow !== null)
+      .map((e) => e.canonicalId)
+      .filter((id) => !present.has(id));
     expect(missing, `feed models never synced: ${missing.slice(0, 5).join(', ')}`).toEqual([]);
 
     const second = await syncCatalog(handle.db, feed, { source: 'vendored', sourceSha256: 'v1' });

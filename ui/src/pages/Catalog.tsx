@@ -1,14 +1,24 @@
-import { useEffect, useState } from 'react';
-import { api, ApiError, type Model } from '../api';
+import { useEffect, useMemo, useState } from 'react';
+import { api, ApiError, type Model, type ProbeResponse, type ScrapeReport } from '../api';
 import { Caps } from '../components';
+
+type SortKey = 'model' | 'ctx' | 'in' | 'out' | 'status' | 'kind';
 
 export function Catalog(): JSX.Element {
   const [models, setModels] = useState<Model[]>([]);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
+  const [capability, setCapability] = useState('');
+  const [source, setSource] = useState('');
+  // default ON: "models you can actually route to" is the working view; the toggle reveals the rest
+  const [configuredOnly, setConfiguredOnly] = useState(true);
+  const [sortKey, setSortKey] = useState<SortKey>('model');
+  const [sortDir, setSortDir] = useState<1 | -1>(1);
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Model | null>(null);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [scraping, setScraping] = useState(false);
 
   const reload = (): void => {
     const params = new URLSearchParams();
@@ -17,6 +27,66 @@ export function Catalog(): JSX.Element {
     void api.get<Model[]>(`/admin-api/models?${params}`).then(setModels);
   };
   useEffect(reload, [search, status]);
+
+  const num = (v: string | null | undefined): number => (v == null ? -1 : Number(v));
+  const visible = useMemo(() => {
+    const filtered = models.filter(
+      (m) =>
+        (!configuredOnly || m.configured) &&
+        (!capability || m.effective[capability]) &&
+        (!source || m.source === source),
+    );
+    const cmp = (a: Model, b: Model): number => {
+      switch (sortKey) {
+        case 'ctx': return a.contextWindow - b.contextWindow;
+        case 'in': return num(a.pricing?.inputPerMtok) - num(b.pricing?.inputPerMtok);
+        case 'out': return num(a.pricing?.outputPerMtok) - num(b.pricing?.outputPerMtok);
+        case 'status': return a.status.localeCompare(b.status);
+        case 'kind': return a.providerKind.localeCompare(b.providerKind) || a.canonicalId.localeCompare(b.canonicalId);
+        default: return a.canonicalId.localeCompare(b.canonicalId);
+      }
+    };
+    return [...filtered].sort((a, b) => sortDir * cmp(a, b));
+  }, [models, configuredOnly, capability, source, sortKey, sortDir]);
+
+  const sortBy = (key: SortKey): void => {
+    if (key === sortKey) setSortDir(sortDir === 1 ? -1 : 1);
+    else {
+      setSortKey(key);
+      setSortDir(1);
+    }
+  };
+  const arrow = (key: SortKey): string => (key === sortKey ? (sortDir === 1 ? ' ▲' : ' ▼') : '');
+  const Th = ({ k, children, right }: { k: SortKey; children: string; right?: boolean }): JSX.Element => (
+    <th
+      className={right ? 'num' : undefined}
+      onClick={() => sortBy(k)}
+      style={{ cursor: 'pointer', userSelect: 'none' }}
+      title="Sort"
+    >
+      {children}
+      {arrow(k)}
+    </th>
+  );
+
+  const scrapeDocs = async (): Promise<void> => {
+    setError('');
+    setNotice('');
+    setScraping(true);
+    try {
+      const r = await api.post<ScrapeReport>('/admin-api/catalog/scrape-docs');
+      setNotice(
+        `DO docs: ${r.scraped} models read — capabilities updated on ${r.capabilitiesUpdated.length}, ` +
+          `specs on ${r.specsUpdated.length}, pricing on ${r.pricingChanged.length}` +
+          (r.skippedCurated.length > 0 ? ` (${r.skippedCurated.length} curated rows left to the feed)` : ''),
+      );
+      reload();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'DO docs scrape failed');
+    } finally {
+      setScraping(false);
+    }
+  };
 
   const perMtok = (v: string | null | undefined): string =>
     v == null ? '—' : `$${Number(v).toFixed(Number(v) < 1 ? 2 : 0)}`;
@@ -28,14 +98,20 @@ export function Catalog(): JSX.Element {
           <h1>Model catalog</h1>
           <p className="sub">Synced nightly from the vendored pricing feed; custom models are yours to manage.</p>
         </div>
-        <button className="primary" onClick={() => setShowAdd(!showAdd)}>Add custom model</button>
+        <div className="row" style={{ gap: 8 }}>
+          <button onClick={() => void scrapeDocs()} disabled={scraping} data-testid="scrape-docs" title="Pull published capabilities, context windows, and pricing from docs.digitalocean.com into discovered DigitalOcean models">
+            {scraping ? 'Reading DO docs…' : 'Detect from DO docs'}
+          </button>
+          <button className="primary" onClick={() => setShowAdd(!showAdd)}>Add custom model</button>
+        </div>
       </div>
 
       {showAdd && <AddModel onDone={() => { setShowAdd(false); reload(); }} onError={setError} />}
       {error && <div className="error">{error}</div>}
+      {notice && <div className="notice" data-testid="scrape-notice">{notice}</div>}
 
       <div className="card">
-        <div className="row" style={{ marginBottom: 10 }}>
+        <div className="row" style={{ marginBottom: 10, flexWrap: 'wrap' }}>
           <input
             className="grow"
             placeholder="Search models…"
@@ -48,28 +124,59 @@ export function Catalog(): JSX.Element {
             <option value="deprecated">deprecated</option>
             <option value="sunset">sunset</option>
           </select>
+          <select value={capability} onChange={(e) => setCapability(e.target.value)} style={{ width: 150 }} data-testid="filter-capability">
+            <option value="">any capability</option>
+            <option value="tools">tools</option>
+            <option value="json_schema">json_schema</option>
+            <option value="vision">vision</option>
+            <option value="caching">caching</option>
+            <option value="reasoning">reasoning</option>
+          </select>
+          <select value={source} onChange={(e) => setSource(e.target.value)} style={{ width: 140 }} data-testid="filter-source">
+            <option value="">any source</option>
+            <option value="synced">synced</option>
+            <option value="provider">discovered</option>
+            <option value="custom">custom</option>
+          </select>
+          <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', margin: 0 }} title="Only models whose provider kind the firm has configured — the ones requests can actually route to">
+            <input
+              type="checkbox"
+              style={{ width: 'auto' }}
+              checked={configuredOnly}
+              onChange={(e) => setConfiguredOnly(e.target.checked)}
+              data-testid="filter-configured"
+            />
+            <span style={{ fontSize: 12.5 }}>configured providers only</span>
+          </label>
         </div>
         <table>
           <thead>
             <tr>
-              <th>Model</th>
-              <th>Ctx</th>
+              <Th k="model">Model</Th>
+              <Th k="kind">Kind</Th>
+              <Th k="ctx" right>Ctx</Th>
               <th>Capabilities</th>
-              <th className="num">$/MTok in</th>
-              <th className="num">$/MTok out</th>
-              <th>Status</th>
+              <Th k="in" right>$/MTok in</Th>
+              <Th k="out" right>$/MTok out</Th>
+              <Th k="status">Status</Th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {models.map((m) => (
+            {visible.map((m) => (
               <tr key={m.id}>
                 <td>
                   <span style={{ fontFamily: 'var(--mono)', fontSize: 12.5 }}>{m.canonicalId}</span>
                   {m.source !== 'synced' && (
-                    <span className="chip" style={{ marginLeft: 6 }}>{m.source}</span>
+                    <span className="chip" style={{ marginLeft: 6 }}>{m.source === 'provider' ? 'discovered' : m.source}</span>
+                  )}
+                  {!m.configured && (
+                    <span className="chip" style={{ marginLeft: 6 }} title="No provider of this kind is configured — requests cannot route here yet">
+                      no provider
+                    </span>
                   )}
                 </td>
+                <td style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>{m.providerKind}</td>
                 <td className="num">{(m.contextWindow / 1000).toFixed(0)}k</td>
                 <td><Caps caps={m.effective} /></td>
                 <td className="num">{perMtok(m.pricing?.inputPerMtok)}</td>
@@ -86,12 +193,14 @@ export function Catalog(): JSX.Element {
                 </td>
               </tr>
             ))}
-            {models.length === 0 && (
+            {visible.length === 0 && (
               <tr>
-                <td colSpan={7}>
+                <td colSpan={8}>
                   <div className="empty">
                     <div className="big">No models match</div>
-                    Clear the search, or run a catalog sync from the ops runbook.
+                    {configuredOnly && models.length > 0
+                      ? 'Models exist but none belong to a configured provider — untick "configured providers only" to see the full catalog, or add a provider first.'
+                      : 'Clear the search, or run a catalog sync from the ops runbook.'}
                   </div>
                 </td>
               </tr>
@@ -134,6 +243,32 @@ function EditModel({
   const [priceOut, setPriceOut] = useState(model.pricing?.outputPerMtok ?? '');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [probing, setProbing] = useState(false);
+  const [probeNotes, setProbeNotes] = useState<string[]>([]);
+
+  // live capability probe (Q-089): synthetic requests through the model's provider; the
+  // verdicts pre-fill the checkboxes here and are written as overrides on Save
+  const probe = async (): Promise<void> => {
+    setError('');
+    setProbing(true);
+    setProbeNotes([]);
+    try {
+      const r = await api.post<ProbeResponse>(`/admin-api/models/${model.id}/probe`, { apply: false });
+      const next = { ...caps };
+      const notes: string[] = [];
+      for (const res of r.results) {
+        if (res.outcome === 'supported') next[res.capability] = true;
+        else if (res.outcome === 'unsupported') next[res.capability] = false;
+        notes.push(`${res.capability}: ${res.outcome}${res.outcome === 'inconclusive' ? ` (${res.detail})` : ''}`);
+      }
+      setCaps(next);
+      setProbeNotes(notes);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'probe failed');
+    } finally {
+      setProbing(false);
+    }
+  };
 
   const save = async (): Promise<void> => {
     setBusy(true);
@@ -199,7 +334,22 @@ function EditModel({
           </div>
         </div>
 
-        <label>Capabilities</label>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+          <label>Capabilities</label>
+          <button
+            onClick={() => void probe()}
+            disabled={probing}
+            data-testid="probe-capabilities"
+            title="Send tiny synthetic test requests (a 1×1 image, a JSON-schema ask, a tool call) through this model's provider and set the checkboxes from what actually works"
+          >
+            {probing ? 'Probing…' : 'Probe live'}
+          </button>
+        </div>
+        {probeNotes.length > 0 && (
+          <p className="sub" style={{ marginTop: 2 }} data-testid="probe-result">
+            Probe: {probeNotes.join(' · ')} — conclusive results are pre-ticked below; Save writes them as overrides.
+          </p>
+        )}
         <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
           {CAP_KEYS.map((cap) => (
             <label key={cap} style={{ display: 'inline-flex', gap: 5, alignItems: 'center', margin: 0 }}>

@@ -119,4 +119,39 @@ describe.skipIf(!url)('admin api auth', () => {
     ).json()) as Record<string, unknown>[];
     expect(JSON.stringify(providers)).not.toContain('ciphertext');
   });
+
+  // runs LAST in this suite: on success every session for the admin is destroyed
+  it('change-credentials: requires the current password, rotates login, kills sessions', async () => {
+    const sess = (await login(DEMO.adminPassword)).headers.get('set-cookie')!.split(';')[0]!;
+    const change = (body: unknown, cookie = sess): Promise<Response> =>
+      fetch(`${base}/admin-api/auth/change-credentials`, {
+        method: 'POST',
+        headers: { cookie, 'content-type': 'application/json', 'x-vibe-admin': '1' },
+        body: JSON.stringify(body),
+      });
+
+    // a live session alone is NOT enough — the current password is re-verified
+    expect((await change({ currentPassword: 'wrong', newPassword: 'longenough-pass-1' })).status).toBe(401);
+    // nothing-to-change and too-short passwords are rejected up front
+    expect((await change({ currentPassword: DEMO.adminPassword })).status).toBe(400);
+    expect((await change({ currentPassword: DEMO.adminPassword, newPassword: 'short' })).status).toBe(400);
+
+    const ok = await change({
+      currentPassword: DEMO.adminPassword,
+      newEmail: 'rotated-admin@example.test',
+      newPassword: 'a-brand-new-admin-pass',
+    });
+    expect(ok.status).toBe(200);
+    expect(((await ok.json()) as { reauth: boolean }).reauth).toBe(true);
+    // the cookie that made the change is dead too
+    expect((await fetch(`${base}/admin-api/providers`, { headers: { cookie: sess } })).status).toBe(401);
+    // old credentials no longer log in; the new pair does
+    expect((await login(DEMO.adminPassword)).status).toBe(401);
+    const relogin = await fetch(`${base}/admin-api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-vibe-admin': '1' },
+      body: JSON.stringify({ email: 'rotated-admin@example.test', password: 'a-brand-new-admin-pass' }),
+    });
+    expect(relogin.status).toBe(200);
+  });
 });

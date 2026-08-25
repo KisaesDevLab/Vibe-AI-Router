@@ -93,6 +93,18 @@ export class SessionStore {
     const id = cookieValue.slice(0, cookieValue.lastIndexOf('.'));
     this.sessions.delete(id);
   }
+
+  /** Invalidate every live session for a user — credential changes must not leave old logins alive. */
+  destroyByUser(userId: string): number {
+    let dropped = 0;
+    for (const [id, s] of this.sessions) {
+      if (s.userId === userId) {
+        this.sessions.delete(id);
+        dropped++;
+      }
+    }
+    return dropped;
+  }
 }
 
 export function parseCookies(req: FastifyRequest): Record<string, string> {

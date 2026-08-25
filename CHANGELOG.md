@@ -5,6 +5,40 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.18 — 2026-08-24
+
+**DigitalOcean capability + pricing automation (kimi-k3), catalog workflow, admin account.**
+
+- **kimi-k3 in the curated catalog as the first ENRICH-ONLY entry** (Q-088): DO publishes its
+  pricing ($2.85/$14.25 per MTok, cache read $0.285) and capabilities (native vision, prompt
+  caching) but not its context window, so the entry carries no `max_input_tokens` and the sync
+  now treats such entries as enrich-only — never inserting a row or touching base specs, only
+  enriching a discovered row's capabilities and appending pricing. The discovered row stays
+  `source='provider'`, so an operator-corrected context window survives every nightly sync.
+- **Stale Kimi pricing corrected** to DO's current published rates (k2.5 $0.50/$2.70, k2.6
+  $0.95/$4.00; cache-read rates unchanged) plus published max-output figures. Pricing history
+  is append-only — historical ledger rows still recompute against the old rates.
+- **Live capability probe** (Q-089): "Probe live" in Catalog → Edit sends three synthetic
+  requests (1×1 PNG / strict JSON schema / forced tool call) through the model's provider and
+  pre-fills the capability checkboxes from what actually worked. Only conclusive outcomes are
+  applied; every probe is audited (`model_capabilities_probed`).
+- **"Detect from DO docs"** (Q-090): one click scrapes DO's supported-models + pricing docs
+  pages (fixed URLs, operator-triggered only) into discovered DO rows — capabilities strictly
+  additively, specs only where the discovery placeholder still stands, **pricing captured into
+  the append-only history** so discovered models stop billing as `cost_unknown`. Parsers are
+  fixture-tested against vendored page snapshots; audited as `catalog_docs_scraped`.
+- **Catalog page workflow**: sortable columns (model, kind, context, $/MTok in/out, status),
+  capability + source filters, and a **"configured providers only" toggle (default on)** so
+  the working view is the models requests can actually route to; unconfigured models carry a
+  "no provider" chip. `GET /admin-api/models` now returns `configured` per model.
+- **Policy editor honors configured providers**: model pickers offer only models whose
+  provider kind the firm has configured; the "why isn't X offered?" list explains the gap
+  ("no digitalocean provider configured — add one under Providers"). Presentational only —
+  server-side gating is unchanged.
+- **Admin account management** (Q-091): Settings → Admin account changes the console login
+  email and/or password. The current password is re-verified server-side, all sessions are
+  destroyed on success, and the change is audited. Lockout recovery: re-run bootstrap-firm.
+
 ## 0.0.17 — 2026-08-23
 
 **`timebill_file_naming` widened to cloud_deidentified — DigitalOcean vision models usable**

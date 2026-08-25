@@ -38,6 +38,8 @@ import { safeString } from '../lib/safe-string.js';
 import { queryAudit, auditToCsv, writeAudit } from '../protect/audit.js';
 import { discoverDigitalOceanModels } from '../catalog/discovery.js';
 import { runCatalogSync } from '../catalog/scheduler.js';
+import { overridesFromProbes, probeModelCapabilities } from '../catalog/probe.js';
+import { applyScrapedToCatalog, fetchDocsPage, scrapeDoDocs, type FetchPage } from '../catalog/do-docs.js';
 import { savePolicy, exportPolicies, importPolicies } from '../policy/save.js';
 import {
   createCustomModel,
@@ -76,6 +78,8 @@ export interface AdminApiOptions {
    * Injectable so tests can assert the wiring without running a full feed sync.
    */
   refreshCatalog?: (reason: string) => void;
+  /** DO docs page fetcher (Q-090) — injectable so tests run against vendored fixtures */
+  fetchDocsPage?: FetchPage;
 }
 
 /**
@@ -210,6 +214,55 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
     if (!session) return fail(reply, new RouterError('auth_error', 'not logged in'));
     const firm = await db.query.firms.findFirst({ where: eq(firms.id, session.firmId) });
     return reply.send({ email: session.email, role: session.role, firm: firm?.name });
+  });
+
+  // Change the logged-in admin's own login email and/or password. Requires the CURRENT
+  // password regardless of the live session (a stolen cookie must not be enough to rotate the
+  // lock). Every live session for the user is destroyed afterwards — including this one — so
+  // the response tells the UI to send the admin back to the login form. Lockout recovery is
+  // the existing ops path: re-running bootstrap-firm re-applies ROUTER_ADMIN_EMAIL/_PASSWORD.
+  app.post('/admin-api/auth/change-credentials', async (req, reply) => {
+    const session = requireAdmin(req, reply);
+    if (!session) return reply;
+    const body = z
+      .object({
+        currentPassword: z.string().min(1),
+        newEmail: z.string().email().max(254).optional(),
+        newPassword: z.string().min(12, 'new password must be at least 12 characters').max(1024).optional(),
+      })
+      .refine((b) => b.newEmail !== undefined || b.newPassword !== undefined, {
+        message: 'nothing to change — provide newEmail and/or newPassword',
+      })
+      .safeParse(req.body);
+    if (!body.success)
+      return fail(reply, new RouterError('invalid_request', body.error.issues[0]?.message ?? 'bad request'));
+    const user = await db.query.users.findFirst({ where: eq(users.id, session.userId) });
+    if (!user?.passwordHash || !(await verifyPassword(body.data.currentPassword, user.passwordHash))) {
+      return fail(reply, new RouterError('auth_error', 'current password is incorrect'));
+    }
+    if (body.data.newEmail && body.data.newEmail !== user.email) {
+      const taken = await db.query.users.findFirst({ where: eq(users.email, body.data.newEmail) });
+      if (taken) return fail(reply, new RouterError('invalid_request', 'that email is already in use'));
+    }
+    const set: Partial<typeof users.$inferInsert> = {};
+    if (body.data.newEmail) set.email = body.data.newEmail;
+    if (body.data.newPassword) set.passwordHash = await hashPassword(body.data.newPassword);
+    await db.update(users).set(set).where(eq(users.id, user.id));
+    // metadata only in the audit trail — emails identify the login, hashes/passwords never appear
+    auditConfig(
+      session,
+      'user',
+      user.id,
+      'update',
+      {
+        email: body.data.newEmail ?? user.email ?? '',
+        passwordChanged: body.data.newPassword !== undefined,
+      },
+      { email: user.email ?? '' },
+    );
+    opts.sessions.destroyByUser(user.id);
+    clearSessionCookie(reply);
+    return reply.send({ ok: true, reauth: true });
   });
 
   // ── providers (11.3 backend) ────────────────────────────────────────────────
@@ -445,11 +498,19 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
 
   // ── catalog (11.4 backend) ─────────────────────────────────────────────────
   app.get('/admin-api/models', async (req, reply) => {
-    if (!requireAdmin(req, reply)) return reply;
+    const session = requireAdmin(req, reply);
+    if (!session) return reply;
     const q = z
       .object({ search: safeString(120).optional(), status: safeString(20).optional() })
       .safeParse(req.query);
     const rows = await db.query.models.findMany({ orderBy: models.canonicalId });
+    // provider kinds the firm has actually configured — the UI filters "models you can route
+    // to today" on this flag (presentational: request-time routing re-resolves providers)
+    const firmProviders = await db.query.providers.findMany({
+      where: (p, { and: and_, eq: eq_, isNull }) => and_(eq_(p.firmId, session.firmId), isNull(p.deletedAt)),
+      columns: { kind: true },
+    });
+    const configuredKinds = new Set(firmProviders.map((p) => p.kind));
     const search = q.success ? q.data.search?.toLowerCase() : undefined;
     const status = q.success ? q.data.status : undefined;
     const filtered = rows.filter(
@@ -468,6 +529,7 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
         ...m,
         effective: effectiveCapabilities(m),
         pricing: latestByModel.get(m.id) ?? null,
+        configured: configuredKinds.has(m.providerKind),
       })),
     );
   });
@@ -515,6 +577,104 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
       opts.deps.engine.invalidate();
       auditConfig(session, 'model', params.data.id, 'update', { overrides: JSON.stringify(req.body) });
       return await reply.send({ ok: true });
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  // Active capability probe (Q-089): tiny synthetic requests (a 1×1 PNG, fixed strings — no
+  // firm data, so the pipeline stages have nothing to protect) sent through the model's
+  // provider. Conclusive outcomes land in capability OVERRIDES; apply:false returns the
+  // verdicts for the UI to pre-fill without writing anything.
+  app.post('/admin-api/models/:id/probe', async (req, reply) => {
+    const session = requireAdmin(req, reply);
+    if (!session) return reply;
+    const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
+    const body = z.object({ apply: z.boolean().default(true) }).safeParse(req.body ?? {});
+    if (!params.success || !body.success) return fail(reply, new RouterError('invalid_request', 'bad request'));
+    if (!(await assertSoleFirm(session, reply))) return reply;
+    const model = await db.query.models.findFirst({ where: eq(models.id, params.data.id) });
+    if (!model) return fail(reply, new RouterError('invalid_request', 'model not found'));
+    const provider = await db.query.providers.findFirst({
+      where: (p, { and: and_, eq: eq_, isNull }) =>
+        and_(eq_(p.firmId, session.firmId), eq_(p.kind, model.providerKind), isNull(p.deletedAt)),
+      orderBy: (p, { asc }) => asc(p.createdAt),
+    });
+    if (!provider)
+      return fail(
+        reply,
+        new RouterError('invalid_request', `no configured ${model.providerKind} provider to probe through`),
+      );
+    const adapter = opts.adapterFor(provider.kind);
+    if (!adapter) return fail(reply, new RouterError('invalid_request', 'no adapter'));
+    try {
+      let apiKey: string | undefined;
+      if (provider.authType === 'api_key') {
+        if (!opts.vault) return fail(reply, new RouterError('unknown', 'vault unavailable (MASTER_KEY unset)'));
+        apiKey = await opts.vault.getActiveApiKey(provider.id);
+      }
+      const results = await probeModelCapabilities(adapter, {
+        providerId: provider.id,
+        model: model.canonicalId,
+        baseUrl: provider.baseUrl,
+        ...(apiKey !== undefined ? { apiKey } : {}),
+        modelMapping: provider.modelMapping as Record<string, string>,
+      });
+      let overrides = (model.capabilityOverrides ?? {}) as Record<string, boolean>;
+      if (body.data.apply) {
+        overrides = overridesFromProbes(overrides, results);
+        await setCapabilityOverrides(db, model.id, overrides);
+        opts.deps.engine.invalidate();
+      }
+      await writeAudit(db, {
+        firmId: session.firmId,
+        userId: session.userId,
+        event: 'model_capabilities_probed',
+        model: model.canonicalId,
+        provider: provider.id,
+        detail: {
+          modelCanonicalId: model.canonicalId,
+          providerId: provider.id,
+          providerLabel: provider.label,
+          results: Object.fromEntries(results.map((r) => [r.capability, r.outcome])),
+          applied: body.data.apply,
+        },
+      }).catch(() => {});
+      return await reply.send({ results, applied: body.data.apply, overrides });
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  // DO docs scrape (Q-090): pull published capabilities + specs + PRICING from
+  // docs.digitalocean.com (fixed URLs) into discovered rows. Conservative by construction —
+  // see src/catalog/do-docs.ts. Operator-triggered only.
+  app.post('/admin-api/catalog/scrape-docs', async (req, reply) => {
+    const session = requireAdmin(req, reply);
+    if (!session) return reply;
+    if (!(await assertSoleFirm(session, reply))) return reply;
+    try {
+      const scraped = await scrapeDoDocs(opts.fetchDocsPage ?? fetchDocsPage, AbortSignal.timeout(30_000));
+      const report = await applyScrapedToCatalog(db, scraped);
+      if (report.capabilitiesUpdated.length > 0 || report.specsUpdated.length > 0) {
+        opts.deps.engine.invalidate(); // caps/context affect config- and request-time gating
+      }
+      await writeAudit(db, {
+        firmId: session.firmId,
+        userId: session.userId,
+        event: 'catalog_docs_scraped',
+        detail: {
+          source: 'docs.digitalocean.com',
+          scraped: report.scraped,
+          matched: report.matched,
+          capabilitiesUpdated: report.capabilitiesUpdated.length,
+          specsUpdated: report.specsUpdated.length,
+          pricingChanged: report.pricingChanged.length,
+          skippedCurated: report.skippedCurated.length,
+          unmatched: report.unmatched,
+        },
+      }).catch(() => {});
+      return await reply.send(report);
     } catch (err) {
       return fail(reply, err);
     }

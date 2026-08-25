@@ -500,3 +500,53 @@ Grouped by phase. This file is the Phase 15 review agenda.
   existing class: appliances that already created the class local_only must widen via the admin
   console (audited), which is the designed path for tier changes.** → single-field pack change,
   reversible by narrowing in console or pack → **S**
+- [Q-088] DO ships kimi-k3 (native vision) but publishes no context window — how does the
+  curated catalog carry it without inventing specs? → **ENRICH-ONLY feed entries: a vendored
+  entry with capabilities/pricing but no max_input_tokens never creates a catalog row and
+  never touches base specs; it only enriches an existing (discovered) row's capabilities and
+  appends its pricing. kimi-k3 ships this way (vision + json_schema + caching, $2.85/$14.25
+  per MTok, cache read $0.285 — DO pricing page 2026-08-24); the row itself appears via
+  discovery (Q-082) with the placeholder context window, which stays operator-editable
+  (source='provider') instead of being clobbered nightly by a guessed spec. Alternatives
+  rejected: guessing 262144 into the curated file (sync re-asserts it forever, and a fresh
+  insert would be source='synced', locking the operator out of base edits). Same pass
+  refreshed k2.5/k2.6 input/output pricing to DO's current page ($0.50/$2.70, $0.95/$4.00 —
+  the vendored values were stale; pricing history is append-only so old ledger rows recompute
+  against the rates in force at request time).** → additive parse rule; removing it degrades
+  to the old skip → **S**
+- [Q-089] Discovered DO models need vision/tools verified before overrides are enabled (Q-083
+  left it manual) — automate how? → **Operator-triggered live probe: POST
+  /admin-api/models/:id/probe sends three synthetic requests through the model's provider (a
+  1×1 transparent PNG for vision, a strict-schema ask for json_schema, a forced tool call for
+  tools) and classifies each as supported / unsupported / inconclusive. Only CONCLUSIVE
+  verdicts touch capability overrides: a 200 counts for json_schema/tools only when the
+  response actually exercised the capability (parseable JSON object / a returned tool call —
+  OpenAI-compatible providers often silently ignore unsupported params), and only a definitive
+  HTTP 400/415/422 counts as unsupported (auth, 404, 429, 5xx, timeouts are inconclusive).
+  Probes bypass the pipeline BY DESIGN — the fixed probe bodies are the entire content, so
+  there is no firm data to scrub and no task class to bill; each probe is audited
+  (model_capabilities_probed). The Catalog edit modal runs it with apply:false and pre-fills
+  the checkboxes so the operator still Saves the overrides deliberately.** → standalone module
+  behind one endpoint + one button → **S**
+- [Q-090] DO publishes capabilities/context windows/pricing only as human-readable docs tables
+  (no API — verified against docs.digitalocean.com 2026-08-24) — scrape them? → **Yes,
+  operator-triggered only: POST /admin-api/catalog/scrape-docs parses the two FIXED
+  docs.digitalocean.com pages (models + pricing, joined on display name) and applies them
+  conservatively: discovered (source='provider') rows only, capabilities strictly ADDITIVE
+  (a phrase we fail to find never turns a capability off), context window filled only while
+  the discovery placeholder is still in place, max output only while unset, pricing appended
+  to history only when it differs. Curated ('synced') and custom rows are never touched. A
+  docs redesign therefore degrades to "nothing matched", never to wrong writes; parsers are
+  fixture-tested against vendored snapshots (test/fixtures/do-docs). Not wired into the
+  nightly sync — scraping live HTML on a schedule trades reviewability for freshness; the
+  Catalog page button ("Detect from DO docs") keeps it a deliberate act.** → parser module +
+  endpoint; wiring it into the cron later is additive → **S**
+- [Q-091] Admin console had no way to change the provisioned login — add one? → **POST
+  /admin-api/auth/change-credentials: session + x-vibe-admin required AND the current password
+  re-verified server-side (a stolen cookie must not rotate the lock); new email and/or new
+  password (min 12 chars), email-uniqueness checked; on success EVERY session for the user is
+  destroyed (SessionStore.destroyByUser) including the caller's, and the UI (Settings → Admin
+  account) returns to the login form. Audited as config_change on entity 'user' with metadata
+  only. Lockout recovery is the existing ops path: re-running bootstrap-firm re-applies
+  ROUTER_ADMIN_EMAIL/_PASSWORD (documented on the endpoint and in the UI copy).** → single
+  endpoint + card; rate limiting rides the existing login throttle discussion → **S**

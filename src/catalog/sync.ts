@@ -65,7 +65,13 @@ export interface SyncedModel {
   canonicalId: string;
   providerKind: ProviderKind;
   displayName: string;
-  contextWindow: number;
+  /**
+   * null = ENRICH-ONLY entry (Q-088): the source publishes capabilities/pricing but no context
+   * window (e.g. DO's kimi-k3). Such entries never create a row and never touch base specs —
+   * they only enrich an existing (discovered) row's capabilities and pricing, so the feed
+   * cannot assert specs its source doesn't publish, and operator-corrected specs survive.
+   */
+  contextWindow: number | null;
   maxOutput: number | null;
   capabilities: Record<string, boolean>;
   deprecationDate: string | null;
@@ -133,8 +139,18 @@ export function parseFeed(feed: Record<string, unknown>): { entries: SyncedModel
       skipped.push(`${key} (ollama cloud-hosted, not a local model)`);
       continue;
     }
-    const contextWindow = e.max_input_tokens ?? e.max_tokens;
-    if (!contextWindow) {
+    const contextWindow = e.max_input_tokens ?? e.max_tokens ?? null;
+    // no context window is acceptable only when the entry still carries something to apply
+    // (capabilities or pricing) — an empty shell is junk, not an enrich-only declaration
+    const carriesData =
+      e.input_cost_per_token !== undefined ||
+      e.output_cost_per_token !== undefined ||
+      e.supports_function_calling !== undefined ||
+      e.supports_response_schema !== undefined ||
+      e.supports_vision !== undefined ||
+      e.supports_prompt_caching !== undefined ||
+      e.supports_reasoning !== undefined;
+    if (contextWindow === null && !carriesData) {
       skipped.push(key);
       continue;
     }
@@ -301,6 +317,13 @@ async function syncOneModel(
 
     let modelId: string;
     if (!current) {
+      // enrich-only entries (Q-088) never create a row: no published context window means no
+      // defensible spec to insert. The model appears via discovery (Q-082) and is enriched on
+      // the next sync pass.
+      if (entry.contextWindow === null) {
+        report.skipped.push(`${entry.canonicalId} (enrich-only: no context window published; awaiting discovery)`);
+        return;
+      }
       // onConflictDoUpdate rather than a bare insert: the feed can carry the same model under
       // two keys, and a plain insert made the entire sync die on the unique constraint.
       const [inserted] = await db
@@ -325,9 +348,13 @@ async function syncOneModel(
       report.added.push(entry.canonicalId);
     } else {
       modelId = current.id;
+      // enrich-only entries leave base specs alone — the discovered row's context window stays
+      // operator-editable (source='provider') instead of being clobbered nightly by a guess
+      const nextContext = entry.contextWindow ?? current.contextWindow;
+      const nextMaxOutput = entry.contextWindow === null ? (current.maxOutput ?? null) : entry.maxOutput;
       const changed =
-        current.contextWindow !== entry.contextWindow ||
-        (current.maxOutput ?? null) !== entry.maxOutput ||
+        current.contextWindow !== nextContext ||
+        (current.maxOutput ?? null) !== nextMaxOutput ||
         !jsonEq(current.capabilities, entry.capabilities) ||
         (current.deprecationDate ?? null) !== entry.deprecationDate ||
         current.status === 'deprecated'; // model returned to the feed → reactivate
@@ -335,8 +362,8 @@ async function syncOneModel(
         await db
           .update(models)
           .set({
-            contextWindow: entry.contextWindow,
-            maxOutput: entry.maxOutput,
+            contextWindow: nextContext,
+            maxOutput: nextMaxOutput,
             capabilities: entry.capabilities, // capability_overrides deliberately untouched (5.5)
             deprecationDate: entry.deprecationDate,
             status: 'active',
