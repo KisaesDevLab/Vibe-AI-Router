@@ -134,9 +134,23 @@ async function executeHopWithRetries(
 }
 
 /**
+ * On chain exhaustion, a hop that was never ELIGIBLE (policy-side skip:
+ * capability_missing / policy_blocked) must not mask why an eligible hop
+ * actually FAILED (provider-side, often retryable) — otherwise a dead vision
+ * provider surfaces as a hard 400 instead of a retryable 502 (Q-092 review).
+ */
+export function preferError(prev: RouterError | undefined, next: RouterError): RouterError {
+  const policySide = (c: RouterError['code']): boolean =>
+    c === 'capability_missing' || c === 'policy_blocked';
+  if (prev && policySide(next.code) && !policySide(prev.code)) return prev;
+  return next;
+}
+
+/**
  * Non-streaming execution across the fallback chain (10.3). Provider-side failures advance to
- * the next hop; policy-side failures (capability/sensitivity/banned) skip the hop. The LAST
- * error propagates when the chain is exhausted.
+ * the next hop; policy-side failures (capability/sensitivity/banned) skip the hop. On
+ * exhaustion the most MEANINGFUL error propagates (provider-side outranks policy-side skips —
+ * see preferError), latest within its class.
  */
 export async function executeResilient(
   ctx: PipelineCtx,
@@ -160,7 +174,7 @@ export async function executeResilient(
         route = await routeForModel(model, ctx, deps); // re-validates capability + sensitivity per hop
       } catch (err) {
         const rerr = toRouterError(err);
-        lastErr = rerr;
+        lastErr = preferError(lastErr, rerr);
         if (previousModel) auditHop(ctx, deps, previousModel, model.canonicalId, `hop skipped: ${rerr.message}`);
         previousModel = model.canonicalId;
         continue;
@@ -232,7 +246,7 @@ export async function* executeResilientStream(
       try {
         route = await routeForModel(model, ctx, deps);
       } catch (err) {
-        lastErr = toRouterError(err);
+        lastErr = preferError(lastErr, toRouterError(err));
         previousModel = model.canonicalId;
         continue;
       }

@@ -129,7 +129,13 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
       db: opts.gateway.deps.db,
       engine: opts.gateway.deps.engine,
     });
-    registerBillingFeed(app, { db: opts.gateway.deps.db });
+    registerBillingFeed(app, {
+      db: opts.gateway.deps.db,
+      engine: opts.gateway.deps.engine,
+      ...(opts.gateway.deps.rateLimits
+        ? { rateLimits: { perToken: opts.gateway.deps.rateLimits.perToken } }
+        : {}),
+    });
   }
 
   if (opts.adminApi && opts.gateway && servesConsole(role)) {

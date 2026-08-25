@@ -22,9 +22,9 @@ function statusFor(ctx: PipelineCtx): RequestStatus {
     budget_exceeded: 'budget_exceeded',
     rate_limited: 'rate_limited',
     capability_missing: 'capability_missing',
-    // Q-092: bucketed with capability_missing — no request_status enum
-    // migration; the distinct code still reaches clients and the audit log.
-    no_vision_provider: 'capability_missing',
+    // 0006 (Q-092 revision): distinct status so by-design vision skips are
+    // countable from the ledger, separate from genuine misconfiguration.
+    no_vision_provider: 'no_vision_provider',
     provider_unavailable: 'provider_error',
     context_exceeded: 'provider_error',
     content_filtered: 'provider_error',

@@ -3,12 +3,19 @@
  * GET /v1/billing/usage?period=yyyymm[&client_ref=…]
  * POST /v1/budget/precheck — AN-2 (Q-093): "can I afford this batch?"
  * before uploading work; never throws budget_exceeded, returns structure.
+ *
+ * Both routes share the pipeline's per-app-token rate limiter when wired
+ * (review finding: precheck is built for programmatic use and costs DB
+ * aggregates — it must not be an unthrottled hot path). Precheck resolves
+ * the task class through PolicyEngine so its answer matches what the chat
+ * pipeline will actually enforce — a firm without an enabled policy gets
+ * policy_blocked here, not a false ok:true.
  */
 import { z } from 'zod';
-import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db/client.js';
-import { firms, policies, taskClasses } from '../../db/schema.js';
+import type { PolicyEngine } from '../policy/engine.js';
+import type { RateLimiter } from '../resilience/limiter.js';
 import { authenticateAppToken } from '../gateway/pipeline.js';
 import { RouterError, errorBody, toRouterError } from '../gateway/errors.js';
 import { billingUsage } from './aggregate.js';
@@ -26,12 +33,29 @@ const precheckSchema = z
   })
   .strict();
 
-export function registerBillingFeed(app: FastifyInstance, deps: { db: Db }): void {
+export interface BillingFeedDeps {
+  db: Db;
+  engine: PolicyEngine;
+  rateLimits?: { perToken: RateLimiter };
+}
+
+export function registerBillingFeed(app: FastifyInstance, deps: BillingFeedDeps): void {
+  /** app-token auth + the same per-token limiter the chat pipeline uses (10.6) */
+  const authenticate = async (
+    authHeader: string | undefined,
+  ): Promise<Awaited<ReturnType<typeof authenticateAppToken>>> => {
+    const bearer = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
+    const auth = await authenticateAppToken(deps.db, bearer);
+    const wait = deps.rateLimits?.perToken.take(`t:${auth.tokenId}`);
+    if (wait !== undefined && wait > 0) {
+      throw new RouterError('rate_limited', 'rate limit exceeded', { retryAfterSeconds: wait });
+    }
+    return auth;
+  };
+
   app.get('/v1/billing/usage', async (req, reply) => {
     try {
-      const authHeader = req.headers.authorization;
-      const bearer = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
-      const auth = await authenticateAppToken(deps.db, bearer);
+      const auth = await authenticate(req.headers.authorization);
       const parsed = querySchema.safeParse(req.query);
       if (!parsed.success) {
         throw new RouterError('invalid_request', 'period=yyyymm required');
@@ -46,31 +70,25 @@ export function registerBillingFeed(app: FastifyInstance, deps: { db: Db }): voi
 
   app.post('/v1/budget/precheck', async (req, reply) => {
     try {
-      const authHeader = req.headers.authorization;
-      const bearer = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
-      const auth = await authenticateAppToken(deps.db, bearer);
+      const auth = await authenticate(req.headers.authorization);
       const parsed = precheckSchema.safeParse(req.body);
       if (!parsed.success) {
         throw new RouterError('invalid_request', 'task_class required');
       }
-      const tc = await deps.db.query.taskClasses.findFirst({
-        where: eq(taskClasses.key, parsed.data.task_class),
-      });
-      if (!tc) throw new RouterError('policy_blocked', `unknown task class: ${parsed.data.task_class}`);
-      const policy = await deps.db.query.policies.findFirst({
-        where: and(eq(policies.firmId, auth.firmId), eq(policies.taskClassId, tc.id)),
-      });
-      const firm = await deps.db.query.firms.findFirst({ where: eq(firms.id, auth.firmId) });
-      const settings =
-        ((firm?.settings ?? {}) as { budgets?: BudgetSettings }).budgets ?? {};
+      // The same (cached) resolution the chat pipeline runs — throws
+      // policy_blocked for an unknown class or a missing/disabled policy,
+      // so ok:true genuinely means "a request would pass the policy gate".
+      const firmSettings = await deps.engine.firmSettings(auth.firmId);
+      const effective = await deps.engine.resolve(auth.firmId, parsed.data.task_class, firmSettings);
+      const settings = (firmSettings as { budgets?: BudgetSettings }).budgets ?? {};
       try {
         const result = await checkBudgets(deps.db, {
           firmId: auth.firmId,
           app: auth.app,
           ...(parsed.data.user_id ? { userId: parsed.data.user_id } : {}),
-          taskClassId: tc.id,
+          taskClassId: effective.taskClass.id,
           settings,
-          policyMonthlyCents: policy?.monthlyBudgetCents ?? null,
+          policyMonthlyCents: effective.policy.monthlyBudgetCents,
         });
         return await reply.send({
           ok: true,

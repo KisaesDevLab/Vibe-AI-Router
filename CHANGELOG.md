@@ -5,6 +5,25 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.20 — 2026-08-25
+
+**AN-2 review fixes (Q-094): 10-finding code review of 0.0.19, all adopted.**
+
+- **`no_vision_provider` now keys on what is MISSING, not what is required**: a vision-capable
+  default that lacks tools correctly fails `capability_missing`; the skip fires only when
+  vision itself is unsatisfiable across the default and every configured candidate.
+- **Upgrade scan covers the fallback chain**, is deterministic (configured order) and
+  local-first; every substitution emits a `capability_upgrade` audit event +
+  `vibe_router_capability_upgrades_total` metric — no more silent substitution.
+- **Chain exhaustion prefers provider-side errors over policy-side hop skips** (`preferError`):
+  a dead vision provider surfaces as retryable 502, not a masking 400.
+- **Ledger: distinct `no_vision_provider` request_status** (migration 0006, reversible) so
+  by-design vision skips are countable separately from misconfiguration.
+- **Precheck resolves through PolicyEngine**: missing/disabled policy → `policy_blocked`
+  instead of a false `ok:true`; both billing routes now ride the per-token rate limiter.
+- Perf: capability needs computed once per selection; test hygiene: budget mutations in the
+  precheck test wrapped in try/finally.
+
 ## 0.0.19 — 2026-08-25
 
 **AN-2 gap closure: structured vision skip, capability-upgrade selection, budget precheck (SDK 0.2.2).**

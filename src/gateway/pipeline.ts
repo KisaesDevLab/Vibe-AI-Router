@@ -412,8 +412,22 @@ export async function routeForModel(
 
 export async function stageRoute(ctx: PipelineCtx, deps: PipelineDeps): Promise<void> {
   const effective = ctx.effective;
-  if (!effective) throw new RouterError('unknown', 'pipeline ordering violation');
-  const model = selectModel(effective, ctx.envelope); // advisory model honored only if allowed+valid
+  const auth = ctx.auth;
+  if (!effective || !auth) throw new RouterError('unknown', 'pipeline ordering violation');
+  // advisory model honored only if allowed+valid; a capability upgrade of a
+  // failing default is audited here — the one stage every request passes
+  // through — so substitutions are never silent (Q-092 review finding).
+  const model = selectModel(effective, ctx.envelope, (up) => {
+    deps.metrics?.capabilityUpgradesTotal.inc();
+    deps.audit?.({
+      firmId: auth.firmId,
+      event: 'capability_upgrade',
+      app: auth.app,
+      taskClass: effective.taskClass.key,
+      requestHash: ctx.requestHash,
+      detail: { from: up.from, to: up.to, missing: up.missing.join(',').slice(0, 100) },
+    });
+  });
   ctx.route = await routeForModel(model, ctx, deps);
 }
 

@@ -49,6 +49,12 @@ export class Metrics {
     registers: [this.registry],
   });
 
+  readonly capabilityUpgradesTotal = new Counter({
+    name: 'vibe_router_capability_upgrades_total',
+    help: 'Capability-failing defaults upgraded to a capable configured model (Q-092)',
+    registers: [this.registry],
+  });
+
   readonly cacheEvents = new Counter({
     name: 'vibe_router_response_cache_events_total',
     help: 'Response cache hits/misses (opt-in task classes only)',

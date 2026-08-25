@@ -261,6 +261,53 @@ describe('selectModel + role gating + limits', () => {
     }
   });
 
+  it('vision-requiring class whose default HAS vision but lacks tools → capability_missing, not a vision skip', () => {
+    // Review finding: diagnose by what is MISSING, not by what is required.
+    const tc = fakeClass({ requires: { vision: true, tools: true } });
+    const def = fakeModel({ capabilities: { vision: true } });
+    try {
+      selectModel(fakeEffective(tc, def), baseEnv());
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect((err as { code: string }).code).toBe('capability_missing');
+      expect((err as Error).message).toContain('tools');
+    }
+  });
+
+  it('a vision-capable model in the FALLBACK CHAIN is found by the upgrade scan', () => {
+    const tc = fakeClass({ requires: { vision: true } });
+    const def = fakeModel({ capabilities: {} });
+    const chainSeeing = fakeModel({ capabilities: { vision: true } });
+    const eff = fakeEffective(tc, def, { fallback: [chainSeeing] });
+    expect(selectModel(eff, baseEnv()).id).toBe(chainSeeing.id);
+  });
+
+  it('upgrade scan is deterministic and local-first', () => {
+    const tc = fakeClass({ requires: { vision: true } });
+    const def = fakeModel({ capabilities: {} });
+    const cloudSeeing = fakeModel({ providerKind: 'anthropic', capabilities: { vision: true } });
+    const localSeeing = fakeModel({ providerKind: 'local', capabilities: { vision: true } });
+    // cloud listed FIRST in the allowed set — local still wins the upgrade
+    const eff = fakeEffective(tc, def, { allowed: [cloudSeeing, localSeeing] });
+    expect(selectModel(eff, baseEnv()).id).toBe(localSeeing.id);
+  });
+
+  it('onUpgrade reports the substitution (from default, to substitute, missing caps)', () => {
+    const tc = fakeClass({ requires: { vision: true } });
+    const def = fakeModel({ canonicalId: 'test/blind-default', capabilities: {} });
+    const seeing = fakeModel({ canonicalId: 'test/seeing', capabilities: { vision: true } });
+    const eff = fakeEffective(tc, def, { allowed: [seeing] });
+    const events: Array<{ from: string; to: string; missing: string[] }> = [];
+    selectModel(eff, baseEnv(), (e) => events.push(e));
+    expect(events).toEqual([
+      { from: 'test/blind-default', to: 'test/seeing', missing: ['vision'] },
+    ]);
+    // no upgrade → no callback
+    const cleanEff = fakeEffective(tc, seeing);
+    selectModel(cleanEff, baseEnv(), (e) => events.push(e));
+    expect(events).toHaveLength(1);
+  });
+
   it('explicit role deny blocks; absent rule allows; app-only traffic passes (7.7)', () => {
     const tc = fakeClass({});
     const def = fakeModel({});

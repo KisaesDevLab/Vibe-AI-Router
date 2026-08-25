@@ -99,6 +99,13 @@ const EVENT_SCHEMAS = {
     to: z.string(),
     reason: z.string().max(300),
   }),
+  /** Q-092: a capability-failing default was upgraded to a capable configured model */
+  capability_upgrade: z.object({
+    from: z.string(),
+    to: z.string(),
+    /** comma-joined capability names the default lacked — never message content */
+    missing: z.string().max(100),
+  }),
   breaker_transition: z.object({
     from: z.enum(['closed', 'open', 'half_open']),
     to: z.enum(['closed', 'open', 'half_open']),

@@ -565,3 +565,13 @@ Grouped by phase. This file is the Phase 15 review agenda.
   app-token authed, reusing checkBudgets verbatim; an exhausted budget returns
   `{ ok:false, reason:'budget_exceeded' }` (HTTP 200) — a precheck reports state, it never
   throws. SDK wrapper `budgetPrecheck()` in 0.2.2.** → read-only route, no schema change → **S**
+- [Q-094] Code review of Q-092/Q-093 (10 findings, 9 confirmed) — adopt which revisions? →
+  **All. Q-092 revised: the skip code now keys on what is MISSING, not what is required (a
+  vision-capable default lacking tools stays capability_missing); the upgrade scan covers the
+  fallback chain too (it is operator-configured policy), is deterministic and local-first;
+  every substitution emits a `capability_upgrade` audit event + metric; the ledger gets a
+  distinct `no_vision_provider` request_status (migration 0006 — supersedes Q-092's
+  no-migration bucketing). Chain exhaustion prefers provider-side errors over policy-side hop
+  skips (`preferError`). Q-093 revised: precheck resolves through PolicyEngine so a
+  missing/disabled policy returns policy_blocked instead of a false ok:true, and both billing
+  routes ride the pipeline's per-token rate limiter.** → all additive; revert = per-item → **S**

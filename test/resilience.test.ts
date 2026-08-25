@@ -18,6 +18,8 @@ import { CircuitBreaker } from '../src/resilience/breaker.js';
 import { LoadShedGuard } from '../src/resilience/shed.js';
 import { RateLimiter } from '../src/resilience/limiter.js';
 import { retryDelayMs } from '../src/resilience/backoff.js';
+import { preferError } from '../src/resilience/executor.js';
+import { RouterError } from '../src/gateway/errors.js';
 import { createLogger } from '../src/lib/logger.js';
 import { writeAudit, type AuditEntry } from '../src/protect/audit.js';
 import { providers, usageLedger } from '../db/schema.js';
@@ -27,6 +29,26 @@ import { DEMO } from '../db/seed.js';
 const url = process.env['VIBE_ROUTER_TEST_DATABASE_URL'];
 
 // ── unit: primitives ─────────────────────────────────────────────────────────
+
+describe('preferError (Q-092 review)', () => {
+  const provider = new RouterError('provider_unavailable', 'circuit open');
+  const capability = new RouterError('capability_missing', 'lacks vision');
+  const blocked = new RouterError('policy_blocked', 'banned');
+
+  it('a policy-side hop skip never masks an earlier provider-side failure', () => {
+    expect(preferError(provider, capability)).toBe(provider);
+    expect(preferError(provider, blocked)).toBe(provider);
+  });
+  it('provider-side failures overwrite anything (latest wins within class)', () => {
+    const later = new RouterError('rate_limited', 'shed');
+    expect(preferError(capability, later)).toBe(later);
+    expect(preferError(provider, later)).toBe(later);
+  });
+  it('policy-side over policy-side keeps the latest; first error always sticks', () => {
+    expect(preferError(capability, blocked)).toBe(blocked);
+    expect(preferError(undefined, capability)).toBe(capability);
+  });
+});
 
 describe('backoff (10.1)', () => {
   it('exponential with jitter, Retry-After wins, capped', () => {
