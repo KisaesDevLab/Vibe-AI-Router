@@ -48,7 +48,7 @@ import {
   setCapabilityOverrides,
   updateModel,
 } from '../catalog/service.js';
-import { latencyStats, ledgerRows, rowsToCsv, spendBy } from '../ledger/aggregate.js';
+import { costBreakdown, latencyStats, ledgerRows, rowsToCsv, spendBy } from '../ledger/aggregate.js';
 import { currentPeriod } from '../ledger/budget.js';
 import { buildWispData, renderWispDocx } from '../ops/wisp.js';
 import type { CredentialVault } from '../vault/service.js';
@@ -849,6 +849,52 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
     };
     const [spend, latency] = await Promise.all([spendBy(db, q.data.by, filter), latencyStats(db, filter)]);
     return reply.send({ by: q.data.by, spend, latency });
+  });
+
+  // Cost breakdown (11.7b): one ledger pass grouped by (app, task class, model) — the Costs
+  // view pivots it into all three dimensions and their drill-downs without re-querying.
+  const costQuery = z.object({ from: z.coerce.date().optional(), to: z.coerce.date().optional() });
+
+  app.get('/admin-api/dashboard/costs', async (req, reply) => {
+    const session = requireAdmin(req, reply);
+    if (!session) return reply;
+    const q = costQuery.safeParse(req.query);
+    if (!q.success) return fail(reply, new RouterError('invalid_request', 'bad query'));
+    const rows = await costBreakdown(db, {
+      firmId: session.firmId,
+      ...(q.data.from ? { from: q.data.from } : {}),
+      ...(q.data.to ? { to: q.data.to } : {}),
+    });
+    return reply.send({ rows });
+  });
+
+  app.get('/admin-api/dashboard/costs.csv', async (req, reply) => {
+    const session = requireAdmin(req, reply);
+    if (!session) return reply;
+    const q = costQuery.safeParse(req.query);
+    if (!q.success) return fail(reply, new RouterError('invalid_request', 'bad query'));
+    const rows = await costBreakdown(db, {
+      firmId: session.firmId,
+      ...(q.data.from ? { from: q.data.from } : {}),
+      ...(q.data.to ? { to: q.data.to } : {}),
+    });
+    return reply
+      .header('content-type', 'text/csv; charset=utf-8')
+      .header('content-disposition', 'attachment; filename="costs.csv"')
+      .send(
+        rowsToCsv(rows as unknown as Record<string, unknown>[], [
+          'app',
+          'taskClass',
+          'model',
+          'requests',
+          'promptTokens',
+          'completionTokens',
+          'cachedReadTokens',
+          'costCents',
+          'costUnknownCount',
+          'estimatedCount',
+        ]),
+      );
   });
 
   app.get('/admin-api/dashboard/health', async (req, reply) => {

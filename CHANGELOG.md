@@ -5,6 +5,22 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.22 — 2026-08-25
+
+**Costs view: spend by app, task class, and model** (Q-095).
+
+- New **Costs** page: total spend / requests / tokens for a period (this month, last month,
+  last 30 days, all time, or a custom range), then a breakdown by **app**, **task class
+  (policy)**, or **model** — click any row to see what it breaks into along the other two
+  dimensions (e.g. `vibe-time-billing` → `timebill_file_naming` → `digitalocean/kimi-k2.5`).
+- Backed by one grouped ledger query (`GET /admin-api/dashboard/costs`, plus `costs.csv` for
+  the same data): the page pivots it client-side, so switching dimension or expanding a row
+  costs no round trip. Rows with no task class or no model served appear as `(none)` rather
+  than vanishing, so every dimension re-sums to the same firm total.
+- **Unpriced requests are surfaced, never folded in**: requests served by a model with no
+  catalog pricing are counted per row and called out above the table, since their real cost is
+  not in the totals. Sub-cent amounts now render with widening precision instead of `$0.00`.
+
 ## 0.0.21 — 2026-08-25
 
 **Policies view: filter by declaring app.**

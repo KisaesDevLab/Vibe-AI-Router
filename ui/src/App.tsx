@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, type Me } from './api';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
+import { Costs } from './pages/Costs';
 import { Providers } from './pages/Providers';
 import { Catalog } from './pages/Catalog';
 import { Policies } from './pages/Policies';
@@ -12,6 +13,7 @@ import { Compliance } from './pages/Compliance';
 
 const PAGES = [
   ['dashboard', 'Dashboard'],
+  ['costs', 'Costs'],
   ['providers', 'Providers'],
   ['catalog', 'Model catalog'],
   ['policies', 'Policies'],
@@ -91,6 +93,7 @@ export function App(): JSX.Element {
         </div>
         <div className="content">
           {page === 'dashboard' && <Dashboard />}
+          {page === 'costs' && <Costs />}
           {page === 'providers' && <Providers />}
           {page === 'catalog' && <Catalog />}
           {page === 'policies' && <Policies />}

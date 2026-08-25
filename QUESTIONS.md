@@ -575,3 +575,17 @@ Grouped by phase. This file is the Phase 15 review agenda.
   skips (`preferError`). Q-093 revised: precheck resolves through PolicyEngine so a
   missing/disabled policy returns policy_blocked instead of a false ok:true, and both billing
   routes ride the pipeline's per-token rate limiter.** → all additive; revert = per-item → **S**
+- [Q-095] Operators need cost by app, by policy (task class), and by model — extend the
+  dashboard widget or build a view? → **New Costs page backed by ONE grouped query:
+  `costBreakdown` returns a row per (app, task class, model served) and the UI pivots it
+  client-side into all three dimensions plus the drill-down inside each, so changing dimension
+  or expanding a row costs no round trip. The existing `spendBy` widget stays (single-dimension
+  bars on the Dashboard, including day/client which the Costs view does not carry). Design
+  points: `taskClassId` and `modelServed` are nullable — rows rejected before task-class
+  resolution and requests that never reached a provider surface as '(none)' rather than
+  disappearing, so every dimension re-sums to the same firm total (asserted in
+  test/cost-breakdown.test.ts). Unpriced requests are carried as `costUnknownCount` per row and
+  called out in the UI, because a total that silently omitted them would read as complete
+  (invariant 8). Costs are formatted with widening precision (`fmtCost`) — per-request cloud
+  spend is often sub-cent and the old 2dp formatter rendered real usage as "$0.00". CSV export
+  reuses the same query.** → additive query + page; the endpoint is the only new surface → **S**

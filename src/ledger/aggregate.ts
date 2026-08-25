@@ -56,6 +56,55 @@ export async function spendBy(db: Db, dim: SpendDimension, f: LedgerFilter): Pro
   return withJoin.where(conds(f)).groupBy(col).orderBy(col);
 }
 
+/**
+ * Cost breakdown (11.7b): one row per (app, task class, model served) combination. The admin
+ * Costs view pivots these client-side into "by app" / "by task class" / "by model" totals AND
+ * the drill-down inside each — three views and their nesting from a single ledger pass, rather
+ * than one query per dimension per expansion.
+ *
+ * `costUnknownCount` and `estimatedCount` ride along deliberately: a cost total that silently
+ * omitted unpriced requests would read as complete when it isn't (invariant 8 — unknown
+ * pricing is flagged, never silently zero).
+ */
+export interface CostBreakdownRow {
+  app: string;
+  taskClass: string;
+  model: string;
+  requests: number;
+  promptTokens: number;
+  completionTokens: number;
+  cachedReadTokens: number;
+  costCents: string;
+  costUnknownCount: number;
+  estimatedCount: number;
+}
+
+export async function costBreakdown(db: Db, f: LedgerFilter): Promise<CostBreakdownRow[]> {
+  const app = dsql<string>`${usageLedger.app}`;
+  // task class is nullable (rejected before resolution) and the model is unset when a request
+  // never reached a provider — both surface as '(none)' rather than vanishing from the totals
+  const taskClass = dsql<string>`COALESCE(${taskClasses.key}, '(none)')`;
+  const model = dsql<string>`COALESCE(${usageLedger.modelServed}, '(none)')`;
+  return db
+    .select({
+      app,
+      taskClass,
+      model,
+      requests: dsql<number>`COUNT(*)::int`,
+      promptTokens: dsql<number>`COALESCE(SUM(${usageLedger.promptTokens}), 0)::int`,
+      completionTokens: dsql<number>`COALESCE(SUM(${usageLedger.completionTokens}), 0)::int`,
+      cachedReadTokens: dsql<number>`COALESCE(SUM(${usageLedger.cachedReadTokens}), 0)::int`,
+      costCents: dsql<string>`COALESCE(SUM(${usageLedger.costCents}), 0)::text`,
+      costUnknownCount: dsql<number>`COUNT(*) FILTER (WHERE ${usageLedger.costUnknown})::int`,
+      estimatedCount: dsql<number>`COUNT(*) FILTER (WHERE ${usageLedger.costEstimated})::int`,
+    })
+    .from(usageLedger)
+    .leftJoin(taskClasses, eq(usageLedger.taskClassId, taskClasses.id))
+    .where(conds(f))
+    .groupBy(app, taskClass, model)
+    .orderBy(dsql`COALESCE(SUM(${usageLedger.costCents}), 0) DESC`);
+}
+
 export interface LatencyStats {
   p50Ms: number | null;
   p95Ms: number | null;

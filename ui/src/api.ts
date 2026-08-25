@@ -149,6 +149,19 @@ export interface SpendRow {
   costUnknownCount: number;
 }
 
+export interface CostBreakdownRow {
+  app: string;
+  taskClass: string;
+  model: string;
+  requests: number;
+  promptTokens: number;
+  completionTokens: number;
+  cachedReadTokens: number;
+  costCents: string;
+  costUnknownCount: number;
+  estimatedCount: number;
+}
+
 export interface DashboardHealth {
   providers: { id: string; label: string; kind: string; status: string; lastHealthAt: string | null; health: Record<string, unknown> }[];
   breakers: { providerId: string; state: string; errorRate: number; samples: number }[];
@@ -176,3 +189,22 @@ export function fmtCents(cents: string | number | null): string {
   const n = typeof cents === 'string' ? Number(cents) : cents;
   return `$${(n / 100).toFixed(n >= 10000 ? 0 : 2)}`;
 }
+
+/**
+ * Cost formatter that keeps sub-cent amounts legible. Per-request AI spend is often fractions
+ * of a cent, and fmtCents's 2dp floor renders a whole column of real usage as "$0.00" — which
+ * reads as "free" rather than "small". Precision widens as the amount shrinks.
+ */
+export function fmtCost(cents: string | number | null): string {
+  if (cents === null) return '—';
+  const dollars = (typeof cents === 'string' ? Number(cents) : cents) / 100;
+  if (!Number.isFinite(dollars)) return '—';
+  if (dollars === 0) return '$0';
+  if (Math.abs(dollars) >= 100) return `$${dollars.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  if (Math.abs(dollars) >= 1) return `$${dollars.toFixed(2)}`;
+  if (Math.abs(dollars) >= 0.01) return `$${dollars.toFixed(3)}`;
+  return `$${dollars.toFixed(5)}`;
+}
+
+export const fmtTokens = (n: number): string =>
+  n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
