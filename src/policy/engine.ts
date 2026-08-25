@@ -217,6 +217,13 @@ export function checkRole(effective: EffectivePolicy, role: Role | undefined): v
  * Model selection (7.4): the app's requested model is honored only when it is in the allowed
  * set AND passes validation; otherwise the policy default serves. Never silently degrade a
  * failing default — that is an error, not a substitution.
+ *
+ * AN-2 exception (Q-092): when the default fails ONLY on capabilities (e.g. the class or the
+ * request needs vision the default lacks), the operator-approved allowed set is scanned for a
+ * capability-valid candidate before failing — selecting a MORE capable allowed model is an
+ * upgrade, not a degradation. Policy violations (sunset/banned/sensitivity) never substitute.
+ * When nothing in the policy can satisfy a vision requirement, the distinct
+ * `no_vision_provider` code tells clients to skip rather than error.
  */
 export function selectModel(effective: EffectivePolicy, env: AIRequest): ModelRow {
   if (env.modelRequested) {
@@ -227,8 +234,25 @@ export function selectModel(effective: EffectivePolicy, env: AIRequest): ModelRo
     if (match && !modelViolation(match, effective, env)) return match;
   }
   const violation = modelViolation(effective.defaultModel, effective, env);
-  if (violation) throw new RouterError(violation.code, violation.reason);
-  return effective.defaultModel;
+  if (!violation) return effective.defaultModel;
+
+  if (violation.code === 'capability_missing') {
+    const allowedIds = new Set(effective.policy.allowedModelIds);
+    for (const m of effective.modelsById.values()) {
+      if (m.id === effective.defaultModel.id || !allowedIds.has(m.id)) continue;
+      if (!modelViolation(m, effective, env)) return m;
+    }
+    const req = classRequires(effective.taskClass);
+    const needsVision = req.vision === true || requestRequires(env).includes('vision');
+    if (needsVision) {
+      throw new RouterError(
+        'no_vision_provider',
+        `no vision-capable model is configured for ${effective.taskClass.key} — mark one vision-capable in Catalog or add it to the policy`,
+        { detail: { taskClass: effective.taskClass.key } },
+      );
+    }
+  }
+  throw new RouterError(violation.code, violation.reason);
 }
 
 /** Limit application (7.6/7.8): clamp temperature, inject + clamp max_tokens. Mutates env. */

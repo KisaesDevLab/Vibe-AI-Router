@@ -5,6 +5,25 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.19 — 2026-08-25
+
+**AN-2 gap closure: structured vision skip, capability-upgrade selection, budget precheck (SDK 0.2.2).**
+
+- **New error code `no_vision_provider` (HTTP 409, Q-092)**: emitted when a vision-requiring
+  task class (or a request carrying image parts) has no configured provider/model that can
+  serve it. Distinct from `capability_missing` so clients (T&B file naming) can treat it as a
+  structured skip — file keeps its original name — instead of a failure. Ledger buckets it
+  under `capability_missing` (no `request_status` enum migration); audit emits `blocked_policy`.
+- **`selectModel` capability upgrade (Q-092)**: a default failing ONLY on capabilities may now
+  upgrade to a capability-valid model from the operator-approved allowed set (e.g. a text
+  default with a vision model in the allowed set serves image-bearing requests). Policy
+  violations (sunset/banned/sensitivity) still never substitute.
+- **`POST /v1/budget/precheck` (Q-093)**: app-token authed "can I afford this batch?" reusing
+  `checkBudgets`; an exhausted budget returns `{ ok:false, reason:'budget_exceeded' }` at
+  HTTP 200 — a precheck reports, never throws. Soft warnings included.
+- **SDK 0.2.2**: `no_vision_provider` in `VibeAiErrorCode`, `budgetPrecheck()` wrapper, and
+  the `timebill_*` task-class keys (`TIMEBILL_FILE_NAMING` et al.) in `TASK_CLASSES`.
+
 ## 0.0.18 — 2026-08-24
 
 **DigitalOcean capability + pricing automation (kimi-k3), catalog workflow, admin account.**

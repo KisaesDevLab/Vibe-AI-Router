@@ -268,6 +268,41 @@ describe.skipIf(!url)('ledger + budgets end-to-end', () => {
     expect(latency.p95Ms).not.toBeNull();
   });
 
+  // AN-2 (Q-093) — precheck reports budget state instead of throwing.
+  it('budget precheck: ok, exhausted as ok:false, unknown class as policy_blocked', async () => {
+    const post = (body: unknown): Promise<Response> =>
+      fetch(`${base}/v1/budget/precheck`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${DEMO.appToken}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+    const ok = await post({ task_class: 'tb_research_summary' });
+    expect(ok.status).toBe(200);
+    const okBody = (await ok.json()) as { ok: boolean; soft_warnings: unknown[] };
+    expect(okBody.ok).toBe(true);
+
+    // Zero firm budget → exhausted, reported not thrown.
+    const [firm] = await handle.db.query.firms.findMany();
+    const prevSettings = firm!.settings;
+    await handle.db
+      .update(firms)
+      .set({ settings: { ...(prevSettings as object), budgets: { firm_monthly_cents: 0 } } })
+      .where(eq(firms.id, firmId));
+    const broke = await post({ task_class: 'tb_research_summary' });
+    expect(broke.status).toBe(200);
+    const brokeBody = (await broke.json()) as { ok: boolean; reason?: string };
+    expect(brokeBody.ok).toBe(false);
+    expect(brokeBody.reason).toBe('budget_exceeded');
+    await handle.db.update(firms).set({ settings: prevSettings }).where(eq(firms.id, firmId));
+
+    const unknown = await post({ task_class: 'no_such_class' });
+    expect(unknown.status).toBe(403);
+  });
+
   it('idempotency: double write for the same requestId leaves one row and one spend increment', async () => {
     const ledger = new DbLedger(handle.db);
     const auth = { firmId, app: 'vibe-tb', scopes: ['chat'], tokenId: 't' };

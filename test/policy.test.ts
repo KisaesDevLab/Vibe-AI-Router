@@ -199,6 +199,68 @@ describe('selectModel + role gating + limits', () => {
     expect(() => selectModel(fakeEffective(tc, def), baseEnv())).toThrow(/vision/);
   });
 
+  // AN-2 (Q-092) — capability gaps may upgrade to a capable ALLOWED model;
+  // policy violations never substitute; exhausted vision → no_vision_provider.
+  it('capability-missing default upgrades to a capable allowed model', () => {
+    const tc = fakeClass({ requires: { vision: true } });
+    const def = fakeModel({ capabilities: {} });
+    const seeing = fakeModel({ capabilities: { vision: true } });
+    const eff = fakeEffective(tc, def, { allowed: [seeing] });
+    expect(selectModel(eff, baseEnv()).id).toBe(seeing.id);
+  });
+
+  it('vision required + nothing capable anywhere → no_vision_provider', () => {
+    const tc = fakeClass({ requires: { vision: true } });
+    const def = fakeModel({ capabilities: {} });
+    const blind = fakeModel({ capabilities: { tools: true } });
+    const eff = fakeEffective(tc, def, { allowed: [blind] });
+    try {
+      selectModel(eff, baseEnv());
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect((err as { code: string }).code).toBe('no_vision_provider');
+      expect((err as { status: number }).status).toBe(409);
+    }
+  });
+
+  it('request-implied vision (image parts) also maps to no_vision_provider', () => {
+    const tc = fakeClass({});
+    const def = fakeModel({ capabilities: {} });
+    const withImage = baseEnv({
+      messages: [{ role: 'user', content: [{ type: 'image', url: 'data:image/png;base64,x' }] }],
+    });
+    try {
+      selectModel(fakeEffective(tc, def), withImage);
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect((err as { code: string }).code).toBe('no_vision_provider');
+    }
+  });
+
+  it('a POLICY-violating default never substitutes, even with a capable alternative', () => {
+    const tc = fakeClass({ requires: { vision: true } });
+    const def = fakeModel({ status: 'sunset', capabilities: { vision: true } });
+    const alt = fakeModel({ capabilities: { vision: true } });
+    const eff = fakeEffective(tc, def, { allowed: [alt] });
+    try {
+      selectModel(eff, baseEnv());
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect((err as { code: string }).code).toBe('policy_blocked');
+    }
+  });
+
+  it('non-vision capability gap with no capable alternative stays capability_missing', () => {
+    const tc = fakeClass({ requires: { json_schema: true } });
+    const def = fakeModel({ capabilities: {} });
+    try {
+      selectModel(fakeEffective(tc, def), baseEnv());
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect((err as { code: string }).code).toBe('capability_missing');
+    }
+  });
+
   it('explicit role deny blocks; absent rule allows; app-only traffic passes (7.7)', () => {
     const tc = fakeClass({});
     const def = fakeModel({});

@@ -13,6 +13,11 @@ export const ERROR_CODES = [
   'policy_blocked',
   'scrubber_blocked',
   'capability_missing',
+  // AN-2 (Q-092): a vision-requiring task class has NO configured
+  // provider/model that can serve it — a firm-configuration state, distinct
+  // from a merely misconfigured default (capability_missing). Clients treat
+  // it as a structured skip (file keeps its original name), not a failure.
+  'no_vision_provider',
   'budget_exceeded',
   'unknown',
 ] as const;
@@ -29,6 +34,7 @@ export const ERROR_HTTP_STATUS: Record<ErrorCode, number> = {
   policy_blocked: 403,
   scrubber_blocked: 422,
   capability_missing: 400,
+  no_vision_provider: 409,
   budget_exceeded: 402,
   unknown: 500,
 };

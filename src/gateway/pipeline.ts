@@ -564,7 +564,11 @@ export function emitTerminalAudit(ctx: PipelineCtx, deps: PipelineDeps): void {
     return;
   }
   if (ctx.error.code === 'scrubber_blocked') return; // already emitted by stageScrub
-  if (ctx.error.code === 'policy_blocked' || ctx.error.code === 'capability_missing') {
+  if (
+    ctx.error.code === 'policy_blocked' ||
+    ctx.error.code === 'capability_missing' ||
+    ctx.error.code === 'no_vision_provider'
+  ) {
     deps.audit({
       ...base,
       event: 'blocked_policy',

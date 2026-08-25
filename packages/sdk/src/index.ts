@@ -19,6 +19,7 @@ export type VibeAiErrorCode =
   | 'policy_blocked'
   | 'scrubber_blocked'
   | 'capability_missing'
+  | 'no_vision_provider'
   | 'budget_exceeded'
   | 'output_truncated'
   | 'unknown';
@@ -528,6 +529,44 @@ export class VibeAiClient {
     if (!res.ok) await this.throwFor(res);
     return res.json() as Promise<{ period: string; items: Record<string, unknown>[] }>;
   }
+
+  /**
+   * AN-2 — "can I afford this batch?" before enqueuing work. Never throws
+   * budget_exceeded: an exhausted budget comes back as { ok: false }.
+   */
+  async budgetPrecheck(
+    taskClass: string,
+    opts?: { userId?: string; signal?: AbortSignal },
+  ): Promise<{
+    ok: boolean;
+    reason?: string;
+    soft_warnings?: { scope: string; limit_cents: number; spent_cents: number }[];
+  }> {
+    const { signal: sig, done } = this.withTimeout(opts?.signal);
+    let res: Response;
+    try {
+      res = await this.fetchFn(`${this.baseUrl}/v1/budget/precheck`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${this.token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          task_class: taskClass,
+          ...(opts?.userId ? { user_id: opts.userId } : {}),
+        }),
+        ...(sig ? { signal: sig } : {}),
+      });
+    } finally {
+      done();
+    }
+    if (!res.ok) await this.throwFor(res);
+    return res.json() as Promise<{
+      ok: boolean;
+      reason?: string;
+      soft_warnings?: { scope: string; limit_cents: number; spent_cents: number }[];
+    }>;
+  }
 }
 
 /** Well-known suite task-class keys (default pack) — apps may declare more. */
@@ -546,4 +585,7 @@ export const TASK_CLASSES = {
   CONNECT_DOC_SUMMARIZE: 'connect_doc_summarize',
   TXCONV_STATEMENT_PARSE: 'txconv_statement_parse',
   TB_INVOICE_NARRATIVE: 'tb_invoice_narrative',
+  TIMEBILL_PRACTICE_ANALYTICS: 'timebill_practice_analytics',
+  TIMEBILL_SUPPORT_CHAT: 'timebill_support_chat',
+  TIMEBILL_FILE_NAMING: 'timebill_file_naming',
 } as const;

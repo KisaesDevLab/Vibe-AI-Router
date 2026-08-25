@@ -1,6 +1,6 @@
 {
   "name": "@kisaes/vibe-ai-client",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Typed client for the Vibe AI Router — the only way Vibe apps talk to AI",
   "license": "BUSL-1.1",
   "author": "KisaesDevLab",

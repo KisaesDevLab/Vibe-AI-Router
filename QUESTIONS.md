@@ -550,3 +550,18 @@ Grouped by phase. This file is the Phase 15 review agenda.
   only. Lockout recovery is the existing ops path: re-running bootstrap-firm re-applies
   ROUTER_ADMIN_EMAIL/_PASSWORD (documented on the endpoint and in the UI copy).** → single
   endpoint + card; rate limiting rides the existing login throttle discussion → **S**
+- [Q-092] AN-2 asked for a structured `no_vision_provider` skip, but "never silently degrade a
+  failing default" is locked (7.4) — how do the two coexist? → **Split by violation type: a
+  default failing on POLICY grounds (sunset/banned/sensitivity) still errors with no
+  substitution; a default failing only on CAPABILITIES may upgrade to a capability-valid model
+  from the operator-approved allowed set (selecting a MORE capable allowed model is an upgrade,
+  not a degradation — and config-time validation means this arises mainly from request-implied
+  needs like image parts). When vision is required and nothing in the policy can serve it, the
+  new `no_vision_provider` code (HTTP 409) tells clients to skip rather than fail; ledger
+  buckets it under `capability_missing` (no request_status enum migration).** → error-code
+  addition mirrored in SDK + envelope doc; revert = drop the scan branch → **S**
+- [Q-093] Apps want "can I afford this batch?" before enqueuing work (AN-2 precheck) — new
+  surface or overload the pipeline? → **POST /v1/budget/precheck beside the billing feed,
+  app-token authed, reusing checkBudgets verbatim; an exhausted budget returns
+  `{ ok:false, reason:'budget_exceeded' }` (HTTP 200) — a precheck reports state, it never
+  throws. SDK wrapper `budgetPrecheck()` in 0.2.2.** → read-only route, no schema change → **S**
