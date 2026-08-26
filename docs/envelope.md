@@ -57,10 +57,18 @@ finish chunk.
 | `capability_missing` | 400 | no |
 | `no_vision_provider` | 409 | no |
 | `provider_unavailable` | 502 | yes |
+| `invalid_response` | 502 | yes |
 | `unknown` | 500 | no |
 
 Body: `{ error: { message, type, code, detail? } }` — `detail` never contains message bodies or
 matched scrubber values. `Retry-After` set when known.
+
+`invalid_response` means every hop in the policy chain answered but none produced a usable
+result (empty completion, forced-JSON answered with prose, tool arguments that are not JSON, a
+schema violation). Its `detail.reason` names which check failed and `detail.path` the schema
+pointer — never the offending value. Verification is per hop, so the client sees this only
+after same-model retries and the whole fallback chain were exhausted. See
+`src/gateway/verify.ts` and `ROUTER_VERIFY_RESPONSES`.
 
 ## Request identity
 

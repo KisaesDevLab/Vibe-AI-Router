@@ -75,6 +75,12 @@ export interface PipelineCtx {
   budgetWarnings?: string[];
   /** served from the response cache (13.2) */
   cacheHit?: boolean;
+  /**
+   * The PRIMARY model could not be routed (provider row gone, credential revoked, base_url
+   * rejected). Not fatal on its own: the resilience executor re-routes every hop, so the
+   * fallback chain gets its chance and this is only surfaced if the whole chain is unusable.
+   */
+  routeError?: RouterError;
 }
 
 export interface AdapterRegistry {
@@ -428,7 +434,19 @@ export async function stageRoute(ctx: PipelineCtx, deps: PipelineDeps): Promise<
       detail: { from: up.from, to: up.to, missing: up.missing.join(',').slice(0, 100) },
     });
   });
-  ctx.route = await routeForModel(model, ctx, deps);
+  try {
+    ctx.route = await routeForModel(model, ctx, deps);
+  } catch (err) {
+    const rerr = toRouterError(err);
+    // Routing the primary can fail for reasons a FALLBACK hop routes around cleanly — a deleted
+    // provider row, a revoked credential, a base_url the SSRF gate now rejects. Failing here
+    // returned that error to the app with the configured chain untouched and zero upstream
+    // attempts. The resilient executor re-runs routeForModel per hop and ranks the outcomes
+    // with preferError, so hand it the decision. Without a resilience layer (unit-test wiring)
+    // there is no chain to defer to, so the error stays fatal.
+    if (!deps.resilience) throw rerr;
+    ctx.routeError = rerr;
+  }
 }
 
 // ── stage: adapt ─────────────────────────────────────────────────────────────
@@ -436,39 +454,45 @@ export async function stageRoute(ctx: PipelineCtx, deps: PipelineDeps): Promise<
 export async function stageAdapt(ctx: PipelineCtx, deps: PipelineDeps, signal: AbortSignal): Promise<void> {
   const route = ctx.route;
   const auth = ctx.auth;
-  if (!route || !auth) throw new RouterError('unknown', 'pipeline ordering violation');
+  if (!auth) throw new RouterError('unknown', 'pipeline ordering violation');
+  // route may be unset when the PRIMARY failed to route (stageRoute deferred to the chain).
+  // With no resilience layer there is no chain, so that deferral is fatal here.
+  if (!route && !deps.resilience) {
+    throw ctx.routeError ?? new RouterError('unknown', 'pipeline ordering violation');
+  }
 
   // response cache (13.2): non-streaming, opt-in per task class, local tier unless cache_cloud
   const req = ctx.effective ? classRequires(ctx.effective.taskClass) : {};
   const cacheTtl = req.cache_ttl_s ?? 0;
-  const cacheable =
-    !ctx.envelope.stream &&
-    deps.responseCache !== undefined &&
-    cacheTtl > 0 &&
-    (isLocalKind(route.model.providerKind) || req.cache_cloud === true);
-  const cacheKey = cacheable
-    ? (await import('../ops/cache.js')).ResponseCache.key(
-        auth.firmId,
-        route.model.canonicalId,
-        ctx.requestHash,
-        // request-shaping params must be part of the key (Q-073) — same messages with a
-        // different response_format/tools/temperature are NOT the same response
-        createHash('sha256')
-          .update(
-            JSON.stringify([
-              ctx.envelope.tools ?? null,
-              ctx.envelope.toolChoice ?? null,
-              ctx.envelope.responseFormat ?? null,
-              ctx.envelope.maxTokens ?? null,
-              ctx.envelope.temperature ?? null,
-              ctx.envelope.topP ?? null,
-              ctx.envelope.stop ?? null,
-            ]),
-          )
-          .digest('hex')
-          .slice(0, 16),
-      )
-    : undefined;
+  const cacheEligible = !ctx.envelope.stream && deps.responseCache !== undefined && cacheTtl > 0;
+  /** Key depends on the model that actually serves, so it is computed per RouteDecision. */
+  const keyFor = async (r: RouteDecision): Promise<string | undefined> => {
+    if (!cacheEligible) return undefined;
+    if (!isLocalKind(r.model.providerKind) && req.cache_cloud !== true) return undefined;
+    return (await import('../ops/cache.js')).ResponseCache.key(
+      auth.firmId,
+      r.model.canonicalId,
+      ctx.requestHash,
+      // request-shaping params must be part of the key (Q-073) — same messages with a
+      // different response_format/tools/temperature are NOT the same response
+      createHash('sha256')
+        .update(
+          JSON.stringify([
+            ctx.envelope.tools ?? null,
+            ctx.envelope.toolChoice ?? null,
+            ctx.envelope.responseFormat ?? null,
+            ctx.envelope.maxTokens ?? null,
+            ctx.envelope.temperature ?? null,
+            ctx.envelope.topP ?? null,
+            ctx.envelope.stop ?? null,
+          ]),
+        )
+        .digest('hex')
+        .slice(0, 16),
+    );
+  };
+  const cacheKey = route ? await keyFor(route) : undefined;
+  const cacheable = cacheKey !== undefined;
   if (cacheable && cacheKey) {
     const hit = deps.responseCache!.get(cacheKey);
     if (hit) {
@@ -500,12 +524,17 @@ export async function stageAdapt(ctx: PipelineCtx, deps: PipelineDeps, signal: A
       })();
     } else {
       ctx.response = await executeResilient(ctx, deps, deps.resilience, signal);
-      if (cacheable && cacheKey && ctx.response) {
-        deps.responseCache!.set(cacheKey, ctx.response, cacheTtl);
+      // the SERVING hop may differ from the primary (fallback, or a primary that never
+      // routed), so re-derive the key from the route that actually answered
+      const servedKey = cacheKey ?? (ctx.route ? await keyFor(ctx.route) : undefined);
+      if (servedKey && ctx.response) {
+        deps.responseCache!.set(servedKey, ctx.response, cacheTtl);
       }
     }
     return;
   }
+
+  if (!route) throw ctx.routeError ?? new RouterError('unknown', 'pipeline ordering violation');
 
   const record = (ok: boolean): void =>
     deps.recordHealth?.(route.provider.id, auth.firmId, route.provider.label, ok);

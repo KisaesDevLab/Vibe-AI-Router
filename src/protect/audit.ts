@@ -89,6 +89,19 @@ const EVENT_SCHEMAS = {
   scrubber_redacted: z.object({ matches: z.record(z.number()), scope: z.enum(['fallback_only']).optional() }),
   scrubber_warning: z.object({ matches: z.record(z.number()), scope: z.enum(['fallback_only']).optional() }),
   blocked_policy: z.object({ code: z.string(), reason: z.string().max(300) }),
+  // A hop answered 200 with an unusable result. `reason` is a fixed vocabulary and `path` is a
+  // schema POINTER — neither can carry response content (invariant 2).
+  response_rejected: z.object({
+    reason: z.enum([
+      'empty_response',
+      'provider_error_finish',
+      'tool_arguments_not_json',
+      'response_not_json',
+      'json_truncated',
+      'schema_violation',
+    ]),
+    path: z.string().max(200).optional(),
+  }),
   provider_error: z.object({
     code: z.string(),
     providerStatus: z.number().optional(),

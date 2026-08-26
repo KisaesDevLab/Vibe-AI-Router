@@ -20,6 +20,7 @@ export type VibeAiErrorCode =
   | 'scrubber_blocked'
   | 'capability_missing'
   | 'no_vision_provider'
+  | 'invalid_response'
   | 'budget_exceeded'
   | 'output_truncated'
   | 'unknown';
@@ -46,7 +47,13 @@ export class VibeAiError extends Error {
   }
 
   get retryable(): boolean {
-    return this.code === 'rate_limited' || this.code === 'provider_unavailable';
+    return (
+      this.code === 'rate_limited' ||
+      this.code === 'provider_unavailable' ||
+      // the router already retried and exhausted the fallback chain, but the fault is
+      // stochastic model output — a later attempt can still succeed
+      this.code === 'invalid_response'
+    );
   }
 }
 

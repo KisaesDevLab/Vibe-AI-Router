@@ -5,6 +5,46 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.24 — 2026-08-26
+
+**Redundancy for RESULTS, not just for status codes** — a provider that is up and answering
+200 with an unusable body is now a hop failure, and a primary that cannot be routed at all no
+longer bypasses the fallback chain.
+
+- **Response verification (`src/gateway/verify.ts`).** Adapters already reject structurally
+  malformed bodies; nothing judged whether a well-formed envelope carried the answer that was
+  asked for. An empty completion, a forced-JSON request answered with prose, tool-call
+  arguments that are not JSON, a schema the response does not satisfy — all returned 200, and
+  `breaker.record(true)` left the provider green, so nothing retried and no fallback hop was
+  ever considered. Each is now a **retryable `invalid_response`**, which buys three layers:
+  same-model retry (model output is stochastic — a re-roll often succeeds), then the policy's
+  fallback chain, then the breaker if a provider does it persistently. Verification checks
+  only what the REQUEST asked for; a plain text completion is checked for emptiness and
+  nothing else. `content_filter` refusals are exempt — retrying a refusal only repeats it.
+- **Schema checking is a dependency-free JSON Schema SUBSET** (`type` incl. unions/nullable,
+  `properties`, `required`, `items`, `enum`, `anyOf`/`oneOf`). Unrecognized keywords never
+  fail a response: this is a fault detector, so a construct it cannot evaluate must not
+  manufacture a false failure. It is not a gate for untrusted input.
+- **Primary routing failures now fall back (`stageRoute`).** `routeForModel` on the primary
+  threw straight out of the pipeline, so a deleted provider row, a revoked credential, or a
+  base_url the SSRF gate rejects returned an error to the app with the configured chain
+  untouched and **zero upstream attempts** — even though the resilient executor re-routes
+  every hop and would have handled it. The failure is now deferred to the chain and surfaces
+  only if the whole chain is unusable. `savePolicy` never checked provider existence, so this
+  was reachable at config time, not only by later drift.
+- **Streams can fall back when they produce nothing.** Non-content frames (finish/usage/
+  keep-alive) are buffered until the first real content chunk, so a hop that ends without ever
+  emitting output has relayed nothing to the consumer and can still be replaced. The no-splice
+  rule (10.4) is unchanged — once real content is out, no provider is spliced in behind it.
+  Related: the total-timeout wall is now cleared on the first CONTENT chunk rather than the
+  first frame, so a provider emitting only keep-alives can no longer hang until the client
+  gives up.
+- New audit event `response_rejected` (reason + schema PATH only — never the offending value,
+  invariant 2), new metric `vibe_router_responses_rejected_total{reason}`, new error code
+  `invalid_response` (502, retryable) mirrored in the SDK's `VibeAiError`, and a kill switch
+  `ROUTER_VERIFY_RESPONSES` (default `true`) for unblocking traffic while diagnosing an
+  over-strict schema.
+
 ## 0.0.23 — 2026-08-25
 
 **The admin console works under a path mount** (Q-096) — merges the parked `feat/ui-base-path`.
