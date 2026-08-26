@@ -294,12 +294,35 @@ export function selectModel(
   throw new RouterError(violation.code, violation.reason);
 }
 
+/**
+ * Per-MODEL output ceiling, applied at each hop (never to the shared envelope).
+ *
+ * `applyLimits` clamps to the task class / policy ceiling, which is a property of the WORK.
+ * How many tokens a given model can actually emit is a property of the MODEL, and the two
+ * disagree constantly: `txconv_statement_parse` legitimately asks for 32768, and a chain that
+ * falls back to a 4096-output model would otherwise send 32768 to it — a hard 400 on Anthropic,
+ * a silent provider-side cap elsewhere. Returns the envelope UNCHANGED when no clamp applies,
+ * so the hot path allocates nothing.
+ *
+ * `maxOutput` is nullable (unknown for many catalog entries and for every operator-registered
+ * custom model): unknown means "do not clamp", never "clamp to zero".
+ */
+export function clampToModel(env: AIRequest, model: ModelRow): AIRequest {
+  const limit = model.maxOutput;
+  if (limit === null || limit === undefined || limit <= 0) return env;
+  if (env.maxTokens === undefined || env.maxTokens <= limit) return env;
+  return { ...env, maxTokens: limit };
+}
+
 /** Limit application (7.6/7.8): clamp temperature, inject + clamp max_tokens. Mutates env. */
 export function applyLimits(effective: EffectivePolicy, env: AIRequest): void {
   const { policy, taskClass, firmSettings } = effective;
 
   const cap = policy.maxTokensOverride ?? taskClass.defaultMaxTokens;
   env.maxTokens = Math.min(env.maxTokens ?? cap, cap); // never unset (7.8); Anthropic requires it
+  // NOTE: this is the CLASS/POLICY ceiling only. The per-MODEL ceiling is applied per hop by
+  // clampToModel() — models in one chain have different output limits, and the envelope is
+  // shared across hops, so a model-specific clamp must never be written back here.
 
   if (env.temperature !== undefined) {
     const maxima = [policy.temperatureMax, firmSettings.global_temperature_max].filter(

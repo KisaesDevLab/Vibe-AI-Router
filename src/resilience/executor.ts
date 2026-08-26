@@ -9,7 +9,7 @@ import type { AIResponse, StreamChunk } from '../gateway/envelope.js';
 import { RETRYABLE_CODES, RouterError, toRouterError } from '../gateway/errors.js';
 import { routeForModel, type PipelineCtx, type PipelineDeps, type RouteDecision } from '../gateway/pipeline.js';
 import { verifyResponse, type VerifyFinding } from '../gateway/verify.js';
-import { selectModel } from '../policy/engine.js';
+import { clampToModel, selectModel } from '../policy/engine.js';
 import { MAX_RETRIES, retryDelayMs, sleep } from './backoff.js';
 import type { CircuitBreaker } from './breaker.js';
 import type { LoadShedGuard } from './shed.js';
@@ -115,7 +115,26 @@ export function candidateModels(ctx: PipelineCtx): string[] {
  * original envelope for local hops and stashes the redacted copy for cloud hops here.
  */
 function hopEnvelope(route: RouteDecision, ctx: PipelineCtx): PipelineCtx['envelope'] {
-  return !isLocalKind(route.model.providerKind) && ctx.cloudEnvelope ? ctx.cloudEnvelope : ctx.envelope;
+  const base = !isLocalKind(route.model.providerKind) && ctx.cloudEnvelope ? ctx.cloudEnvelope : ctx.envelope;
+  // per-hop, never written back: the next hop may be a model with a HIGHER ceiling, and
+  // mutating the shared envelope would leave it clamped to the smallest model in the chain
+  return clampToModel(base, route.model);
+}
+
+/** Audited once per hop when the model's own output ceiling is below what the caller asked. */
+function auditClamp(ctx: PipelineCtx, deps: PipelineDeps, route: RouteDecision): void {
+  const requested = ctx.envelope.maxTokens;
+  const limit = route.model.maxOutput;
+  if (!ctx.auth || requested === undefined || limit === null || limit === undefined || requested <= limit) return;
+  deps.audit?.({
+    firmId: ctx.auth.firmId,
+    event: 'max_tokens_clamped',
+    app: ctx.auth.app,
+    ...(ctx.taskClass ? { taskClass: ctx.taskClass.key } : {}),
+    model: route.model.canonicalId,
+    requestHash: ctx.requestHash,
+    detail: { requested, served: limit },
+  });
 }
 
 async function executeHopOnce(
@@ -163,6 +182,12 @@ async function executeHopWithRetries(
       if (!signal.aborted) {
         cfg.breaker.record(route.provider.id, false);
         deps.recordHealth?.(route.provider.id, ctx.auth!.firmId, route.provider.label, false);
+      }
+      // Truncation at max_tokens is DETERMINISTIC — a re-roll of the same model with the same
+      // ceiling truncates again. Leave the retry loop immediately so the chain advances to a
+      // model whose own max_output can actually hold the answer.
+      if (rerr.code === 'invalid_response' && (rerr.detail as { reason?: string } | undefined)?.reason === 'json_truncated') {
+        throw rerr;
       }
       if (!RETRYABLE_CODES.has(rerr.code) || attempt === MAX_RETRIES || signal.aborted) throw rerr;
       await sleep(retryDelayMs(attempt, rerr.retryAfterSeconds), signal).catch(() => {
@@ -237,6 +262,7 @@ export async function executeResilient(
       }
       try {
         if (previousModel) auditHop(ctx, deps, previousModel, model.canonicalId, lastErr?.message ?? 'fallback');
+        auditClamp(ctx, deps, route);
         ctx.route = route; // the hop that actually serves
         return await executeHopWithRetries(route, ctx, deps, cfg, signal);
       } catch (err) {
@@ -330,6 +356,7 @@ export async function* executeResilientStream(
 
       try {
         if (previousModel) auditHop(ctx, deps, previousModel, model.canonicalId, lastErr?.message ?? 'fallback');
+        auditClamp(ctx, deps, route);
         ctx.route = route;
         const stream = route.adapter.executeStream(hopEnvelope(route, ctx), route.executeCtx, hopController.signal);
         for await (const chunk of stream) {

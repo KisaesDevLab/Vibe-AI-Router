@@ -12,7 +12,7 @@ import { createServer, type Server } from 'node:http';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { createDb, type DbHandle } from '../src/db/client.js';
-import { providers, usageLedger } from '../db/schema.js';
+import { models, providers, usageLedger } from '../db/schema.js';
 import { buildApp } from '../src/server/app.js';
 import { loadEnv } from '../src/config/env.js';
 import { createAdapterRegistry } from '../src/adapters/registry.js';
@@ -20,6 +20,7 @@ import { DbLedger } from '../src/ledger/writer.js';
 import { createLogger } from '../src/lib/logger.js';
 import { PolicyEngine } from '../src/policy/engine.js';
 import { savePolicy } from '../src/policy/save.js';
+import { clampToModel } from '../src/policy/engine.js';
 import { CircuitBreaker } from '../src/resilience/breaker.js';
 import { LoadShedGuard } from '../src/resilience/shed.js';
 import { RateLimiter } from '../src/resilience/limiter.js';
@@ -198,7 +199,7 @@ describe('verifyResponse', () => {
 
 // ── chaos: redundancy end to end ─────────────────────────────────────────────
 
-type Mode = 'json-ok' | 'prose' | 'empty' | 'empty-stream' | 'schema-miss';
+type Mode = 'json-ok' | 'prose' | 'empty' | 'empty-stream' | 'schema-miss' | 'truncated';
 
 describe.skipIf(!url)('redundancy: healthy provider, unusable results', () => {
   let app: FastifyInstance;
@@ -208,6 +209,8 @@ describe.skipIf(!url)('redundancy: healthy provider, unusable results', () => {
   let secondary: Server;
   let primaryMode: Mode = 'prose';
   let primaryHits = 0;
+  /** the max_tokens the PRIMARY upstream actually received on the wire */
+  let primaryMaxTokens: number | undefined;
   let secondaryHits = 0;
   const audits: AuditEntry[] = [];
 
@@ -230,7 +233,9 @@ describe.skipIf(!url)('redundancy: healthy provider, unusable results', () => {
       let body = '';
       req.on('data', (c: Buffer) => (body += c.toString()));
       req.on('end', () => {
-        const streamed = (JSON.parse(body) as { stream?: boolean }).stream === true;
+        const parsedReq = JSON.parse(body) as { stream?: boolean; max_tokens?: number };
+        primaryMaxTokens = parsedReq.max_tokens;
+        const streamed = parsedReq.stream === true;
         if (primaryMode === 'empty-stream' || (streamed && primaryMode !== 'json-ok')) {
           // a stream that opens, keeps alive, finishes — and never emits content
           res2.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -260,6 +265,14 @@ describe.skipIf(!url)('redundancy: healthy provider, unusable results', () => {
             break;
           case 'schema-miss':
             res2.end(jsonBody({ vendor: 'Acme', total: 'twelve dollars' }));
+            break;
+          case 'truncated':
+            res2.end(
+              JSON.stringify({
+                choices: [{ message: { content: '{"vendor":"Acme","tot' }, finish_reason: 'length' }],
+                usage: { prompt_tokens: 2, completion_tokens: 512 },
+              }),
+            );
             break;
           default:
             res2.end(jsonBody({ vendor: 'Acme', total: 12 }));
@@ -386,6 +399,7 @@ describe.skipIf(!url)('redundancy: healthy provider, unusable results', () => {
     primaryMode = mode;
     primaryHits = 0;
     secondaryHits = 0;
+    primaryMaxTokens = undefined;
     audits.length = 0;
   };
 
@@ -441,6 +455,32 @@ describe.skipIf(!url)('redundancy: healthy provider, unusable results', () => {
     const text = await res2.text();
     expect(text).toContain('Acme'); // the fallback hop's content, not an empty success
     expect(secondaryHits).toBeGreaterThanOrEqual(1);
+  });
+
+  it('the PRIMARY model max_output clamps the wire request, and truncation advances the chain', async () => {
+    // gpt-4o-mini can emit 512 here; the class cap (tb_research_summary: 8192) is far above it
+    await handle.db.update(models).set({ maxOutput: 512 }).where(eq(models.canonicalId, 'openai/gpt-4o-mini'));
+    await new Promise((r) => setTimeout(r, 80)); // let the 50ms policy cache expire
+    reset('truncated');
+
+    const res2 = await chat({ json: true });
+    expect(res2.status).toBe(200);
+
+    // the model ceiling reached the wire — NOT the 8192 class cap
+    expect(primaryMaxTokens).toBe(512);
+    // truncation is deterministic: exactly ONE attempt, no wasted re-rolls
+    expect(primaryHits).toBe(1);
+    // ...and the chain advanced to a model that can hold the answer
+    const body = (await res2.json()) as { model: string };
+    expect(body.model).toBe('ollama/qwen3:14b');
+
+    const clamped = audits.find((a) => a.event === 'max_tokens_clamped');
+    expect(clamped?.detail).toMatchObject({ requested: 8192, served: 512 });
+    const rejected = audits.find((a) => a.event === 'response_rejected');
+    expect((rejected?.detail as { reason: string }).reason).toBe('json_truncated');
+
+    await handle.db.update(models).set({ maxOutput: null }).where(eq(models.canonicalId, 'openai/gpt-4o-mini'));
+    await new Promise((r) => setTimeout(r, 80));
   });
 
   it('a good primary is left alone — no retry, no fallback, no rejection audit', async () => {
@@ -575,5 +615,38 @@ describe.skipIf(!url)('redundancy: primary cannot be routed → chain still runs
     });
     expect(row?.modelServed).toBe('ollama/qwen3:14b');
     expect(row?.status).toBe('ok');
+  });
+});
+
+// ── unit: per-model output ceiling ───────────────────────────────────────────
+
+describe('clampToModel (per-MODEL max_tokens)', () => {
+  const model = (maxOutput: number | null): Parameters<typeof clampToModel>[1] =>
+    ({ canonicalId: 'm', maxOutput }) as Parameters<typeof clampToModel>[1];
+
+  it('clamps a request above the model ceiling', () => {
+    const e = { ...env(), maxTokens: 32768 };
+    expect(clampToModel(e, model(4096)).maxTokens).toBe(4096);
+  });
+
+  it('leaves a request at or below the ceiling untouched — same object, no allocation', () => {
+    const e = { ...env(), maxTokens: 2048 };
+    expect(clampToModel(e, model(4096))).toBe(e);
+    const exact = { ...env(), maxTokens: 4096 };
+    expect(clampToModel(exact, model(4096))).toBe(exact);
+  });
+
+  it('UNKNOWN max_output means do not clamp — never clamp to zero', () => {
+    const e = { ...env(), maxTokens: 32768 };
+    expect(clampToModel(e, model(null))).toBe(e);
+    expect(clampToModel(e, model(0))).toBe(e);
+  });
+
+  it('never mutates the shared envelope — the next hop may have a HIGHER ceiling', () => {
+    const shared = { ...env(), maxTokens: 32768 };
+    const small = clampToModel(shared, model(4096));
+    expect(small.maxTokens).toBe(4096);
+    expect(shared.maxTokens).toBe(32768); // untouched
+    expect(clampToModel(shared, model(32768)).maxTokens).toBe(32768);
   });
 });

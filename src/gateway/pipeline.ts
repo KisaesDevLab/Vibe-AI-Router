@@ -17,6 +17,7 @@ import type { ExecuteContext, GatewayAdapter } from './adapter-types.js';
 import {
   applyLimits,
   checkRole,
+  clampToModel,
   classRequires,
   modelViolation,
   selectModel,
@@ -539,11 +540,11 @@ export async function stageAdapt(ctx: PipelineCtx, deps: PipelineDeps, signal: A
   const record = (ok: boolean): void =>
     deps.recordHealth?.(route.provider.id, auth.firmId, route.provider.label, ok);
   if (ctx.envelope.stream) {
-    ctx.stream = route.adapter.executeStream(ctx.envelope, route.executeCtx, signal);
+    ctx.stream = route.adapter.executeStream(clampToModel(ctx.envelope, route.model), route.executeCtx, signal);
     // stream outcome is recorded by the SSE relay when the stream ends
   } else {
     try {
-      ctx.response = await route.adapter.execute(ctx.envelope, route.executeCtx, signal);
+      ctx.response = await route.adapter.execute(clampToModel(ctx.envelope, route.model), route.executeCtx, signal);
       record(true);
       if (cacheable && cacheKey && ctx.response) {
         deps.responseCache!.set(cacheKey, ctx.response, cacheTtl);

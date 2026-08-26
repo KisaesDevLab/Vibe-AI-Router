@@ -39,6 +39,19 @@ longer bypasses the fallback chain.
   Related: the total-timeout wall is now cleared on the first CONTENT chunk rather than the
   first frame, so a provider emitting only keep-alives can no longer hang until the client
   gives up.
+- **`max_tokens` is now clamped per MODEL, not just per task class** (operator-directed). The
+  class/policy cap describes the WORK; how many tokens a model can actually emit describes the
+  MODEL, and the two disagree constantly — `txconv_statement_parse` legitimately asks for
+  32768, and a chain falling back to a 4096-output model sent 32768 to it (a hard 400 on
+  Anthropic, a silent provider-side cap elsewhere). `models.max_output` was already synced from
+  LiteLLM and editable in the catalog; `applyLimits` simply never read it. `clampToModel()` now
+  applies it at each hop and NEVER writes back to the shared envelope, because the next hop may
+  have a higher ceiling. A null `max_output` means "do not clamp", never "clamp to zero".
+  Audited as `max_tokens_clamped` (requested/served counts).
+- **Truncation no longer burns retries.** A `finish_reason: length` under a forced-JSON request
+  is deterministic — the same model at the same ceiling truncates again — so it leaves the
+  same-hop retry loop immediately and advances to a model whose `max_output` can hold the
+  answer, instead of spending 1 + MAX_RETRIES attempts proving the point.
 - New audit event `response_rejected` (reason + schema PATH only — never the offending value,
   invariant 2), new metric `vibe_router_responses_rejected_total{reason}`, new error code
   `invalid_response` (502, retryable) mirrored in the SDK's `VibeAiError`, and a kill switch
