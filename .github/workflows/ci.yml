@@ -27,12 +27,16 @@ jobs:
       VIBE_ROUTER_TEST_DATABASE_URL: postgres://airouter:airouter@localhost:5432/airouter
       REDIS_URL: redis://localhost:6379/0
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # No `version:` here on purpose — package.json's `packageManager` field is the single
       # source of truth (it also pins corepack in the Dockerfile). Specifying both makes
       # pnpm/action-setup fail with "Multiple versions of pnpm specified".
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v5
+      # PINNED AT v5 DELIBERATELY — do not bump to v6/v7. setup-node v6 limits automatic
+      # caching to npm (actions/setup-node#1374), which breaks `cache: pnpm` below. v5 is the
+      # lowest major running on Node 24, so it clears the Node 20 deprecation without that
+      # regression. Revisit only with a pnpm caching story that survives v6+.
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: pnpm

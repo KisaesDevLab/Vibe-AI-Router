@@ -11,14 +11,14 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/metadata-action@v5
+      - uses: docker/metadata-action@v6
         id: meta
         with:
           images: ghcr.io/kisaesdevlab/vibe-ai-router
@@ -29,7 +29,7 @@ jobs:
             # publishes only version tags leaves `vibe enable vibe-ai-router` unable to pull.
             # Excluded for pre-releases (e.g. v0.0.2-rc.1) so an rc never becomes `latest`.
             type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           push: true
