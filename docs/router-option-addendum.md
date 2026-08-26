@@ -100,6 +100,12 @@ The MIG table's roster was aspirational; the survey found the actual surface. Th
   Recommendation: **leave direct in this phase**, revisit as its own ticket once option-mode
   lands — OCR volume behind the router's shed queue needs its own latency look first.
 
+- **R5 — preprocess stage: local OCR before scrub.** Optional per-policy local OCR pass that
+  replaces image parts with transcribed text *before* `stageScrub`, so `cloud_deidentified`
+  vision classes stop egressing unscrubbed page images (the exposure accepted in Q-086/Q-087).
+  Depends on R4. Amends invariant 8 (a second ledger row per request) — needs sign-off, not
+  just review. Full ticket: `docs/ticket-R5-preprocess-stage.md`. **3–4 d**; decision **D7**.
+
 ## Sequencing
 
 ```
@@ -139,3 +145,6 @@ if approved. Each ticket is independently shippable and reversible (flip the fla
 - **D4** — ✅ DECIDED: build R1 (backlog, gates Phase D / TRC chat).
 - **D5** — ✅ DECIDED: GLM-OCR stays direct; revisit as its own ticket post-adoption.
 - **D6** — ✅ DECIDED: Q-059 hold lifted for Phase A (MIG-7′ Payroll-Time, MIG-9 Calculators).
+- **D7** — ⬜ OPEN: ship **R5** (local OCR preprocess before scrub), or keep accepting the
+  unscrubbed image egress on the `cloud_deidentified` vision classes? Recommendation: ship,
+  scoped to `tb_doc_extract` / `mybooks_receipt_extract` / `timebill_file_naming` first.
