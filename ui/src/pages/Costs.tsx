@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api, fmtCost, fmtTokens, type CostBreakdownRow } from '../api';
+import { api, fmtCost, fmtTokens, mounted, type CostBreakdownRow } from '../api';
 
 /**
  * Costs view: AI spend by app, task class (what a policy binds), and model — from a single
@@ -160,7 +160,7 @@ export function Costs(): JSX.Element {
             />
           </div>
           <a
-            href={`/admin-api/dashboard/costs.csv?${query}`}
+            href={mounted(`/admin-api/dashboard/costs.csv?${query}`)}
             className="chip"
             style={{ marginLeft: 'auto', textDecoration: 'none' }}
             data-testid="cost-csv"

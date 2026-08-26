@@ -30,10 +30,25 @@ export function resolveMountPath(baseURI: string): string {
   return dir === '/' ? '' : dir.replace(/\/+$/, '');
 }
 
-const MOUNT_PATH = typeof document === 'undefined' ? '' : resolveMountPath(document.baseURI);
+/**
+ * Read `document.baseURI` through `globalThis` rather than naming `document` directly. The
+ * mount-path unit test imports this module, which pulls it into the SERVER type program — and
+ * that one is deliberately `lib: ["ES2023"]` with no DOM, because server code has no business
+ * touching browser globals. Naming `document` here fails that build (TS2584) even though the
+ * value is guarded at runtime; going through globalThis keeps the guard and compiles in both
+ * programs. Absent document (tests, SSR) → root-relative, which is the pre-mount behaviour.
+ */
+const doc = (globalThis as { document?: { baseURI?: string } }).document;
+const MOUNT_PATH = doc?.baseURI === undefined ? '' : resolveMountPath(doc.baseURI);
 
-/** Absolute API paths get the mount prefix; anything else is left alone. */
-function mounted(path: string): string {
+/**
+ * Absolute API paths get the mount prefix; anything else is left alone.
+ *
+ * Exported because file downloads (CSV, DOCX) are plain `<a href>`s rather than fetches — they
+ * bypass `request()` entirely, so without this they would still resolve against the host root
+ * under a path mount and fail exactly the way the console itself did.
+ */
+export function mounted(path: string): string {
   return path.startsWith('/') ? MOUNT_PATH + path : path;
 }
 

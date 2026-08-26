@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, type TaskClass } from '../api';
+import { api, mounted, type TaskClass } from '../api';
 import { Tier } from '../components';
 
 /**
@@ -26,7 +26,7 @@ export function Compliance(): JSX.Element {
             configuration.
           </p>
         </div>
-        <a className="btn" href="/admin-api/wisp.docx" download>
+        <a className="btn" href={mounted('/admin-api/wisp.docx')} download>
           Export WISP appendix (.docx)
         </a>
       </div>

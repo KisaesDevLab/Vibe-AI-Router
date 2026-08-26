@@ -5,6 +5,27 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.23 — 2026-08-25
+
+**The admin console works under a path mount** (Q-096) — merges the parked `feat/ui-base-path`.
+
+- The bundle built with Vite's default `base: '/'`, so it requested `/assets/…` no matter where
+  it was served from. Under a path prefix those requests hit the **root of the host** — on the
+  Vibe Appliance, a different app — returning 200 with HTML, so React never booted and the
+  operator got a blank page with nothing in any log. That affected LAN mode and single-host
+  domain mode, both defaults. Now `base: './'` plus a mount prefix derived at runtime from
+  `document.baseURI`, so one image serves a hostname root and any prefix with no env var,
+  build arg, or entrypoint rewriting.
+- **Why it sat unmerged for a month**: its CI failed the day it was pushed. `ui/src/api.ts`
+  named `document`, and its own test imports that module into the server type program, which
+  is deliberately DOM-free. Reading the global through `globalThis` keeps the runtime guard and
+  compiles in both programs, without loosening the server's lib.
+- **File downloads fixed too**: `audit.csv`, `wisp.docx`, and the new `costs.csv` are plain
+  `<a href>`s that never pass through the API wrapper, so they stayed hard-coded absolute and
+  would have failed under a path mount even after the merge — the console would look fine until
+  someone clicked an export. All three now route through the exported `mounted()`, with a test
+  that scans the UI source for raw `href="/admin-api/…"` so the pattern cannot return silently.
+
 ## 0.0.22 — 2026-08-25
 
 **Costs view: spend by app, task class, and model** (Q-095).

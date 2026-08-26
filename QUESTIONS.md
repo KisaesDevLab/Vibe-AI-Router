@@ -589,3 +589,18 @@ Grouped by phase. This file is the Phase 15 review agenda.
   (invariant 8). Costs are formatted with widening precision (`fmtCost`) — per-request cloud
   spend is often sub-cent and the old 2dp formatter rendered real usage as "$0.00". CSV export
   reuses the same query.** → additive query + page; the endpoint is the only new surface → **S**
+- [Q-096] `feat/ui-base-path` (path-mount fix, 2026-07-27) sat unmerged for a month — why, and
+  what else does the fix need? → **Its CI failed on the day it was pushed (run 30324149927) and
+  the branch was parked: `ui/src/api.ts` names `document`, and the branch's own unit test
+  imports that module, which pulls it into the SERVER type program (`lib: ["ES2023"]`, no DOM
+  by design — server code has no business touching browser globals). TS2584, twice. Fixed by
+  reading the global through `globalThis` (`(globalThis as {document?: {baseURI?: string}})`)
+  so the runtime guard survives and both type programs compile, rather than adding DOM to the
+  server lib. Merged. Second gap found on review: the fix routes API calls through the api
+  wrapper's `mounted()`, but file downloads are plain `<a href>`s that never touch that wrapper
+  — `audit.csv`, `wisp.docx`, and `dashboard/costs.csv` were hard-coded absolute and would
+  still hit the host root under a path mount, so the console would look fine until someone
+  clicked an export. `mounted()` is now exported and applied to all three, guarded by a test
+  that greps ui/src for `href="/admin-api/…"` so the class of bug cannot return silently
+  (verified to fail when a raw href is reintroduced).** → both fixes are local; the guard is a
+  test-only addition → **S**

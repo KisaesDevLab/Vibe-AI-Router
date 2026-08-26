@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, type AuditRow } from '../api';
+import { api, mounted, type AuditRow } from '../api';
 
 /** Live request log (11.8): recent audit events, metadata only, 5s polling. */
 export function Audit(): JSX.Element {
@@ -35,7 +35,7 @@ export function Audit(): JSX.Element {
             ))}
           </select>
           <button onClick={() => setLive(!live)}>{live ? 'Pause' : 'Resume'} live</button>
-          <a className="btn" href="/admin-api/audit.csv" download>Export CSV</a>
+          <a className="btn" href={mounted('/admin-api/audit.csv')} download>Export CSV</a>
         </div>
       </div>
 

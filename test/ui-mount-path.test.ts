@@ -9,8 +9,10 @@
  * different app and looks exactly like the router being down.
  */
 
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { resolveMountPath } from '../ui/src/api.js';
+import { mounted, resolveMountPath } from '../ui/src/api.js';
 
 describe('resolveMountPath', () => {
   it('is empty at a hostname root', () => {
@@ -46,5 +48,52 @@ describe('resolveMountPath', () => {
   it('never throws on a malformed baseURI', () => {
     expect(resolveMountPath('not a url')).toBe('');
     expect(resolveMountPath('')).toBe('');
+  });
+});
+
+describe('mounted', () => {
+  // no `document` under vitest → MOUNT_PATH is '', the hostname-root case
+  it('passes absolute API paths through unchanged at a hostname root', () => {
+    expect(mounted('/admin-api/audit.csv')).toBe('/admin-api/audit.csv');
+    expect(mounted('/admin-api/dashboard/costs.csv?from=2026-08-01')).toBe(
+      '/admin-api/dashboard/costs.csv?from=2026-08-01',
+    );
+  });
+
+  it('leaves already-relative URLs alone', () => {
+    expect(mounted('admin-api/x')).toBe('admin-api/x');
+  });
+});
+
+/**
+ * File downloads are plain `<a href>`s, so they never pass through the api wrapper's fetch and
+ * do not inherit its mount handling. A hard-coded `href="/admin-api/…"` therefore resolves
+ * against the HOST ROOT under a path mount — the same failure this whole module exists to fix,
+ * except it hits only the export buttons, so the console looks fine until someone clicks one.
+ * Guard the class of bug, not the three instances known today.
+ */
+describe('UI download links', () => {
+  it('route every absolute /admin-api href through mounted()', async () => {
+    const root = join(import.meta.dirname, '..', 'ui', 'src');
+    const offenders: string[] = [];
+
+    const walk = async (dir: string): Promise<void> => {
+      for (const entry of await readdir(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          await walk(path);
+          continue;
+        }
+        if (!/\.tsx?$/.test(entry.name)) continue;
+        const src = await readFile(path, 'utf8');
+        // href="/admin-api/…" or href={`/admin-api/…`} — both bypass mounted()
+        for (const m of src.matchAll(/href=(?:"|\{`)(\/admin-api\/[^"`]*)/g)) {
+          offenders.push(`${entry.name}: ${m[1]}`);
+        }
+      }
+    };
+    await walk(root);
+
+    expect(offenders, `wrap these in mounted(): ${offenders.join(', ')}`).toEqual([]);
   });
 });
