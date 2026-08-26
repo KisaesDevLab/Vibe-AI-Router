@@ -34,6 +34,7 @@ Validation: `src/config/env.ts` (zod). Invalid config → the process refuses to
 | `SECURE_COOKIES` | no | `false` | set `true` behind HTTPS (Caddy) — marks session cookies Secure |
 | `LEDGER_RETENTION_DAYS` | no | — (retain forever) | daily purge of usage_ledger rows older than N days; audit_log is never purged |
 | `SSRF_DENY_PRIVATE_CLOUD` | no | `true` | request-time rejection of cloud providers on private hosts (14.2); leave on |
+| `ROUTER_VERIFY_RESPONSES` | no | `true` | verify each hop's RESULT, not just its status: a 200 with an unusable body (empty, non-JSON under a forced-JSON request, schema violation) becomes a retryable `invalid_response` so retry/fallback/breaker engage. Kill switch only — off makes any 200 a success |
 
 Test-only:
 

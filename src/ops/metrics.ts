@@ -55,6 +55,13 @@ export class Metrics {
     registers: [this.registry],
   });
 
+  readonly responsesRejectedTotal = new Counter({
+    name: 'vibe_router_responses_rejected_total',
+    help: 'Hops that answered 200 with an unusable result (see src/gateway/verify.ts)',
+    labelNames: ['reason'] as const,
+    registers: [this.registry],
+  });
+
   readonly cacheEvents = new Counter({
     name: 'vibe_router_response_cache_events_total',
     help: 'Response cache hits/misses (opt-in task classes only)',

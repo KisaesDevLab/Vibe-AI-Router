@@ -18,6 +18,11 @@ export const ERROR_CODES = [
   // from a merely misconfigured default (capability_missing). Clients treat
   // it as a structured skip (file keeps its original name), not a failure.
   'no_vision_provider',
+  // A hop answered 200 with an UNUSABLE result (empty completion, forced-JSON answered with
+  // prose, tool arguments that are not JSON, schema violation). Retryable on purpose: model
+  // output is stochastic, so a re-roll or a fallback hop often succeeds where the first did
+  // not. See src/gateway/verify.ts.
+  'invalid_response',
   'budget_exceeded',
   'unknown',
 ] as const;
@@ -35,12 +40,17 @@ export const ERROR_HTTP_STATUS: Record<ErrorCode, number> = {
   scrubber_blocked: 422,
   capability_missing: 400,
   no_vision_provider: 409,
+  invalid_response: 502,
   budget_exceeded: 402,
   unknown: 500,
 };
 
 /** Codes a retry layer may legitimately retry (Phase 10 consumes this). */
-export const RETRYABLE_CODES: ReadonlySet<ErrorCode> = new Set(['rate_limited', 'provider_unavailable']);
+export const RETRYABLE_CODES: ReadonlySet<ErrorCode> = new Set([
+  'rate_limited',
+  'provider_unavailable',
+  'invalid_response',
+]);
 
 export class RouterError extends Error {
   readonly code: ErrorCode;

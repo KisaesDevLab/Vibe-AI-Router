@@ -58,6 +58,7 @@ async function main(): Promise<void> {
     shed: new LoadShedGuard(env.UPSTREAM_MAX_CONCURRENCY, env.UPSTREAM_QUEUE_CAP),
     totalTimeoutMs: env.ROUTER_TIMEOUT_TOTAL_MS,
     streamIdleTimeoutMs: env.ROUTER_TIMEOUT_STREAM_IDLE_MS,
+    verifyResponses: env.ROUTER_VERIFY_RESPONSES,
   };
   const rateLimits = {
     perToken: new RateLimiter(env.RATE_LIMIT_PER_TOKEN_RPM),

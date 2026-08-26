@@ -68,6 +68,18 @@ const envSchema = z.object({
     .enum(['true', 'false'])
     .default('true')
     .transform((v) => v === 'true'),
+  /**
+   * Verify each hop's RESULT, not just its status code (src/gateway/verify.ts). On (default),
+   * a 200 carrying an unusable result — empty completion, forced-JSON answered with prose,
+   * tool arguments that are not JSON, a schema violation — becomes a retryable
+   * `invalid_response`, so same-model retry, the fallback chain, and the breaker all engage.
+   * Off restores the older behavior in which any 200 is a success. Kill switch only: turn it
+   * off to unblock traffic while diagnosing an over-strict schema, not as a steady state.
+   */
+  ROUTER_VERIFY_RESPONSES: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
 });
 
 export type Env = z.infer<typeof envSchema>;

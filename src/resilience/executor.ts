@@ -8,7 +8,8 @@ import { isLocalKind } from '../../db/schema.js';
 import type { AIResponse, StreamChunk } from '../gateway/envelope.js';
 import { RETRYABLE_CODES, RouterError, toRouterError } from '../gateway/errors.js';
 import { routeForModel, type PipelineCtx, type PipelineDeps, type RouteDecision } from '../gateway/pipeline.js';
-import { selectModel } from '../policy/engine.js';
+import { verifyResponse, type VerifyFinding } from '../gateway/verify.js';
+import { clampToModel, selectModel } from '../policy/engine.js';
 import { MAX_RETRIES, retryDelayMs, sleep } from './backoff.js';
 import type { CircuitBreaker } from './breaker.js';
 import type { LoadShedGuard } from './shed.js';
@@ -18,6 +19,12 @@ export interface ResilienceConfig {
   shed: LoadShedGuard;
   totalTimeoutMs: number;
   streamIdleTimeoutMs: number;
+  /**
+   * Verify each hop's RESULT, not just its status code (default on). A 200 carrying an
+   * unusable result becomes a retryable `invalid_response`, so retry → fallback → breaker
+   * all engage. Off restores pre-verification behavior: any 200 is a success.
+   */
+  verifyResponses?: boolean;
 }
 
 /** Marker on an abort reason so a hop failure can be classified as a timeout, not a provider fault. */
@@ -61,6 +68,26 @@ function compositeSignal(client: AbortSignal, totalMs: number): Composite {
   };
 }
 
+function auditRejected(
+  ctx: PipelineCtx,
+  deps: PipelineDeps,
+  model: string,
+  reason: VerifyFinding['reason'],
+  path?: string,
+): void {
+  if (!ctx.auth) return;
+  deps.audit?.({
+    firmId: ctx.auth.firmId,
+    event: 'response_rejected',
+    app: ctx.auth.app,
+    ...(ctx.taskClass ? { taskClass: ctx.taskClass.key } : {}),
+    model,
+    requestHash: ctx.requestHash,
+    // reason + schema PATH only — never the offending value (invariant 2)
+    detail: { reason, ...(path ? { path } : {}) },
+  });
+}
+
 function auditHop(ctx: PipelineCtx, deps: PipelineDeps, from: string, to: string, reason: string): void {
   deps.metrics?.fallbackHopsTotal.inc();
   if (!ctx.auth) return;
@@ -88,7 +115,26 @@ export function candidateModels(ctx: PipelineCtx): string[] {
  * original envelope for local hops and stashes the redacted copy for cloud hops here.
  */
 function hopEnvelope(route: RouteDecision, ctx: PipelineCtx): PipelineCtx['envelope'] {
-  return !isLocalKind(route.model.providerKind) && ctx.cloudEnvelope ? ctx.cloudEnvelope : ctx.envelope;
+  const base = !isLocalKind(route.model.providerKind) && ctx.cloudEnvelope ? ctx.cloudEnvelope : ctx.envelope;
+  // per-hop, never written back: the next hop may be a model with a HIGHER ceiling, and
+  // mutating the shared envelope would leave it clamped to the smallest model in the chain
+  return clampToModel(base, route.model);
+}
+
+/** Audited once per hop when the model's own output ceiling is below what the caller asked. */
+function auditClamp(ctx: PipelineCtx, deps: PipelineDeps, route: RouteDecision): void {
+  const requested = ctx.envelope.maxTokens;
+  const limit = route.model.maxOutput;
+  if (!ctx.auth || requested === undefined || limit === null || limit === undefined || requested <= limit) return;
+  deps.audit?.({
+    firmId: ctx.auth.firmId,
+    event: 'max_tokens_clamped',
+    app: ctx.auth.app,
+    ...(ctx.taskClass ? { taskClass: ctx.taskClass.key } : {}),
+    model: route.model.canonicalId,
+    requestHash: ctx.requestHash,
+    detail: { requested, served: limit },
+  });
 }
 
 async function executeHopOnce(
@@ -112,6 +158,19 @@ async function executeHopWithRetries(
     if (signal.aborted) throw lastErr ?? new RouterError('unknown', 'aborted');
     try {
       const res = await executeHopOnce(route, ctx, signal);
+      // RESULT verification (not just status): a 200 with an unusable body is a hop failure,
+      // so it retries here and falls through to the next hop below — and is recorded against
+      // the provider's health instead of leaving it green.
+      if (cfg.verifyResponses !== false) {
+        const finding = verifyResponse(res, hopEnvelope(route, ctx));
+        if (finding) {
+          auditRejected(ctx, deps, route.model.canonicalId, finding.reason, finding.path);
+          deps.metrics?.responsesRejectedTotal.inc({ reason: finding.reason });
+          throw new RouterError('invalid_response', finding.message, {
+            detail: { reason: finding.reason, ...(finding.path ? { path: finding.path } : {}) },
+          });
+        }
+      }
       cfg.breaker.record(route.provider.id, true);
       deps.recordHealth?.(route.provider.id, ctx.auth!.firmId, route.provider.label, true);
       return res;
@@ -123,6 +182,12 @@ async function executeHopWithRetries(
       if (!signal.aborted) {
         cfg.breaker.record(route.provider.id, false);
         deps.recordHealth?.(route.provider.id, ctx.auth!.firmId, route.provider.label, false);
+      }
+      // Truncation at max_tokens is DETERMINISTIC — a re-roll of the same model with the same
+      // ceiling truncates again. Leave the retry loop immediately so the chain advances to a
+      // model whose own max_output can actually hold the answer.
+      if (rerr.code === 'invalid_response' && (rerr.detail as { reason?: string } | undefined)?.reason === 'json_truncated') {
+        throw rerr;
       }
       if (!RETRYABLE_CODES.has(rerr.code) || attempt === MAX_RETRIES || signal.aborted) throw rerr;
       await sleep(retryDelayMs(attempt, rerr.retryAfterSeconds), signal).catch(() => {
@@ -197,6 +262,7 @@ export async function executeResilient(
       }
       try {
         if (previousModel) auditHop(ctx, deps, previousModel, model.canonicalId, lastErr?.message ?? 'fallback');
+        auditClamp(ctx, deps, route);
         ctx.route = route; // the hop that actually serves
         return await executeHopWithRetries(route, ctx, deps, cfg, signal);
       } catch (err) {
@@ -265,7 +331,13 @@ export async function* executeResilientStream(
         continue;
       }
 
-      let yieldedAnything = false;
+      // `contentSeen` gates the no-splice rule: it flips on the first chunk that carries
+      // actual OUTPUT (text or a tool call). Non-content frames (finish/usage/keep-alive) are
+      // buffered until then, so a hop that ends without ever producing output has relayed
+      // NOTHING to the consumer and can still be replaced by the next hop (10.4 is preserved —
+      // once real content is out, no provider is ever spliced in behind it).
+      let contentSeen = false;
+      const pending: StreamChunk[] = [];
       let idleFired = false;
       // idle watchdog (10.5): armed ONLY after the first chunk (Q-077). Time-to-first-token
       // — Ollama cold-load of a 14B model can take minutes — is bounded by the TOTAL timeout,
@@ -284,17 +356,35 @@ export async function* executeResilientStream(
 
       try {
         if (previousModel) auditHop(ctx, deps, previousModel, model.canonicalId, lastErr?.message ?? 'fallback');
+        auditClamp(ctx, deps, route);
         ctx.route = route;
         const stream = route.adapter.executeStream(hopEnvelope(route, ctx), route.executeCtx, hopController.signal);
         for await (const chunk of stream) {
-          if (!yieldedAnything) {
-            // first chunk: the generation is progressing — stop the total-timeout wall and
-            // hand off to the idle timer so a long 32k generation can run to completion
-            composite.clearTotalTimeout();
-          }
           armIdle();
-          yieldedAnything = true;
+          const isContent =
+            chunk.type === 'text_delta' || chunk.type === 'tool_call_start' || chunk.type === 'tool_call_delta';
+          if (!contentSeen && !isContent) {
+            pending.push(chunk); // hold back: this hop may still turn out to be replaceable
+            continue;
+          }
+          if (!contentSeen) {
+            // first CONTENT chunk: the generation is genuinely progressing — stop the
+            // total-timeout wall and hand off to the idle timer so a long 32k generation can
+            // run to completion. Deliberately NOT on any frame: a provider emitting nothing
+            // but keep-alives would otherwise clear the wall and hang until the client gave up.
+            composite.clearTotalTimeout();
+            contentSeen = true;
+            for (const held of pending) yield held;
+            pending.length = 0;
+          }
           yield chunk;
+        }
+        if (!contentSeen) {
+          // completed without ever producing output — same class of fault as an empty
+          // non-streaming body, and nothing has reached the consumer, so fall back.
+          throw new RouterError('invalid_response', 'provider produced a stream with no content', {
+            detail: { reason: 'empty_response' },
+          });
         }
         cfg.breaker.record(route.provider.id, true);
         // stream health is recorded by the SSE relay (routes.ts) — don't double-count here
@@ -310,7 +400,11 @@ export async function* executeResilientStream(
           cfg.breaker.record(route.provider.id, false);
           deps.recordHealth?.(route.provider.id, ctx.auth!.firmId, route.provider.label, false);
         }
-        if (yieldedAnything || signal.aborted || idleFired) {
+        if (rerr.code === 'invalid_response') {
+          auditRejected(ctx, deps, route.model.canonicalId, 'empty_response');
+          deps.metrics?.responsesRejectedTotal.inc({ reason: 'empty_response' });
+        }
+        if (contentSeen || signal.aborted || idleFired) {
           // after first chunk (or on abort/timeout): fail cleanly, never splice providers (10.4)
           throw rerr;
         }
