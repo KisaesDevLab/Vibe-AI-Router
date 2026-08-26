@@ -32,12 +32,25 @@ output is the next step's input.
 capability probe. Pull the models the firm will use (`ollama pull qwen3:14b`, a vision model
 if any app needs one) BEFORE binding policies.
 
-**P3. Optional GLM-OCR provider (R4).** If the appliance runs the shared GLM-OCR service:
-Providers → Add provider → "GLM-OCR (local)" → `http://vibe-glm-ocr:8090/v1`, no key. Test
-connection (✓ = llama-server answered `/models`). Then Catalog → Add custom model:
-canonical id `glm/GLM-OCR`, kind `local_ocr`, context 8192 (or per your build), capabilities
-**vision = true**, pricing 0. `local_ocr` is LOCAL-tier: usable by `local_only` classes,
-scrubber-exempt, LAN-pinned.
+**P3. GLM-OCR provider (R4) — no longer optional if any app sends images.** Providers → Add
+provider → "GLM-OCR (local)" → `http://vibe-glm-ocr:8090/v1`, no key (point the base URL at
+whatever host actually serves it — a LAN workstation is fine, `local_ocr` is LAN-pinned, not
+docker-pinned). Test connection (✓ = llama-server answered `/models`). Then Catalog → Add
+custom model: canonical id `glm/GLM-OCR`, kind `local_ocr`, context 8192 (or per your build),
+capabilities **vision = true AND json_schema = true**, pricing 0.
+
+Both capabilities matter. Every vision task class in the pack also requires structured output
+(`timebill_file_naming`, `tb_doc_extract`, `mybooks_receipt_extract`, `mybooks_bill_extract`,
+`mybooks_doc_classify`, `mybooks_statement_extract`, `v1099_w9_extract`), so a model saved
+with vision alone is rejected at policy save with `missing capability json_schema`. The live
+probe (Catalog → Probe live) usually reports vision `supported` but json_schema
+`inconclusive` — an OCR-tuned model answers in prose — and inconclusive leaves the flag
+untouched, so tick `json_schema` by hand.
+
+`local_ocr` is LOCAL-tier: usable by `local_only` classes, exempt from the text scrubber, and
+LAN-pinned by the SSRF rules. It is also what backs **image screening** (8.6) — without a
+local vision model on the appliance, no image-bearing request can reach a cloud provider at
+all, because nothing on the box can certify the page is clean. See `docs/scrubber.md`.
 
 **P4. Optional cloud providers.** Anthropic preset (`https://api.anthropic.com`) and/or
 DigitalOcean Gradient preset (`https://inference.do-ai.run/v1`) with the firm's own keys.

@@ -85,6 +85,26 @@ const EVENT_SCHEMAS = {
     /** match TYPES + counts only — never matched values (8.3) */
     matches: z.record(z.number()),
   }),
+  /**
+   * Image screening verdict (8.6). 'identifier' — recognized text carried a protected
+   * identifier; 'unreadable' — at least one image could not be examined on the appliance
+   * (remote URL, no local reader, or reader failure). Both bar cloud; they are distinct
+   * because one is a document you may not send and the other is a screener that is not
+   * working. Counts are match TYPES only, never values or recognized text.
+   */
+  blocked_image_screen: z.object({
+    verdict: z.enum(['identifier', 'unreadable']),
+    images: z.number(),
+    unreadable: z.number(),
+    matches: z.record(z.number()),
+    scope: z.enum(['fallback_only']).optional(),
+  }),
+  image_screen_warning: z.object({
+    verdict: z.enum(['identifier', 'unreadable']),
+    images: z.number(),
+    unreadable: z.number(),
+    matches: z.record(z.number()),
+  }),
   /** scope 'fallback_only': primary is local — the scrub product applies only to cloud hops (Q-072) */
   scrubber_redacted: z.object({ matches: z.record(z.number()), scope: z.enum(['fallback_only']).optional() }),
   scrubber_warning: z.object({ matches: z.record(z.number()), scope: z.enum(['fallback_only']).optional() }),

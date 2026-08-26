@@ -245,8 +245,11 @@ export const DEFAULT_PACK: PackEntry[] = [
   // Q-087 (operator decision, 2026-08-23) so DigitalOcean Gradient vision models (kimi-k2.5/2.6
   // are the catalog's vision+json_schema entries) are selectable alongside the local tier.
   // pickDefaultModel stays local-first, so a capable local model still wins the default slot.
-  // Caveat stands: the scrubber redacts TEXT parts only — document page images reach the cloud
-  // model unscrubbed (same accepted property as mybooks_receipt_extract).
+  // The Q-087 caveat is CLOSED as of Q-096: page images are screened on-appliance before any
+  // cloud hop, so a document carrying an identifier no longer reaches a cloud model at all.
+  // NOTE this class needs a vision + json_schema model to bind — on a stock appliance the
+  // vibellm model has vision:false, so it lands in applyDefaultPack's `unresolved` list until
+  // a `local_ocr` (GLM-OCR) model is registered. See docs/integration-plans/README.md P3.
   {
     key: 'timebill_file_naming',
     app: 'vibe-time-billing',
@@ -255,7 +258,7 @@ export const DEFAULT_PACK: PackEntry[] = [
     requires: { vision: true, json_schema: true },
     defaultMaxTokens: 300,
     rationale:
-      'Filename proposal has receipt-extract-grade exposure; text scrubbed, images pass as-is (Q-087).',
+      'Filename proposal has receipt-extract-grade exposure; text scrubbed, images screened on-appliance before cloud (Q-087 widened, Q-096 closed the image gap).',
   },
 ];
 

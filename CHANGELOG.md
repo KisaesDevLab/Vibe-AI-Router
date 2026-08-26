@@ -5,6 +5,38 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.23 — 2026-08-26
+
+**Image screening: `cloud_deidentified` now means something for page images** (Q-096).
+
+- New pipeline stage `stageImageScreen` (8.6), between scrub and route. Until now the
+  scrubber redacted TEXT parts only, so a vision class shipped client document scans to a
+  cloud model unexamined — the caveat accepted at Q-087 for `timebill_file_naming` and the
+  same property on `mybooks_receipt_extract`. On a cloud-bound request carrying images, each
+  image is now read by the firm's OWN local vision provider (`local_ocr` preferred, else a
+  vision-capable `local` model) and the recognized text runs through the existing detectors.
+- **Screens, does not mask.** Masking pixels needs per-character boxes a chat-completions
+  surface does not return; a masking control that misses one fails OPEN while the audit trail
+  records "redacted". This fails CLOSED — an image reaches cloud only if the appliance read it
+  and found nothing.
+- Verdicts: `clean` proceeds; `identifier` and `unreadable` both bar cloud and stay distinct
+  in audit (`blocked_image_screen`, `image_screen_warning`). `unreadable` covers a remote
+  https URL (never fetched — Phase 14 SSRF surface), an empty transcription, a reader error,
+  and no local vision model configured. `block`/`redact` bar; `warn` observes.
+- Runs eagerly only when the primary is cloud. A local primary with a cloud fallback defers
+  the screen to the hop that actually needs it (`imageScreenPending`), so the common path pays
+  no vision call at all; the verdict is cached so a chain of cloud hops screens once.
+- A local primary still serves the original; only cloud hops are barred — new
+  `cloudBlockedImages` on the pipeline context, sibling to Q-072's `cloudBlockedCounts`, with
+  the same per-hop enforcement in `routeForModel`.
+- **Operator consequence:** an appliance with no local vision model can no longer send images
+  to any cloud provider. P3 (register GLM-OCR as `local_ocr`) is now a prerequisite for cloud
+  vision, not an optional extra.
+- Docs: `docs/scrubber.md` §8.6; `SENSITIVITY-REVIEW.md` Q-087 caveat marked closed. Fixed a
+  live trap in `docs/integration-plans/README.md` P3 — it told operators to set `vision = true`
+  only, but every vision class in the pack also requires `json_schema`, so following it
+  verbatim produced a policy save rejected with `missing capability json_schema`.
+
 ## 0.0.22 — 2026-08-25
 
 **Costs view: spend by app, task class, and model** (Q-095).

@@ -589,3 +589,30 @@ Grouped by phase. This file is the Phase 15 review agenda.
   (invariant 8). Costs are formatted with widening precision (`fmtCost`) — per-request cloud
   spend is often sub-cent and the old 2dp formatter rendered real usage as "$0.00". CSV export
   reuses the same query.** → additive query + page; the endpoint is the only new surface → **S**
+- [Q-096] The scrubber redacts TEXT parts only, so a `cloud_deidentified` vision class ships
+  client document page images to a cloud model completely unexamined (the caveat accepted at
+  Q-087 for `timebill_file_naming`, and the same property on `mybooks_receipt_extract`). Close
+  it → **New pipeline stage `stageImageScreen` (8.6), between scrub and route. On a
+  cloud-bound request carrying image parts, each image is read by the firm's OWN local vision
+  provider (`local_ocr` preferred, else a vision-capable `local` model) and the recognized
+  text is run through the existing MATCH_TYPES detectors. SCREENING, NOT MASKING — deliberate:
+  masking pixels needs per-character boxes a chat-completions surface does not return, so you
+  would be trusting a model's self-reported coordinates, and a masking control that misses one
+  box fails OPEN while the audit says "redacted". This fails CLOSED: an image reaches cloud
+  only if the appliance READ it and found nothing. Verdicts `clean` / `identifier` /
+  `unreadable`; `unreadable` covers a remote https URL (never fetched — that is the Phase 14
+  SSRF surface), an empty transcription, a reader error, and "no local vision model
+  configured". Both non-clean verdicts bar cloud and stay distinct in audit
+  (`blocked_image_screen`), because one is a document you may not send and the other is a
+  screener that is not working. `block` and `redact` both bar (an image has no partial product
+  the way text does); `warn` observes via `image_screen_warning`. A local primary still serves
+  the original — only cloud hops are barred, reusing the Q-072 `cloudBlockedCounts` shape as a
+  sibling field `cloudBlockedImages`. Screening never becomes egress itself: the reader is
+  pinned to LOCAL_TIER_KINDS.** → Consequence an operator must know: an appliance with NO local
+  vision model can no longer send images to any cloud provider. That is the intended posture —
+  the box must be able to see a page before it may let anyone else see it — and it makes P3
+  (register GLM-OCR as `local_ocr`) a prerequisite for cloud vision rather than an optional
+  extra. Also fixed in passing: P3 told operators to set `vision = true` only, but every vision
+  class in the pack also requires `json_schema`, so following it verbatim produced a policy
+  save rejected with `missing capability json_schema`. Cost: one extra local vision call per
+  cloud-bound image; local-only traffic pays nothing. → **M**

@@ -23,10 +23,18 @@ page images) to a vision + json_schema model. Added local_only (Q-086); Kurt wid
 same accepted exposure as `mybooks_receipt_extract`. Defaults remain local-first; DO models are
 an explicit policy binding.
 
+**Image screening added 2026-08-26 (Q-096) — the Q-087 caveat below is now CLOSED.** Every
+row that carries page images (`timebill_file_naming`, `mybooks_receipt_extract`, and the other
+vision classes) previously shipped those images to cloud unexamined: the scrubber redacted
+text parts only. A cloud-bound request carrying images is now screened by the appliance's own
+local vision provider, and an image reaches a cloud model only if the appliance read it and
+found no identifier. Anything else — identifier found, image unreadable, or no local vision
+model configured — bars the cloud hop. See `docs/scrubber.md` §8.6.
+
 Tiers: **local_only** — never leaves the appliance. **cloud_deidentified** — cloud permitted
-only after the deterministic scrubber passes (redact mode default per Q-056; block available
-per firm). **cloud_allowed** — cloud permitted without scrubbing (prompts contain no client
-data by construction).
+only after the deterministic scrubber passes on text AND the image screen passes on any page
+images (redact mode default per Q-056; block available per firm). **cloud_allowed** — cloud
+permitted without scrubbing (prompts contain no client data by construction).
 
 | App | Task class | Sensitivity | Rationale | Review |
 | --- | --- | --- | --- | --- |
@@ -52,7 +60,7 @@ data by construction).
 | vibe-time-billing | `tb_invoice_narrative` | **cloud_deidentified** | WIP narratives name clients/matters; scrub then draft | ✅ KEEP |
 | vibe-time-billing | `timebill_practice_analytics` | **local_only** | Internal billing/practice metrics with client + engagement names | ⏳ NEW (Q-081) |
 | vibe-time-billing | `timebill_support_chat` | **local_only** | KB-grounded support chat can surface firm data | ⏳ NEW (Q-081) |
-| vibe-time-billing | `timebill_file_naming` | **cloud_deidentified** | Client document first pages (vision); text scrubbed, image parts pass unscrubbed (receipt-extract parallel) | ✅ WIDENED (Q-087, Kurt 2026-08-23) |
+| vibe-time-billing | `timebill_file_naming` | **cloud_deidentified** | Client document first pages (vision); text scrubbed AND page images screened on-appliance before any cloud hop (Q-096) | ✅ WIDENED (Q-087, Kurt 2026-08-23) |
 
 Registration-time rule (enforced in `src/policy/registration.ts`): a task class an app registers
 that is NOT in this pack is created **local_only**, and registration can never widen an

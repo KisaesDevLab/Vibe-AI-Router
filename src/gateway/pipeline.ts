@@ -24,6 +24,15 @@ import {
   type PolicyEngine,
 } from '../policy/engine.js';
 import { redactEnvelope, scanEnvelope, type MatchType, type ScrubReport } from '../protect/scrub.js';
+import {
+  hasImages,
+  imageUrls,
+  screenImages,
+  verdictOf,
+  type ImageScreenReport,
+  type ImageVerdict,
+} from '../protect/image-screen.js';
+import { buildImageReader } from '../protect/image-reader.js';
 import type { AuditEntry } from '../protect/audit.js';
 import { checkBudgets, currentPeriod, type BudgetSettings } from '../ledger/budget.js';
 import { checkBaseUrl } from '../lib/ssrf.js';
@@ -71,6 +80,28 @@ export interface PipelineCtx {
   cloudBlockedCounts?: Record<string, number>;
   /** internal: blocked_scrubber audit emitted once for barred cloud hops */
   cloudBlockAudited?: boolean;
+  /**
+   * Image-screen verdict barring cloud hops (8.6). Kept separate from cloudBlockedCounts so
+   * the two controls stay legible in the audit trail: text found identifiers vs the appliance
+   * could not certify a page image. A local primary still serves; cloud hops are barred.
+   */
+  cloudBlockedImages?: {
+    verdict: 'identifier' | 'unreadable';
+    images: number;
+    unreadable: number;
+    counts: Record<string, number>;
+  };
+  /** internal: blocked_image_screen audit emitted once for barred cloud hops */
+  imageBlockAudited?: boolean;
+  /**
+   * Local primary, cloud in the fallback chain: the screen is a full vision inference, so it
+   * is deferred to the hop that actually needs it rather than paid on every request.
+   */
+  imageScreenPending?: boolean;
+  /** internal: the screen has run — one verdict per request, not one per candidate hop */
+  imageScreened?: boolean;
+  /** the request's abort signal, threaded so a deferred image screen can honour a disconnect */
+  signal?: AbortSignal;
   /** soft budget warnings for the response header (9.4) */
   budgetWarnings?: string[];
   /** served from the response cache (13.2) */
@@ -247,9 +278,31 @@ export async function stageBudget(ctx: PipelineCtx, deps: PipelineDeps): Promise
 // ── stage: scrub (8.2/8.3/8.4) ───────────────────────────────────────────────
 
 /**
+ * Does this request have any path to a cloud provider? Fallback hops can reach cloud even
+ * when the primary is local (Q-072), so every egress control must consider the whole
+ * candidate chain, never just the primary. Shared by stageScrub and stageImageScreen so the
+ * two cannot drift apart on what "cloud-bound" means.
+ */
+function cloudReach(
+  effective: NonNullable<PipelineCtx['effective']>,
+  envelope: AIRequest,
+): { cloudPrimary: boolean; cloudInChain: boolean } {
+  const model = selectModel(effective, envelope); // same pure selection route uses
+  const cloudPrimary = !isLocalKind(model.providerKind);
+  const cloudInChain = effective.policy.fallbackChain.some((id) => {
+    const m = effective.modelsById.get(id);
+    return m !== undefined && !isLocalKind(m.providerKind);
+  });
+  return { cloudPrimary, cloudInChain };
+}
+
+/**
  * Runs ONLY when the request is cloud-bound (selected model kind ≠ local). Firm mode:
  * block (default) | redact | warn. Any scrubber ERROR blocks cloud egress — fail closed
  * (principle 3). Blocking reveals match types + counts, never values.
+ *
+ * Scope note: this stage reads TEXT. Page images are handled by stageImageScreen (8.6),
+ * which runs immediately after — the two together are what `cloud_deidentified` means.
  */
 export async function stageScrub(ctx: PipelineCtx, deps: PipelineDeps): Promise<void> {
   const effective = ctx.effective;
@@ -260,15 +313,9 @@ export async function stageScrub(ctx: PipelineCtx, deps: PipelineDeps): Promise<
   let report: ScrubReport | undefined;
   const mode = effective.firmSettings.scrubber_mode ?? 'redact';
   try {
-    const model = selectModel(effective, ctx.envelope); // same pure selection route uses
-    cloudPrimary = !isLocalKind(model.providerKind);
-    // fallback hops can reach cloud even when the primary is local (Q-072) — the scrub
-    // decision must consider the whole candidate chain, never just the primary
-    const cloudInChain = effective.policy.fallbackChain.some((id) => {
-      const m = effective.modelsById.get(id);
-      return m !== undefined && !isLocalKind(m.providerKind);
-    });
-    if (!cloudPrimary && !cloudInChain) return;
+    const reach = cloudReach(effective, ctx.envelope);
+    cloudPrimary = reach.cloudPrimary;
+    if (!cloudPrimary && !reach.cloudInChain) return;
 
     if (mode === 'redact') {
       const result = redactEnvelope(ctx.envelope);
@@ -329,6 +376,155 @@ export async function stageScrub(ctx: PipelineCtx, deps: PipelineDeps): Promise<
   await Promise.resolve();
 }
 
+// ── stage: image screen (8.6) ────────────────────────────────────────────────
+
+/**
+ * The text scrubber cannot see inside a page image, so before this stage existed a
+ * `cloud_deidentified` vision class shipped client document scans to a cloud model entirely
+ * unexamined. This closes that hole: on a cloud-bound request carrying image parts, each
+ * image is read by the firm's OWN local OCR provider and the recognized text is run through
+ * the same identifier detectors as message text.
+ *
+ * It SCREENS rather than masks. Masking pixels would need per-character boxes that a
+ * chat-completions surface does not return; you would be trusting a model's self-reported
+ * coordinates, and a masking control that misses one fails OPEN while the ledger records
+ * "redacted". This fails CLOSED — an image reaches cloud only if the appliance read it AND
+ * found nothing. No local reader, a remote URL, an empty transcription or a reader error all
+ * count as "not certified" and bar the cloud hop.
+ *
+ * Cost note: unlike the text scrubber, whose eager pass costs microseconds of regex, a screen
+ * costs a full local vision inference. So it runs eagerly ONLY when the primary model is
+ * cloud, i.e. when the request cannot proceed without a verdict. The common appliance shape —
+ * local primary with a cloud fallback — defers instead (`imageScreenPending`) and pays nothing
+ * unless a cloud hop is actually reached, which is the rare path. `warn` mode observes without
+ * barring, for firms that want the audit trail without the gate.
+ */
+export async function stageImageScreen(
+  ctx: PipelineCtx,
+  deps: PipelineDeps,
+  signal: AbortSignal,
+): Promise<void> {
+  const effective = ctx.effective;
+  const auth = ctx.auth;
+  if (!effective || !auth) throw new RouterError('unknown', 'pipeline ordering violation');
+
+  if (!hasImages(ctx.envelope)) return;
+
+  let cloudPrimary: boolean;
+  try {
+    const reach = cloudReach(effective, ctx.envelope);
+    cloudPrimary = reach.cloudPrimary;
+    if (!cloudPrimary && !reach.cloudInChain) return;
+    if (!cloudPrimary) {
+      // Local primary will serve. Defer the inference to the hop that actually needs it.
+      ctx.imageScreenPending = true;
+      return;
+    }
+  } catch (err) {
+    if (err instanceof RouterError) throw err; // selection failures keep their own code
+    throw new RouterError('scrubber_blocked', 'image screen error — cloud egress blocked', {
+      detail: { reason: 'image_screen_failure' },
+    });
+  }
+  await screenForCloud(ctx, deps, signal, true);
+}
+
+/**
+ * Run the screen and record the verdict. `primary` distinguishes "the request itself is going
+ * to cloud" (throw) from "a fallback hop wants to" (mark barred; the local primary may still
+ * serve). Idempotent — the verdict is cached on the context so a chain of cloud hops screens
+ * the images once, not once per hop.
+ */
+async function screenForCloud(
+  ctx: PipelineCtx,
+  deps: PipelineDeps,
+  signal: AbortSignal,
+  primary: boolean,
+): Promise<void> {
+  const effective = ctx.effective;
+  const auth = ctx.auth;
+  if (!effective || !auth) throw new RouterError('unknown', 'pipeline ordering violation');
+
+  const mode = effective.firmSettings.scrubber_mode ?? 'redact';
+
+  // already screened on an earlier hop — one verdict per request, not one per candidate
+  if (ctx.imageScreened) {
+    if (!primary || !ctx.cloudBlockedImages) return;
+    throw imageBlockError(ctx.cloudBlockedImages);
+  }
+
+  let report: ImageScreenReport;
+  let verdict: ImageVerdict;
+  try {
+    const reader = await buildImageReader(deps, auth.firmId);
+    if (!reader) {
+      // No local eyes on this appliance. Nothing is certified, so nothing goes to cloud.
+      report = {
+        images: imageUrls(ctx.envelope).length,
+        read: 0,
+        unreadable: imageUrls(ctx.envelope).length,
+        counts: {},
+        total: 0,
+      };
+      verdict = 'unreadable';
+    } else {
+      report = await screenImages(ctx.envelope, reader.read, signal);
+      verdict = verdictOf(report);
+    }
+  } catch (err) {
+    if (err instanceof RouterError) throw err; // selection failures keep their own code
+    throw new RouterError('scrubber_blocked', 'image screen error — cloud egress blocked', {
+      detail: { reason: 'image_screen_failure' },
+    });
+  }
+
+  ctx.imageScreened = true;
+  if (verdict === 'clean') return;
+
+  const counts = Object.fromEntries(
+    Object.entries(report.counts).map(([k, v]) => [k, v ?? 0]),
+  ) as Record<string, number>;
+
+  if (mode === 'warn') {
+    deps.audit?.({
+      firmId: auth.firmId,
+      event: 'image_screen_warning',
+      app: auth.app,
+      taskClass: effective.taskClass.key,
+      requestHash: ctx.requestHash,
+      detail: { verdict, images: report.images, unreadable: report.unreadable, matches: counts },
+    });
+    return;
+  }
+
+  // block AND redact both bar here: there is no partial product for an image the way there is
+  // for text, so "redact" has no weaker action available than refusing the cloud hop.
+  const blocked = { verdict, images: report.images, unreadable: report.unreadable, counts };
+  ctx.cloudBlockedImages = blocked;
+  if (!primary) return; // a local primary can still serve the original
+
+  ctx.imageBlockAudited = true;
+  deps.audit?.({
+    firmId: auth.firmId,
+    event: 'blocked_image_screen',
+    app: auth.app,
+    taskClass: effective.taskClass.key,
+    requestHash: ctx.requestHash,
+    detail: { verdict, images: report.images, unreadable: report.unreadable, matches: counts },
+  });
+  throw imageBlockError(blocked);
+}
+
+function imageBlockError(blocked: NonNullable<PipelineCtx['cloudBlockedImages']>): RouterError {
+  return new RouterError(
+    'scrubber_blocked',
+    blocked.verdict === 'identifier'
+      ? 'page image contains protected data — cloud egress blocked'
+      : 'page image could not be screened on the appliance — cloud egress blocked',
+    { detail: { verdict: blocked.verdict, matches: blocked.counts } }, // types + counts only (8.3)
+  );
+}
+
 // ── stage: route ─────────────────────────────────────────────────────────────
 
 /**
@@ -364,6 +560,41 @@ export async function routeForModel(
     throw new RouterError('scrubber_blocked', 'request contains protected data — cloud fallback barred', {
       detail: { matches: ctx.cloudBlockedCounts },
     });
+  }
+
+  // Deferred image screen (8.6): a cloud hop is now actually on the table, so pay for the
+  // verdict here rather than on every request that was only ever going to serve locally.
+  if (!isLocalKind(model.providerKind) && ctx.imageScreenPending && !ctx.imageScreened) {
+    await screenForCloud(ctx, deps, ctx.signal ?? new AbortController().signal, false);
+  }
+
+  // image-screen verdict with a local primary (8.6): same bar, different reason
+  if (!isLocalKind(model.providerKind) && ctx.cloudBlockedImages) {
+    const blocked = ctx.cloudBlockedImages;
+    if (!ctx.imageBlockAudited) {
+      ctx.imageBlockAudited = true;
+      deps.audit?.({
+        firmId: auth.firmId,
+        event: 'blocked_image_screen',
+        app: auth.app,
+        taskClass: effective.taskClass.key,
+        requestHash: ctx.requestHash,
+        detail: {
+          verdict: blocked.verdict,
+          images: blocked.images,
+          unreadable: blocked.unreadable,
+          matches: blocked.counts,
+          scope: 'fallback_only',
+        },
+      });
+    }
+    throw new RouterError(
+      'scrubber_blocked',
+      blocked.verdict === 'identifier'
+        ? 'page image contains protected data — cloud fallback barred'
+        : 'page image could not be screened on the appliance — cloud fallback barred',
+      { detail: { verdict: blocked.verdict, matches: blocked.counts } },
+    );
   }
 
   const provider = await deps.engine.providerFor(auth.firmId, model.providerKind); // cached, 10s TTL
@@ -610,12 +841,14 @@ export async function runPipeline(
   bearerToken: string | undefined,
   signal: AbortSignal,
 ): Promise<void> {
+  ctx.signal = signal;
   try {
     await stageAuth(ctx, deps, bearerToken);
     await stageResolveTaskClass(ctx, deps);
     await stagePolicy(ctx, deps);
     await stageBudget(ctx, deps);
     await stageScrub(ctx, deps);
+    await stageImageScreen(ctx, deps, signal);
     await stageRoute(ctx, deps);
     await stageAdapt(ctx, deps, signal);
     if (!ctx.envelope.stream) {
