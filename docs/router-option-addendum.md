@@ -106,6 +106,16 @@ The MIG table's roster was aspirational; the survey found the actual surface. Th
   Depends on R4. Amends invariant 8 (a second ledger row per request) — needs sign-off, not
   just review. Full ticket: `docs/ticket-R5-preprocess-stage.md`. **3–4 d**; decision **D7**.
 
+- **R6 — region pinning and policy reporting.** Per-policy region constraint enforced in
+  `modelViolation`, plus `GET /v1/policy/regions` so a caller can assert its classes are
+  US-pinned at startup and refuse to boot otherwise. Adds an invariant: a region-constrained
+  task class may never resolve to an out-of-region provider, and an undeclared region fails
+  closed. Raised by Vibe 1040, whose §7216 auxiliary-service-provider position depends on
+  US-only processing — and which, because the scrubber cannot redact image parts, has no
+  other technical control on where taxpayer page images land. Vibe 1040 already probes the
+  endpoint and refuses to start without it. Blocks that app's P14. No decision needed; only
+  scheduling. Full ticket: `docs/ticket-R6-region-pinning.md`. **3–4 d**.
+
 ## Sequencing
 
 ```
