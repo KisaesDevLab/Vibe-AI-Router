@@ -113,7 +113,12 @@ The MIG table's roster was aspirational; the survey found the actual surface. Th
   closed. Raised by Vibe 1040, whose §7216 auxiliary-service-provider position depends on
   US-only processing — and which, because the scrubber cannot redact image parts, has no
   other technical control on where taxpayer page images land. Vibe 1040 already probes the
-  endpoint and refuses to start without it. Blocks that app's P14. No decision needed; only
+  endpoint and refuses to start without it. Blocks that app's P14 — **but only when paired
+  with a region-declared provider**: DigitalOcean *serverless* publishes no region, so R6
+  correctly fails closed against it and Vibe 1040 (running on DO serverless, assertion
+  disabled per its Q13) is unblocked only by also binding local or DO *dedicated* inference
+  (2026-09-03). The reporting endpoint is now `GET /v1/policy/effective` (sensitivity +
+  bound models + regions), with `/v1/policy/regions` folded in. No decision needed; only
   scheduling. Full ticket: `docs/ticket-R6-region-pinning.md`. **3–4 d**.
 
 ## Sequencing
@@ -158,3 +163,8 @@ if approved. Each ticket is independently shippable and reversible (flip the fla
 - **D7** — ⬜ OPEN: ship **R5** (local OCR preprocess before scrub), or keep accepting the
   unscrubbed image egress on the `cloud_deidentified` vision classes? Recommendation: ship,
   scoped to `tb_doc_extract` / `mybooks_receipt_extract` / `timebill_file_naming` first.
+  *2026-09-03:* the compliance case is stronger than first stated (Vibe 1040's WISP now has
+  to say in plain words that W-2/1099 page images with SSNs leave the premises for every
+  cloud-bound class), and R5 as specified does **not** help geometry-shaped classes — see
+  the new R5b (hOCR-style word boxes) in `docs/ticket-R5-preprocess-stage.md` §12a, scoped
+  separately and not part of this decision.

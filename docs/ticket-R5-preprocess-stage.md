@@ -28,6 +28,14 @@ page images reach the cloud model unscrubbed — Kurt accepted this exposure (pa
 `mybooks_receipt_extract`)."* The scrubber cannot read pixels, so no amount of work on the
 scrubber closes this. The only fix is to stop sending pixels.
 
+*Added 2026-09-03 (Vibe 1040 v0.0.3/0.0.4, item G):* the compliance case is stronger than
+the paragraph above states. Vibe 1040 bound its classes to DigitalOcean and its **WISP
+amendment now has to say, in plain words, that full W-2 and 1099 page images containing
+SSNs leave the premises for every cloud-bound class.** R5 as specified (local OCR →
+scrubbed text → cloud) removes that sentence entirely for text-shaped classes. That is a
+sentence a firm's engagement letter and §7216 posture have to carry until R5 ships; it is
+not a quality preference.
+
 **1b. `local_only` vision classes are stuck with a general vision model.**
 `mybooks_bill_extract`, `mybooks_statement_extract`, `mybooks_doc_classify`, and
 `v1099_w9_extract` can never reach a cloud adapter (invariant 5), so the field is Ollama
@@ -43,6 +51,9 @@ want that today must build it themselves — two task classes, two round trips, 
 - **Cloud preprocessors.** A cloud preprocess model is a config error, refused at save time
   and again at request time. The entire compliance argument depends on OCR happening on-box.
 - **De-tokenization / reversibility.** Same as the scrubber: one-way, no mapping table.
+- **Geometry.** R5 returns text. A class that needs bounding boxes (Vibe 1040's
+  `v1040_layout`) cannot be fed by it and would still send pixels. That is a real gap with
+  its own scope — **R5b**, §12a — not a reason to widen R5.
 
 ## 3. Where the control lives: policy, not task class
 
@@ -210,6 +221,36 @@ delta into MIG-6 when it is scheduled.
 6. Zero-cloud appliance still boots and serves end to end (invariant 4).
 7. `test/qa-round-b.test.ts` and `test/qa-round-d-security.test.ts` clean.
 
+## 12a. R5b — geometry output mode (scoped separately; NOT part of D7)
+
+*Added 2026-09-03 from the Vibe 1040 binding.* R5 as specified does **not** help
+geometry-shaped classes. A preprocess stage that returns only text cannot feed a class that
+needs bounding boxes; Vibe 1040 would still send W-2/1099 pixels for its layout pass
+(`v1040_layout`: vision + json_schema, asks for spans with coordinates), so for that app R5
+removes the WISP sentence in §1 for its text classes and leaves it standing for layout.
+
+The one addition that would let Vibe 1040 drop image egress completely is an
+**hOCR-style output mode**: the local OCR engine emits word boxes alongside the text
+(Tesseract TSV, PaddleOCR-VL layout output, or GLM-OCR's own line geometry if its server
+exposes it), and the router passes both to the cloud model — text scrubbed as in R5,
+geometry as structured data that the scrubber can also see (a box is not PII; the word in
+it was already redacted). The app then asks the cloud model to reason over
+`{ text, words: [{ text, bbox }] }` instead of over pixels.
+
+Scope notes, so this is sized honestly when it is scheduled:
+
+- **Depends on R5** (same stage, same policy fields, same ledger row) plus an OCR engine
+  that produces geometry. GLM-OCR via llama-server does not today (see Q-097: it
+  transcribes, no coordinates), so R5b implies a second local OCR kind or a
+  Tesseract/PaddleOCR sidecar on the appliance.
+- **Contract:** a new envelope content part (`{ type: 'ocr_layout', text, words[] }`) or a
+  system-message rendering of it — decide at design time; the former keeps invariant 9
+  (one internal format) honest.
+- **Not a substitute for a VLM's spatial judgment.** Word boxes give a text model where
+  things are, not what a form looks like. Vibe 1040 should expect to re-validate its layout
+  accuracy harness against it, which is why it is not folded into D7.
+- **Estimate:** M on top of R5. Do not ship R5b before R5 has run on real documents.
+
 ## 13. Decision needed — D7
 
 **Ship R5, or keep accepting the image-egress exposure recorded in Q-086/Q-087?**
@@ -219,3 +260,9 @@ That is the half that changes a compliance posture rather than a quality number 
 an unscrubbable payload into a scrubbable one, which is the claim the §7216 story rests on.
 The `local_only` quality win (§1b) is real but is a preference, and can follow once the
 shadow-diff reports say OCR actually wins on those documents.
+
+*2026-09-03:* Vibe 1040 chose VLM geometry on DigitalOcean for its v1 knowing all of the
+above; its documented fallback is a sidecar-geometry redesign on its side. It will move to
+R5 for its text classes and to R5b for layout if and when they ship — so D7 now has a
+second consumer waiting on it, and R5b (§12a) has one. Neither changes the recommendation;
+both change the cost of leaving D7 open.
