@@ -2,6 +2,37 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-09-03 — 0.0.25 / SDK 0.2.3: Vibe 1040 follow-ups (A–G)
+
+Source: `docs/plan-vibe-1040-followups.md` (checked in, status Applied). Six commits on
+`main`, no push: license D-008 → A+B+C → D → E → F/G docs → release.
+
+- **A/B (SDK 0.2.3 + contract doc).** `VIBE_AI_ERROR_CODES` runtime array, reason union +
+  `isInvalidResponse()` guard, `packages/sdk/CHANGELOG.md`, `pnpm test` in the package. New
+  `test/sdk-error-codes.test.ts` guards SDK ⊇ router codes, reason parity, and that
+  `docs/integration.md` documents every router code (five rows added). Decision with Kurt:
+  `retryable` stays true for `invalid_response`; doc wording softened instead.
+- **C (structural validation).** `responseFormat.validation: 'structural' | 'strict'`
+  (default structural): enum misses become `response_soft_finding` audit rows +
+  `vibe_router_response_soft_findings_total`; required/type/items stay hard. Audit + metric
+  only — no ledger column (Kurt's call). `test/verify.test.ts` +6 (unit + chaos).
+- **D (local_ocr ceiling, Q-097).** Adapter `capabilities()` had zero callers, so the gate
+  lives in `effectiveCapabilities()` (`KIND_CAPABILITY_CEILING`); override re-enables.
+- **E (DO catalog + third-party flag, Q-098, migration 0007).** glm-5.3-flash / glm-5.3 /
+  qwen3.8-max curated from DO's pricing page (last verified 1 Sep 2026); qwen3.5-397b-a17b
+  pricing refreshed ($0.385/$2.45 → $0.55/$3.50). `models.third_party_hosted` +
+  `retention_note`, discovery tags `anthropic-*`/`openai-*` minus `openai-gpt-oss-*`,
+  `savePolicy` refuses unacknowledged flagged models (server-side), console chip + confirm.
+  Recorded discrepancy: DO's data-privacy page (2026-09-03) says OpenAI ZDR applies; the
+  Vibe 1040 doc claimed otherwise — the note quotes the page.
+- **F/G.** R6 ticket: DO serverless has no region → stays undeclared, fails closed; endpoint
+  folded into `GET /v1/policy/effective`. R5 ticket: WISP-sentence compliance case, new
+  §12a R5b (hOCR-style geometry), Vibe 1040 stance.
+- **Verification.** `pnpm typecheck` (root + ui), `pnpm lint`, full `pnpm test` against
+  `airouter_test`: 37 files / 381 tests green incl. `qa-round-b`, `qa-round-d-security`,
+  `migrate` (0007 up→down→up). `packages/sdk` builds; `dist/index.d.ts` carries both codes.
+  Not run: live appliance smoke, UI manual check of the confirm dialog.
+
 ## 2026-07-29 — DigitalOcean Gradient serverless inference (provider kind)
 
 - New provider kind  (Q-060): OpenAI wire protocol, own kind because routing
