@@ -7,7 +7,7 @@ import fc from 'fast-check';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { createDb, type DbHandle } from '../src/db/client.js';
-import { isLocalKind, models, policies, rolePolicies, taskClasses, PROVIDER_KINDS } from '../db/schema.js';
+import { isLocalKind, models, policies, providers, rolePolicies, taskClasses, PROVIDER_KINDS } from '../db/schema.js';
 import {
   applyLimits,
   checkRole,
@@ -16,7 +16,14 @@ import {
   PolicyEngine,
   type EffectivePolicy,
 } from '../src/policy/engine.js';
-import { configTimeViolation, exportPolicies, importPolicies, savePolicy } from '../src/policy/save.js';
+import {
+  configTimeViolation,
+  exportPolicies,
+  findInvalidBindings,
+  findUnacknowledgedThirdPartyBindings,
+  importPolicies,
+  savePolicy,
+} from '../src/policy/save.js';
 import { applyDefaultPack, DEFAULT_PACK } from '../src/policy/pack.js';
 import { resetDb } from './helpers.js';
 import type { AIRequest } from '../src/gateway/envelope.js';
@@ -475,22 +482,81 @@ describe.skipIf(!url)('policy persistence (DB)', () => {
     await expect(
       savePolicy(handle.db, engine, { ...input, acknowledgedModels: ['ollama/qwen3:14b'] }),
     ).rejects.toThrow(/third-party hosted/);
-    // acknowledged → saved
-    await expect(
-      savePolicy(handle.db, engine, { ...input, acknowledgedModels: ['digitalocean/anthropic-claude-test'] }),
-    ).resolves.toBeTypeOf('string');
-    // and export → import round-trips without re-asking (the export IS the acknowledgement)
+    // acknowledged → saved, and the acknowledgement PERSISTS on the policy row (Q-100)
+    const policyId = await savePolicy(handle.db, engine, {
+      ...input,
+      acknowledgedModels: ['digitalocean/anthropic-claude-test'],
+    });
+    const row = await handle.db.query.policies.findFirst({ where: eq(policies.id, policyId) });
+    expect(row?.acknowledgedModels).toEqual(['digitalocean/anthropic-claude-test']);
+    expect(row?.acknowledgedAt).toBeInstanceOf(Date);
+    // an unrelated later edit does NOT re-ask
+    await expect(savePolicy(handle.db, engine, { ...input, maxTokensOverride: 512 })).resolves.toBe(policyId);
+    // the export carries the acknowledgement, so a round trip needs no re-confirmation…
     const exported = await exportPolicies(handle.db, firmId);
-    expect(exported.policies.find((p) => p.taskClassKey === 'tb_research_summary')?.fallbackChain).toEqual([
-      'digitalocean/anthropic-claude-test',
+    const view = exported.policies.find((p) => p.taskClassKey === 'tb_research_summary');
+    expect(view?.fallbackChain).toEqual(['digitalocean/anthropic-claude-test']);
+    expect(view?.acknowledgedModels).toEqual(['digitalocean/anthropic-claude-test']);
+    await expect(importPolicies(handle.db, engine, firmId, exported)).resolves.toMatchObject({
+      policies: exported.policies.length,
+    });
+    // …but a pre-0008 / hand-edited file WITHOUT it is refused for the flagged binding
+    const stripped = {
+      ...exported,
+      policies: exported.policies.map((p) => {
+        const { acknowledgedModels: _omit, ...rest } = p;
+        return rest;
+      }),
+    };
+    // clear the persisted ack first so import cannot lean on it
+    await handle.db.update(policies).set({ acknowledgedModels: [], acknowledgedAt: null }).where(eq(policies.id, policyId));
+    await expect(importPolicies(handle.db, engine, firmId, stripped)).rejects.toThrow(/third-party hosted/);
+    // the health scan reports exactly that unacknowledged binding
+    const unacked = await findUnacknowledgedThirdPartyBindings(handle.db);
+    expect(unacked).toEqual([
+      expect.objectContaining({ taskClassKey: 'tb_research_summary', models: ['digitalocean/anthropic-claude-test'] }),
     ]);
-    await expect(importPolicies(handle.db, engine, firmId, exported)).resolves.toMatchObject({ policies: exported.policies.length });
-    // restore the class binding other tests rely on
+    // restore the class binding other tests rely on (prunes the ack: nothing flagged is bound)
     await savePolicy(handle.db, engine, {
       firmId,
       taskClassKey: 'tb_research_summary',
       defaultModelCanonicalId: 'anthropic/claude-sonnet-4-5',
     });
+    const restored = await handle.db.query.policies.findFirst({ where: eq(policies.id, policyId) });
+    expect(restored?.acknowledgedModels).toEqual([]);
+    expect(await findUnacknowledgedThirdPartyBindings(handle.db)).toEqual([]);
+  });
+
+  it('findInvalidBindings surfaces a policy the local_ocr kind ceiling broke (Q-097 review)', async () => {
+    // simulate a 0.0.24 binding: a local_ocr row that advertised json_schema, bound to a class
+    // that requires it — written straight to the DB because savePolicy would now refuse it
+    const [ocr] = await handle.db
+      .insert(models)
+      .values({
+        canonicalId: 'glm/GLM-OCR',
+        providerKind: 'local_ocr',
+        displayName: 'GLM-OCR',
+        contextWindow: 8192,
+        capabilities: { vision: true, json_schema: true },
+        source: 'custom',
+      })
+      .onConflictDoNothing()
+      .returning();
+    const tc = await handle.db.query.taskClasses.findFirst({ where: eq(taskClasses.key, 'tb_classification') }); // requires json_schema
+    const [p] = await handle.db
+      .insert(policies)
+      .values({ firmId, taskClassId: tc!.id, defaultModelId: ocr!.id, allowedModelIds: [ocr!.id], fallbackChain: [] })
+      .onConflictDoUpdate({ target: [policies.firmId, policies.taskClassId], set: { defaultModelId: ocr!.id, allowedModelIds: [ocr!.id] } })
+      .returning();
+    const invalid = await findInvalidBindings(handle.db);
+    expect(invalid).toEqual([
+      expect.objectContaining({ policyId: p!.id, taskClassKey: 'tb_classification', model: 'glm/GLM-OCR' }),
+    ]);
+    expect(invalid[0]!.reason).toMatch(/missing capability json_schema/);
+    // rebind to a valid local model and the report is clean again
+    engine.invalidate(firmId);
+    await savePolicy(handle.db, engine, { firmId, taskClassKey: 'tb_classification', defaultModelCanonicalId: 'ollama/qwen3:14b' });
+    expect(await findInvalidBindings(handle.db)).toEqual([]);
   });
 
   it('savePolicy rejects cloud default for local_only class (7.3/7.5)', async () => {
@@ -542,6 +608,43 @@ describe.skipIf(!url)('policy persistence (DB)', () => {
       const entry = DEFAULT_PACK.find((e) => e.key === key)!;
       expect(entry).toBeDefined();
     }
+  });
+
+  it('default pack never auto-binds a third-party-hosted model, even when it is the only capable one (Q-098)', async () => {
+    // a DO provider makes the flagged `digitalocean/anthropic-claude-test` row (json_schema +
+    // vision + tools) eligible — and we rig it to WIN the picker's tie-break (custom source,
+    // largest context) so that without the guard it would certainly be chosen
+    await handle.db.insert(providers).values({
+      firmId,
+      kind: 'digitalocean',
+      label: 'DO (pack test)',
+      baseUrl: 'https://inference.do-ai.run/v1',
+      authType: 'api_key',
+    });
+    await handle.db
+      .update(models)
+      .set({ source: 'custom', contextWindow: 9_000_000 })
+      .where(eq(models.canonicalId, 'digitalocean/anthropic-claude-test'));
+    const flagged = await handle.db.query.models.findFirst({
+      where: eq(models.canonicalId, 'digitalocean/anthropic-claude-test'),
+    });
+    expect(flagged?.thirdPartyHosted).toBe(true);
+    const target = DEFAULT_PACK.find(
+      (e) => e.sensitivity !== 'local_only' && e.requires.vision && e.requires.json_schema,
+    )!;
+    const tc = await handle.db.query.taskClasses.findFirst({ where: eq(taskClasses.key, target.key) });
+    if (tc) await handle.db.delete(policies).where(eq(policies.taskClassId, tc.id)); // make the class resolvable again
+
+    const result = await applyDefaultPack(handle.db, firmId);
+    // the flagged model was capable, configured, and the picker's favourite — still refused:
+    // the class is either unresolved or bound to some OTHER model, never to the flagged one
+    const bound = await handle.db.query.policies.findMany({ where: eq(policies.defaultModelId, flagged!.id) });
+    expect(bound).toEqual([]);
+    const created = tc
+      ? await handle.db.query.policies.findFirst({ where: eq(policies.taskClassId, tc.id) })
+      : undefined;
+    if (created) expect(created.defaultModelId).not.toBe(flagged!.id);
+    else expect(result.unresolved).toContain(target.key);
   });
 
   it('export → import round-trips (7.9) and import never widens sensitivity', async () => {

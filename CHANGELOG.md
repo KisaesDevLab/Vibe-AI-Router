@@ -32,15 +32,26 @@ models had to rediscover, folded back into the router so the next one does not
   `vibe_router_response_soft_findings_total{reason}` increments. `validation: 'strict'` on
   the wire (`response_format.json_schema.validation`, a router extension never forwarded to
   providers) restores 0.0.24 behaviour. `required`/`type`/`items` stay hard. Item C.
+  *Post-review (Q-099):* OpenAI's `strict: true` without a `validation` key is honoured as a
+  strict hint, so older SDKs and plain `openai` clients keep 0.0.24 behaviour; and a new
+  `ROUTER_SCHEMA_VALIDATION` env (`structural` default | `strict`) sets the fleet default.
+  In `anyOf`/`oneOf`, branches are tried strictly first so an enum discriminator still
+  discriminates — a soft enum can never let a looser branch absorb an object missing another
+  variant's required fields, and a valid value picks up no spurious soft finding.
 - **`local_ocr` models can no longer bind to structured-output classes by default (Q-097).**
   Every openai-compat kind advertised `json_schema` + `vision`, so a GLM-OCR row passed
   config-time gating for a bounding-box class and llama-server's grammar constraint forced a
   0.9B OCR model to invent geometry. A per-kind ceiling in `effectiveCapabilities()`
   (`KIND_CAPABILITY_CEILING`, `src/catalog/service.ts`) makes `json_schema` and `tools` false
   for `local_ocr` whatever the row says; an explicit capability override re-enables them for
-  OCR servers that honour grammar constraints. The adapter's `capabilities()` (which nothing
-  gates on) now says the same. Policy editor hint: "local_ocr models transcribe; they do not
-  emit structured output or coordinates". Item D.
+  OCR servers that honour grammar constraints. Policy editor hint: "local_ocr models
+  transcribe; they do not emit structured output or coordinates". Item D.
+  **Upgrade note:** a 0.0.24 policy that bound a `local_ocr` row advertising `json_schema` to
+  a class requiring it fails `capability_missing` on every request after upgrade until the
+  class is rebound or a per-model override is set deliberately. The boot-time policy health
+  scan audits each such binding as `policy_binding_invalid` and logs it. *Post-review:* the
+  capability probe never switches on a ceiling-capped key (`cappedByKind` in its response);
+  the adapter-level `capabilities()` mirror was dropped as a second truth nothing gates on.
 - **Curated DigitalOcean entries for the models Vibe 1040 binds** (`data/digitalocean-
   models.json`, DO pricing page "last verified 1 Sep 2026"): `glm-5.3-flash` (1,048,576 ctx,
   vision, $0.15/$0.50), `glm-5.3` (1,048,576 ctx, text only, $1.40/$4.40), `qwen3.8-max`
@@ -60,8 +71,22 @@ models had to rediscover, folded back into the router so the next one does not
   `openai-gpt-oss-*`. Catalog shows a "3rd-party hosted" chip with the dated note; the policy
   editor asks for confirmation; and — because the UI is a convenience — `savePolicy` refuses a
   flagged model unless it is named in `acknowledgedModels` (`PUT /admin-api/policies/:key`),
-  recording `acknowledgedThirdParty` in the `config_change` audit. Import implies
-  acknowledgement; the default pack never auto-picks a flagged model. Item E2.
+  recording `acknowledgedThirdParty` in the `config_change` audit. The default pack never
+  auto-picks a flagged model. Item E2.
+  *Post-review (Q-100, migration 0008):* the acknowledgement is **persisted** on the policy
+  (`acknowledged_models`, `acknowledged_at`), so a confirmed binding is not re-asked on every
+  edit; exports carry it and **import requires it** (a pre-0008 or hand-edited export binding a
+  flagged model is refused, not silently acknowledged); the audit row records
+  `newlyAcknowledged` + `acknowledgedVia`. A policy health scan at boot and after every
+  catalog run audits `third_party_binding_unacknowledged` for policies 0007 backfilled into
+  that state, and the Policies table shows a red "3rd-party unacknowledged" chip. Request
+  time is not blocked for those — an upgrade must not take down a class that routed yesterday.
+  Discovery's re-tag pass now compares in memory and issues zero writes at steady state.
+- **Review fixes (10/10 findings from `/code-review` on this release adopted).** Also:
+  audit `detail.path` is clipped to the schema's 200-char cap at every emit site so a long
+  schema path can no longer drop the audit row while the metric increments; the default-pack
+  third-party guard, the probe ceiling, the enum-discriminator case, `ROUTER_SCHEMA_VALIDATION`,
+  the acknowledgement persistence/import/scan and the invalid-binding scan all have tests.
 
 ## 0.0.24 — 2026-08-26
 

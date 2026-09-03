@@ -17,7 +17,8 @@
  * Scope is deliberately narrow: it verifies only what the REQUEST asked for. A plain text
  * completion is checked for emptiness and nothing else — the router does not grade answers.
  */
-import type { AIRequest, AIResponse } from './envelope.js';
+import type { AIRequest, AIResponse, SchemaValidationMode } from './envelope.js';
+export type { SchemaValidationMode } from './envelope.js';
 
 /**
  * The `detail.reason` vocabulary of `invalid_response`. Exported as a runtime array so the audit
@@ -110,7 +111,11 @@ export function validateSchemaSubset(
   value: unknown,
   schema: unknown,
   path = '$',
-  opts?: { soft?: SoftFinding[] },
+  opts?: {
+    soft?: SoftFinding[];
+    /** internal: number of enum constraints the value SATISFIED (anyOf discriminator logic) */
+    hits?: { count: number };
+  },
 ): { path: string; message: string } | undefined {
   if (schema === null || typeof schema !== 'object') return undefined;
   const s = schema as JsonSchema;
@@ -120,17 +125,42 @@ export function validateSchemaSubset(
     if (!ok) {
       if (!opts?.soft) return { path, message: 'value is not one of the permitted enum members' };
       opts.soft.push({ keyword: 'enum', path });
+    } else if (opts?.hits) {
+      opts.hits.count++;
     }
   }
 
   const branches = s.anyOf ?? s.oneOf;
   if (Array.isArray(branches) && branches.length > 0) {
-    // each branch gets a scratch collector; only the branch that PASSES contributes its soft
-    // findings, so a rejected branch's enum misses never pollute the result
+    // Pass 1 — every branch STRICT (enum hard). In a discriminated union the enum IS the
+    // discriminator; evaluating branches softly would let a variant with looser `required`
+    // absorb an object missing another variant's required fields, and would stamp a spurious
+    // soft finding on every valid value that merely matched a later branch. A clean strict
+    // match wins outright and contributes no soft findings.
     for (const b of branches) {
-      const scratch: SoftFinding[] = [];
-      if (validateSchemaSubset(value, b, path, opts?.soft ? { soft: scratch } : undefined) === undefined) {
-        opts?.soft?.push(...scratch);
+      if (validateSchemaSubset(value, b, path) === undefined) return undefined;
+    }
+    // Pass 2 — only if no branch matched strictly and we are in structural mode. Each branch
+    // gets a scratch collector. A branch whose enum(s) the value SATISFIED (≥1 hit, 0 misses)
+    // and which then failed structurally is AUTHORITATIVE: the value identified itself as that
+    // variant, so its missing `required` field is a hard violation — a looser sibling branch
+    // must not absorb it via a soft enum miss. Otherwise the first branch that passes on
+    // structure alone wins and contributes its enum misses (and only its own) as soft findings.
+    if (opts?.soft) {
+      let softWinner: { soft: SoftFinding[]; hits: number } | undefined;
+      for (const b of branches) {
+        const scratch: SoftFinding[] = [];
+        const hits = { count: 0 };
+        const bad = validateSchemaSubset(value, b, path, { soft: scratch, hits });
+        if (bad === undefined) {
+          softWinner ??= { soft: scratch, hits: hits.count };
+          continue;
+        }
+        if (hits.count > 0 && scratch.length === 0) return bad;
+      }
+      if (softWinner) {
+        opts.soft.push(...softWinner.soft);
+        if (opts.hits) opts.hits.count += softWinner.hits;
         return undefined;
       }
     }
@@ -147,14 +177,16 @@ export function validateSchemaSubset(
 
   if (typeOf(value) === 'object' && (s.properties || s.required)) {
     const obj = value as Record<string, unknown>;
-    for (const key of s.required ?? []) {
-      if (!(key in obj)) return { path: `${path}.${key}`, message: 'required property is missing' };
-    }
+    // present properties FIRST so a discriminator enum registers as a hit before a missing
+    // sibling `required` field returns — the anyOf logic above depends on that ordering
     for (const [key, sub] of Object.entries(s.properties ?? {})) {
       if (key in obj) {
         const bad = validateSchemaSubset(obj[key], sub, `${path}.${key}`, opts);
         if (bad) return bad;
       }
+    }
+    for (const key of s.required ?? []) {
+      if (!(key in obj)) return { path: `${path}.${key}`, message: 'required property is missing' };
     }
   }
 
@@ -180,10 +212,29 @@ export function validateSchemaSubset(
  * already does — but nothing here returns, logs, or persists content. Findings carry a reason
  * and a schema PATH only, so an audit row or client error can never leak the body.
  */
+/**
+ * Which validation mode applies to a forced-JSON request (Q-099):
+ *  1. an explicit router-extension `validation` on the request wins;
+ *  2. otherwise OpenAI's `strict: true` is honoured as a hint — a client that asked the
+ *     provider for strict schema adherence has said what it wants, and it may be an older SDK
+ *     or a plain `openai` client that cannot send the router key;
+ *  3. otherwise the deployment default (`ROUTER_SCHEMA_VALIDATION`, structural unless set).
+ */
+export function resolveValidationMode(
+  rf: AIRequest['responseFormat'],
+  defaultMode: SchemaValidationMode = 'structural',
+): SchemaValidationMode {
+  if (rf?.type !== 'json_schema') return defaultMode;
+  if (rf.validation) return rf.validation;
+  if (rf.strict === true) return 'strict';
+  return defaultMode;
+}
+
 export function verifyResponse(
   res: AIResponse,
   env: AIRequest,
   soft?: SoftFinding[],
+  defaultMode: SchemaValidationMode = 'structural',
 ): VerifyFinding | undefined {
   const content = res.message.content ?? '';
   const toolCalls = res.message.toolCalls ?? [];
@@ -233,8 +284,8 @@ export function verifyResponse(
   }
 
   if (env.responseFormat?.type === 'json_schema' && env.responseFormat.schema) {
-    // default is STRUCTURAL: enum misses are soft. `strict` restores hard enum enforcement.
-    const strict = env.responseFormat.validation === 'strict';
+    // structural: enum misses are soft; strict: hard. Resolution order in resolveValidationMode.
+    const strict = resolveValidationMode(env.responseFormat, defaultMode) === 'strict';
     const bad = validateSchemaSubset(
       parsed,
       env.responseFormat.schema,

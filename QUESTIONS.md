@@ -641,3 +641,40 @@ Grouped by phase. This file is the Phase 15 review agenda.
   content from abuse-monitoring logs — the note quotes the page and dates it; whoever reads
   differently should re-verify against the live page, not this file.** → two columns + one
   predicate + one save-time check; reversal is migration down + deleting the predicate → **S**
+- [Q-099] 0.0.25 made forced-JSON verification STRUCTURAL by default (enum misses soft) with only
+  a per-request opt-out. Review finding: a vendored SDK 0.2.2 or a plain `openai` client cannot
+  send the router-only `validation` key, so it silently lost the retry-and-fallback it had on
+  enum misses in 0.0.24, and there was no server-side control. → **Three-level resolution in
+  `resolveValidationMode` (`src/gateway/verify.ts`): (1) explicit `validation` on the request;
+  (2) else OpenAI's `strict: true` is honoured as a STRICT hint — a client that asked the
+  provider for strict schema adherence has said what it wants, and that is the field the older
+  clients do send; (3) else the deployment default `ROUTER_SCHEMA_VALIDATION`
+  (`structural` | `strict`, default structural per the Vibe 1040 plan). Operators whose apps
+  rely on the router rather than their own validation set it to `strict` fleet-wide.** → env +
+  one pure function; reversal is deleting the hint clause → **S**
+- [Q-100] The Q-098 acknowledgement was a transient per-save argument. Review findings: an
+  operator who confirmed once was re-prompted on every unrelated edit; `importPolicies`
+  blanket-acknowledged every bound model (so a pre-0007 export bound Claude-on-DO with an
+  audit row claiming a confirm that never happened); and policies 0007 backfilled as binding a
+  flagged model were never surfaced. → **Persist it. Migration 0008 adds
+  `policies.acknowledged_models` + `acknowledged_at`; `savePolicy` unions the row's acks with
+  the request's, prunes to what is bound, and audits `acknowledgedThirdParty` /
+  `newlyAcknowledged` / `acknowledgedVia` (`console` | `import`). Exports carry
+  `acknowledgedModels`; import requires them (a pre-0008 or hand-edited file binding a flagged
+  model is refused, same as an unacknowledged console save). A policy health scan
+  (`runPolicyHealthAlerts`, at boot and after every catalog run) audits
+  `third_party_binding_unacknowledged` and — for the Q-097 ceiling and any future gating change
+  — `policy_binding_invalid`; the console shows a red "3rd-party unacknowledged" chip. Request
+  time is deliberately NOT blocked for pre-existing bindings: an upgrade must not silently take
+  down a class that was routing yesterday; the operator re-saves in the console to acknowledge
+  or rebinds.** → two columns + scan; reversal is migration down → **S**
+- [Q-097 addendum, 2026-09-03 review] The ceiling applies at READ time, so a 0.0.24 policy that
+  bound a `local_ocr` row advertising `json_schema` to a class requiring it fails
+  `capability_missing` on every request after upgrade until an override is set or the class is
+  rebound. Fail-closed is the intended direction; what was missing was the upgrade note
+  (CHANGELOG 0.0.25 now carries it) and detection — `findInvalidBindings` +
+  `policy_binding_invalid` at boot (Q-100). Also: the capability PROBE never writes a
+  ceiling-capped key as `true` (`overridesFromProbes(…, kind)`), because llama-server's grammar
+  constraint answers the json_schema probe with parseable JSON precisely because it is forced
+  to — the probe route reports `cappedByKind` so the operator sees why. The adapter-level
+  `capabilities()` mirror was removed: nothing gates on it and a second truth drifts.

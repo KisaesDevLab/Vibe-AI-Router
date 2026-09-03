@@ -9,6 +9,7 @@ import { EMPTY_USAGE, type AIResponse } from '../src/gateway/envelope.js';
 import type { GatewayAdapter } from '../src/gateway/adapter-types.js';
 import {
   buildProbeRequest,
+  ceilingCappedCapabilities,
   classifyProbeError,
   classifyProbeSuccess,
   overridesFromProbes,
@@ -125,6 +126,26 @@ describe('probeModelCapabilities + overridesFromProbes', () => {
       json_schema: true,
       tools: false,
     });
+  });
+
+  it('a probe never switches on a capability the KIND ceiling caps (Q-097 review)', () => {
+    // llama-server answers the json_schema probe with parseable JSON because its grammar
+    // constraint forces it to — that is the failure the ceiling exists to prevent
+    const results = [
+      { capability: 'json_schema', outcome: 'supported', detail: 'x', latencyMs: 1 },
+      { capability: 'tools', outcome: 'supported', detail: 'x', latencyMs: 1 },
+      { capability: 'vision', outcome: 'supported', detail: 'x', latencyMs: 1 },
+    ] as const;
+    expect(overridesFromProbes({}, [...results], 'local_ocr')).toEqual({ vision: true });
+    // an 'unsupported' verdict may still write false; an existing by-hand override survives
+    expect(
+      overridesFromProbes({ json_schema: true }, [{ capability: 'tools', outcome: 'unsupported', detail: 'x', latencyMs: 1 }], 'local_ocr'),
+    ).toEqual({ json_schema: true, tools: false });
+    // other kinds are unaffected
+    expect(overridesFromProbes({}, [...results], 'digitalocean')).toEqual({ json_schema: true, tools: true, vision: true });
+    expect(overridesFromProbes({}, [...results])).toEqual({ json_schema: true, tools: true, vision: true });
+    expect(ceilingCappedCapabilities('local_ocr').sort()).toEqual(['json_schema', 'tools']);
+    expect(ceilingCappedCapabilities('local')).toEqual([]);
   });
 
   it('inconclusive probes leave existing overrides exactly as they were', async () => {

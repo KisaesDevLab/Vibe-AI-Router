@@ -27,6 +27,16 @@ export function Policies(): JSX.Element {
     [data, app],
   );
 
+  // third-party-hosted models a policy binds without a persisted acknowledgement (Q-100) —
+  // the case an upgrade creates for bindings saved before the flag existed
+  const flagged = useMemo(() => new Set(models.filter((m) => m.thirdPartyHosted).map((m) => m.canonicalId)), [models]);
+  const unacknowledgedFor = (p: PolicyView): string[] => {
+    const acked = new Set(p.acknowledgedModels ?? []);
+    return [...new Set([p.defaultModel, ...p.allowedModels, ...p.fallbackChain])].filter(
+      (id) => flagged.has(id) && !acked.has(id),
+    );
+  };
+
   if (!data) return <div />;
 
   return (
@@ -99,6 +109,16 @@ export function Policies(): JSX.Element {
                   <td><Tier tier={tc.sensitivity} /></td>
                   <td style={{ fontFamily: 'var(--mono)', fontSize: 12.5 }}>
                     {policy?.defaultModel ?? <span style={{ color: 'var(--red)' }}>unconfigured — requests blocked</span>}
+                    {policy && unacknowledgedFor(policy).length > 0 && (
+                      <span
+                        className="chip"
+                        style={{ marginLeft: 6, color: 'var(--red)' }}
+                        title={`Binds a third-party-hosted model nobody acknowledged: ${unacknowledgedFor(policy).join(', ')}. Open Edit and save to acknowledge, or rebind.`}
+                        data-testid={`unacknowledged-${tc.key}`}
+                      >
+                        3rd-party unacknowledged
+                      </span>
+                    )}
                   </td>
                   <td style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>
                     {policy?.fallbackChain.join(' → ') || '—'}
@@ -313,7 +333,9 @@ function Editor({
     // acknowledgement — the router refuses the save without it, so this confirm is the UI
     // half of a server-side gate, not the gate itself
     const bound = new Set([defaultModel, ...allowed, ...fallbacks]);
-    const thirdParty = models.filter((m) => bound.has(m.canonicalId) && m.thirdPartyHosted);
+    // only models NOT already acknowledged on this policy are asked about (Q-100)
+    const already = new Set(policy?.acknowledgedModels ?? []);
+    const thirdParty = models.filter((m) => bound.has(m.canonicalId) && m.thirdPartyHosted && !already.has(m.canonicalId));
     if (thirdParty.length > 0) {
       const msg =
         `${thirdParty.length === 1 ? 'This model is' : 'These models are'} hosted by DigitalOcean but served under a third-party vendor's terms:\n\n` +

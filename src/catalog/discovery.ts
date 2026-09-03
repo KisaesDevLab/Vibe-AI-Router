@@ -17,7 +17,7 @@
  * without any router release.
  */
 import type { Logger } from 'pino';
-import { and, eq, ne, or } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
 import { models, type providers } from '../../db/schema.js';
 import { getJson } from '../adapters/http.js';
@@ -188,21 +188,20 @@ export async function discoverDigitalOceanModels(
     if (m.thirdPartyHosted) thirdPartyHosted.push(m.canonicalId);
   }
   // Rows discovered before 0007 (or whose note text has since been revised) are re-tagged in
-  // place — idempotent, touches only the two flag columns, never specs/overrides.
+  // place — touches only the two flag columns, never specs/overrides. Compared in memory
+  // against the rows already loaded above, so steady state issues ZERO writes.
+  const existingById = new Map(existing.map((m) => [m.canonicalId, m]));
   for (const canonicalId of plan.alreadyKnown) {
     const native = canonicalId.slice(DO_NAMESPACE.length + 1);
     const hosting = thirdPartyHostingFor(native);
     if (!hosting) continue;
     thirdPartyHosted.push(canonicalId);
+    const row = existingById.get(canonicalId);
+    if (row && row.thirdPartyHosted && row.retentionNote === hosting.retentionNote) continue;
     await db
       .update(models)
       .set({ thirdPartyHosted: true, retentionNote: hosting.retentionNote })
-      .where(
-        and(
-          eq(models.canonicalId, canonicalId),
-          or(eq(models.thirdPartyHosted, false), ne(models.retentionNote, hosting.retentionNote)),
-        ),
-      );
+      .where(eq(models.canonicalId, canonicalId));
   }
   return {
     providerId: provider.id,

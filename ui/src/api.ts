@@ -186,6 +186,8 @@ export interface PolicyView {
   temperatureMax: number | null;
   monthlyBudgetCents: number | null;
   enabled: boolean;
+  /** third-party-hosted models already acknowledged on this policy (Q-100) */
+  acknowledgedModels: string[];
 }
 
 export interface PolicyExport {

@@ -80,6 +80,16 @@ const envSchema = z.object({
     .enum(['true', 'false'])
     .default('true')
     .transform((v) => v === 'true'),
+  /**
+   * Deployment default for forced-JSON schema verification (Q-099). `structural`: enforce
+   * required/type/items, tolerate `enum` misses as audited soft findings. `strict`: an enum
+   * miss is an `invalid_response` (0.0.24 behaviour). A request's own
+   * `response_format.json_schema.validation` overrides this, and OpenAI's `strict: true` is
+   * honoured as a strict hint — so clients that cannot send the router key still get what
+   * they asked for. Set `strict` fleet-wide if apps rely on the router, not their own
+   * validation, to reject enum misses.
+   */
+  ROUTER_SCHEMA_VALIDATION: z.enum(['structural', 'strict']).default('structural'),
 });
 
 export type Env = z.infer<typeof envSchema>;

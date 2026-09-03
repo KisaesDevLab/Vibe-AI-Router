@@ -236,6 +236,14 @@ export const policies = pgTable(
     temperatureMax: real('temperature_max'),
     monthlyBudgetCents: bigint('monthly_budget_cents', { mode: 'number' }),
     enabled: boolean('enabled').notNull().default(true),
+    /**
+     * Canonical ids of third-party-hosted models (models.third_party_hosted) an operator has
+     * explicitly acknowledged for this policy (0008, Q-100). Pruned to the currently bound set
+     * on every save; exported and required on import; a bound flagged model NOT in this list
+     * is reported by the policy health scan.
+     */
+    acknowledgedModels: text('acknowledged_models').array().notNull().default([]),
+    acknowledgedAt: timestamp('acknowledged_at', { withTimezone: true }),
     ...timestamps,
   },
   (t) => [uniqueIndex('policies_firm_task_class_uq').on(t.firmId, t.taskClassId)],

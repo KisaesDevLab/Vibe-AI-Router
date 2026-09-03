@@ -2,6 +2,34 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-09-03 — 0.0.25 review pass: all 10 `/code-review` findings adopted
+
+Kurt: "fix all issues as we need production ready release." Findings and outcomes:
+
+1. **anyOf enum discriminator** (`verify.ts`) — branches matched strictly first; a branch whose
+   enum the value satisfied is authoritative for its structural failure (object properties are
+   now evaluated before `required` so the hit registers). Tests for both orderings.
+2. **Probe undid the local_ocr ceiling** — `overridesFromProbes(…, kind)` never writes a capped
+   key as `true`; probe route returns `cappedByKind`. Tested.
+3. **Import blanket-acknowledged** — exports carry `acknowledgedModels`; import requires them;
+   audit records `acknowledgedVia: 'import'`. Pre-0008 file binding a flagged model → refused.
+4. **Ack not persisted** — migration **0008** (`policies.acknowledged_models`, `acknowledged_at`);
+   union-and-prune on save; console prompts only for un-acknowledged models; boot + post-sync
+   `runPolicyHealthAlerts` audits `third_party_binding_unacknowledged`; red chip in Policies.
+5. **No server-side control of the structural default** — `ROUTER_SCHEMA_VALIDATION` env +
+   OpenAI `strict: true` honoured as a strict hint (`resolveValidationMode`, Q-099).
+6. **Ceiling breaks 0.0.24 bindings silently** — CHANGELOG upgrade note; `findInvalidBindings`
+   + `policy_binding_invalid` audit at boot/sync. Tested.
+7. **Unbounded audit path** — clipped to 200 at every emit site (`clipPath`).
+8. **Dead adapter branch** — removed; contract doc points at the ceiling.
+9. **Untested pack guard** — test rigs the flagged model to win the tie-break and asserts it is
+   never bound.
+10. **Serial re-tag UPDATEs** — in-memory compare; zero writes at steady state.
+
+Decisions recorded as Q-099, Q-100 and a Q-097 addendum. Verification: typecheck (root + ui),
+lint, full `pnpm test` on `airouter_test`: 37 files / **387** tests green, incl. `migrate`
+(0007 + 0008 up→down→up), `qa-round-b`, `qa-round-d-security`.
+
 ## 2026-09-03 — 0.0.25 / SDK 0.2.3: Vibe 1040 follow-ups (A–G)
 
 Source: `docs/plan-vibe-1040-followups.md` (checked in, status Applied). Six commits on

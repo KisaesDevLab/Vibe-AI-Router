@@ -18,6 +18,12 @@ describe('env config', () => {
     expect(() => loadEnv({})).toThrow(/DATABASE_URL/);
   });
 
+  it('ROUTER_SCHEMA_VALIDATION defaults to structural and refuses anything but the two modes (Q-099)', () => {
+    expect(loadEnv({ ...BASE }).ROUTER_SCHEMA_VALIDATION).toBe('structural');
+    expect(loadEnv({ ...BASE, ROUTER_SCHEMA_VALIDATION: 'strict' }).ROUTER_SCHEMA_VALIDATION).toBe('strict');
+    expect(() => loadEnv({ ...BASE, ROUTER_SCHEMA_VALIDATION: 'lenient' })).toThrow(/refusing to boot/);
+  });
+
   it('refuses to boot on malformed values', () => {
     expect(() => loadEnv({ ...BASE, PORT: 'not-a-port' })).toThrow(/refusing to boot/);
     expect(() => loadEnv({ ...BASE, PORT: '70000' })).toThrow(/refusing to boot/);

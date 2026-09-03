@@ -33,9 +33,12 @@ toolCallId? }`; `ContentPart`: `{type:'text',text}` | `{type:'image',url}`.
 `ResponseFormat`: `{type:'text'}` | `{type:'json_object'}` | `{type:'json_schema', name,
 schema, strict?, validation?}`. On the wire the json_schema fields sit under
 `response_format.json_schema`. `strict` is OpenAI's constrained-decoding flag and is forwarded
-to providers that support it. `validation` (`'structural'` default | `'strict'`, added 0.0.25) is
+to providers that support it. `validation` (`'structural'` | `'strict'`, added 0.0.25) is
 a **router extension that never reaches a provider**: it selects how `src/gateway/verify.ts`
-grades the response. Structural enforces `required`/`type`/`items` and treats an `enum` miss
+grades the response. Resolution (Q-099): explicit `validation` → else `strict: true` counts as a
+strict hint → else `ROUTER_SCHEMA_VALIDATION` (structural by default). In `anyOf`/`oneOf`,
+branches are matched strictly first, so an enum discriminator always discriminates.
+Structural enforces `required`/`type`/`items` and treats an `enum` miss
 as a soft finding — audited as `response_soft_finding` (`reason: 'schema_enum_miss'`, count,
 first path) and counted in `vibe_router_response_soft_findings_total` — while the response
 still serves. Strict makes an enum miss a hard `schema_violation`, i.e. an `invalid_response`

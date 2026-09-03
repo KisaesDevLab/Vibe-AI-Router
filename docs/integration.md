@@ -70,8 +70,10 @@ Forced-JSON verification is **structural** by default (since 0.0.25): `required`
 `items` from your schema are enforced, an `enum` miss is tolerated (audited router-side as
 `schema_enum_miss`) and the response is returned for your own code to reconcile. Pass
 `responseFormat.validation: 'strict'` to have enum misses rejected as `invalid_response`
-instead. `strict: true` (OpenAI's constrained-decoding flag) is a separate, provider-facing
-setting.
+instead. `strict: true` (OpenAI's constrained-decoding flag) is still forwarded to providers,
+and when you send it **without** a `validation` key the router treats it as a strict hint, so
+clients that cannot send the router extension keep the 0.0.24 behaviour. The deployment
+default is `ROUTER_SCHEMA_VALIDATION` (structural unless the operator sets `strict`).
 
 ## Versioning (12.8)
 

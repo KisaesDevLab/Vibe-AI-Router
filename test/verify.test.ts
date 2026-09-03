@@ -24,7 +24,13 @@ import { clampToModel } from '../src/policy/engine.js';
 import { CircuitBreaker } from '../src/resilience/breaker.js';
 import { LoadShedGuard } from '../src/resilience/shed.js';
 import { RateLimiter } from '../src/resilience/limiter.js';
-import { stripFence, validateSchemaSubset, verifyResponse, type SoftFinding } from '../src/gateway/verify.js';
+import {
+  resolveValidationMode,
+  stripFence,
+  validateSchemaSubset,
+  verifyResponse,
+  type SoftFinding,
+} from '../src/gateway/verify.js';
 import type { AIRequest, AIResponse } from '../src/gateway/envelope.js';
 import { EMPTY_USAGE } from '../src/gateway/envelope.js';
 import type { AuditEntry } from '../src/protect/audit.js';
@@ -84,6 +90,32 @@ describe('validateSchemaSubset', () => {
       '$.lines[0].desc',
     );
     expect(soft).toEqual([]);
+  });
+
+  it('anyOf with an ENUM DISCRIMINATOR still discriminates in structural mode (review finding)', () => {
+    const s = {
+      anyOf: [
+        { type: 'object', required: ['kind', 'amount'], properties: { kind: { enum: ['charge'] }, amount: { type: 'number' } } },
+        { type: 'object', required: ['kind'], properties: { kind: { enum: ['note'] } } },
+      ],
+    };
+    // a charge missing its amount must NOT be absorbed by the looser `note` branch via a soft
+    // enum: the value named its variant, so the `charge` branch's violation is authoritative
+    const soft: SoftFinding[] = [];
+    expect(validateSchemaSubset({ kind: 'charge' }, s, '$', { soft })?.path).toBe('$.amount');
+    expect(soft).toEqual([]);
+    // branch order does not matter — the authoritative hard failure wins over an earlier soft match
+    const reversed = { anyOf: [s.anyOf[1], s.anyOf[0]] };
+    expect(validateSchemaSubset({ kind: 'charge' }, reversed, '$', { soft })?.path).toBe('$.amount');
+    expect(soft).toEqual([]);
+    // a valid `note` matches strictly on branch 2 — NO spurious soft finding from branch 1
+    expect(validateSchemaSubset({ kind: 'note' }, s, '$', { soft })).toBeUndefined();
+    expect(soft).toEqual([]);
+    // a structurally valid object whose discriminator is an unknown member: soft in structural…
+    expect(validateSchemaSubset({ kind: 'refund', amount: 1 }, s, '$', { soft })).toBeUndefined();
+    expect(soft).toEqual([{ keyword: 'enum', path: '$.kind' }]);
+    // …and a hard miss in strict
+    expect(validateSchemaSubset({ kind: 'refund', amount: 1 }, s)?.message).toMatch(/none of the anyOf/);
   });
 
   it('anyOf: only the PASSING branch contributes soft findings (rejected branches are scratch)', () => {
@@ -236,6 +268,26 @@ describe('verifyResponse', () => {
     expect(finding?.reason).toBe('schema_violation');
     expect(finding?.path).toBe('$.k');
     expect(JSON.stringify(finding)).not.toContain('zzz');
+  });
+
+  it('validation mode resolution (Q-099): explicit > OpenAI strict hint > deployment default', () => {
+    const schema = { type: 'object', required: ['k'], properties: { k: { type: 'string', enum: ['a'] } } };
+    const rf = (over: Record<string, unknown>) => ({ type: 'json_schema', name: 'K', schema, ...over }) as AIRequest['responseFormat'];
+    expect(resolveValidationMode(rf({}))).toBe('structural');
+    expect(resolveValidationMode(rf({}), 'strict')).toBe('strict');
+    expect(resolveValidationMode(rf({ strict: true }))).toBe('strict');
+    expect(resolveValidationMode(rf({ strict: true, validation: 'structural' }))).toBe('structural');
+    expect(resolveValidationMode(rf({ validation: 'strict' }))).toBe('strict');
+    expect(resolveValidationMode({ type: 'json_object' }, 'strict')).toBe('strict');
+
+    // an older client that only knows OpenAI's `strict: true` keeps 0.0.24 behaviour
+    const body = res({ content: '{"k":"zzz"}' });
+    const hinted = env({ responseFormat: rf({ strict: true }) } as Partial<AIRequest>);
+    expect(verifyResponse(body, hinted, [])?.reason).toBe('schema_violation');
+    // and a deployment can flip the default fleet-wide
+    const plain = env({ responseFormat: rf({}) } as Partial<AIRequest>);
+    expect(verifyResponse(body, plain, [], 'strict')?.reason).toBe('schema_violation');
+    expect(verifyResponse(body, plain, [], 'structural')).toBeUndefined();
   });
 
   it('accepts a forced-JSON answer delivered as a tool call instead of content', () => {

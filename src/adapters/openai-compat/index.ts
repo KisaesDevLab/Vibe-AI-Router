@@ -32,17 +32,12 @@ export class OpenAiCompatAdapter implements ProviderAdapter {
   }
 
   /**
-   * Static family capabilities. NOTE: nothing gates on this today — config-time and request-
-   * time gating read the catalog row through `effectiveCapabilities()` (src/catalog/service.ts),
-   * where `KIND_CAPABILITY_CEILING` is the enforced per-kind truth. Keep the two in agreement.
+   * Static FAMILY capabilities (the wire protocol's ceiling). Nothing gates on this: config-
+   * and request-time gating read the catalog row through `effectiveCapabilities()`
+   * (src/catalog/service.ts), and per-KIND limits such as `local_ocr` live in
+   * `KIND_CAPABILITY_CEILING` there — deliberately not mirrored here (Q-097 review).
    */
   capabilities(): AdapterCapabilities {
-    if (this.kind === 'local_ocr') {
-      // GLM-OCR llama-server (R4/Q-097): transcription only — text + Markdown tables. No tool
-      // calling, no structured output (a grammar constraint makes it hallucinate geometry
-      // rather than refuse), and served as a single completion.
-      return { streaming: false, tools: false, jsonSchema: false, vision: true, promptCaching: false, reasoning: false };
-    }
     return {
       streaming: true,
       tools: true,

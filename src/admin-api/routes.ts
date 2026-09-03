@@ -38,7 +38,7 @@ import { safeString } from '../lib/safe-string.js';
 import { queryAudit, auditToCsv, writeAudit } from '../protect/audit.js';
 import { discoverDigitalOceanModels } from '../catalog/discovery.js';
 import { runCatalogSync } from '../catalog/scheduler.js';
-import { overridesFromProbes, probeModelCapabilities } from '../catalog/probe.js';
+import { ceilingCappedCapabilities, overridesFromProbes, probeModelCapabilities } from '../catalog/probe.js';
 import { applyScrapedToCatalog, fetchDocsPage, scrapeDoDocs, type FetchPage } from '../catalog/do-docs.js';
 import { savePolicy, exportPolicies, importPolicies } from '../policy/save.js';
 import {
@@ -621,8 +621,10 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
         modelMapping: provider.modelMapping as Record<string, string>,
       });
       let overrides = (model.capabilityOverrides ?? {}) as Record<string, boolean>;
+      // keys the kind's ceiling caps (Q-097) are never switched on by a probe — by hand only
+      const capped = ceilingCappedCapabilities(model.providerKind);
       if (body.data.apply) {
-        overrides = overridesFromProbes(overrides, results);
+        overrides = overridesFromProbes(overrides, results, model.providerKind);
         await setCapabilityOverrides(db, model.id, overrides);
         opts.deps.engine.invalidate();
       }
@@ -640,7 +642,7 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
           applied: body.data.apply,
         },
       }).catch(() => {});
-      return await reply.send({ results, applied: body.data.apply, overrides });
+      return await reply.send({ results, applied: body.data.apply, overrides, cappedByKind: capped });
     } catch (err) {
       return fail(reply, err);
     }

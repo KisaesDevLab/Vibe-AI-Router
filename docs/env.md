@@ -36,6 +36,8 @@ Validation: `src/config/env.ts` (zod). Invalid config → the process refuses to
 | `SSRF_DENY_PRIVATE_CLOUD` | no | `true` | request-time rejection of cloud providers on private hosts (14.2); leave on |
 | `ROUTER_VERIFY_RESPONSES` | no | `true` | verify each hop's RESULT, not just its status: a 200 with an unusable body (empty, non-JSON under a forced-JSON request, schema violation) becomes a retryable `invalid_response` so retry/fallback/breaker engage. Kill switch only — off makes any 200 a success |
 
+| `ROUTER_SCHEMA_VALIDATION` | no | `structural` | default verification mode for forced-JSON requests (Q-099): `structural` enforces `required`/`type`/`items` and audits `enum` misses as soft findings; `strict` rejects enum misses as `invalid_response` (0.0.24 behaviour). Per-request `response_format.json_schema.validation` overrides; OpenAI `strict: true` without it is treated as a strict hint |
+
 Test-only:
 
 | Variable | Purpose |

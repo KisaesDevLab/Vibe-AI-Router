@@ -66,6 +66,19 @@ const EVENT_SCHEMAS = {
     errorRate: z.number(),
     samples: z.number(),
   }),
+  /** policy binds a third-party-hosted model nobody acknowledged (Q-100) — boot + discovery scan */
+  third_party_binding_unacknowledged: z.object({
+    policyId: z.string(),
+    taskClass: z.string(),
+    models: z.array(z.string()).max(50),
+  }),
+  /** policy binding no longer passes config-time gating (e.g. a kind ceiling, Q-097) — boot + sync scan */
+  policy_binding_invalid: z.object({
+    policyId: z.string(),
+    taskClass: z.string(),
+    modelCanonicalId: z.string(),
+    reason: z.string().max(300),
+  }),
   model_deprecation_warning: z.object({
     policyId: z.string(),
     taskClass: z.string(),

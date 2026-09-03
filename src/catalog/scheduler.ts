@@ -11,6 +11,7 @@ import { writeAudit } from '../protect/audit.js';
 import { loadVendoredFeed, syncCatalog, type DiffReport } from './sync.js';
 import { findRetiredModelReferences } from './service.js';
 import { runProviderDiscovery } from './discovery.js';
+import { findInvalidBindings, findUnacknowledgedThirdPartyBindings } from '../policy/save.js';
 
 /** Live-endpoint model discovery (Q-082): supply a key resolver to enable it, omit to skip. */
 export type GetApiKey = (providerId: string) => Promise<string | undefined>;
@@ -66,6 +67,7 @@ export async function runCatalogSync(
       });
     }
     await runDeprecationAlerts(db, log);
+    await runPolicyHealthAlerts(db, log);
     onSuccess?.();
     return report;
   } catch (err) {
@@ -105,6 +107,55 @@ export async function runDeprecationAlerts(db: Db, log: Logger): Promise<number>
   }
   if (refs.length > 0) log.warn({ count: refs.length }, 'policies reference deprecated/sunset models');
   return refs.length;
+}
+
+/**
+ * Policy health (Q-097 review / Q-100): bindings that an upgrade or a discovery run has made
+ * questionable — a third-party-hosted model nobody acknowledged, or a model that no longer
+ * passes config-time gating. Audited + logged so it is visible in the console's audit view at
+ * boot, not discovered at the first request. Never blocks serving.
+ */
+export async function runPolicyHealthAlerts(
+  db: Db,
+  log: Logger,
+): Promise<{ unacknowledged: number; invalid: number }> {
+  const unacknowledged = await findUnacknowledgedThirdPartyBindings(db);
+  for (const u of unacknowledged) {
+    await writeAudit(db, {
+      firmId: u.firmId,
+      event: 'third_party_binding_unacknowledged',
+      taskClass: u.taskClassKey,
+      detail: { policyId: u.policyId, taskClass: u.taskClassKey, models: u.models.slice(0, 50) },
+    }).catch(() => {});
+  }
+  if (unacknowledged.length > 0) {
+    log.warn(
+      { policies: unacknowledged.map((u) => ({ taskClass: u.taskClassKey, models: u.models })) },
+      'policies bind third-party-hosted models without an acknowledgement — re-save them in the console',
+    );
+  }
+  const invalid = await findInvalidBindings(db);
+  for (const b of invalid) {
+    await writeAudit(db, {
+      firmId: b.firmId,
+      event: 'policy_binding_invalid',
+      taskClass: b.taskClassKey,
+      model: b.model,
+      detail: {
+        policyId: b.policyId,
+        taskClass: b.taskClassKey,
+        modelCanonicalId: b.model,
+        reason: b.reason.slice(0, 300),
+      },
+    }).catch(() => {});
+  }
+  if (invalid.length > 0) {
+    log.warn(
+      { bindings: invalid.map((b) => ({ taskClass: b.taskClassKey, model: b.model, reason: b.reason })) },
+      'policy bindings no longer pass config-time gating — requests to these classes fail closed until rebound',
+    );
+  }
+  return { unacknowledged: unacknowledged.length, invalid: invalid.length };
 }
 
 export function startCatalogScheduler(

@@ -59,6 +59,7 @@ async function main(): Promise<void> {
     totalTimeoutMs: env.ROUTER_TIMEOUT_TOTAL_MS,
     streamIdleTimeoutMs: env.ROUTER_TIMEOUT_STREAM_IDLE_MS,
     verifyResponses: env.ROUTER_VERIFY_RESPONSES,
+    schemaValidationDefault: env.ROUTER_SCHEMA_VALIDATION,
   };
   const rateLimits = {
     perToken: new RateLimiter(env.RATE_LIMIT_PER_TOKEN_RPM),
@@ -161,6 +162,15 @@ async function main(): Promise<void> {
           vault ? (providerId: string) => vault.getActiveApiKey(providerId) : undefined,
         )
       : undefined;
+
+  // Boot-time policy health (Q-097 review / Q-100): bindings an upgrade made questionable —
+  // third-party-hosted models nobody acknowledged, models that no longer pass config-time
+  // gating — are audited + logged now, not discovered at the first request. Never blocks boot.
+  if (runsBackgroundJobs) {
+    void (await import('../catalog/scheduler.js'))
+      .runPolicyHealthAlerts(handle.db, log)
+      .catch((err: unknown) => log.warn({ err }, 'policy health scan failed'));
+  }
 
   // graceful shutdown (13.8): stop accepting, drain in-flight (incl. SSE + ledger writes),
   // force-close stragglers after a 15s grace window.

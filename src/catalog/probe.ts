@@ -13,6 +13,7 @@
  * limit, network, 5xx) never flip a capability either way.
  */
 import { RouterError } from '../gateway/errors.js';
+import { KIND_CAPABILITY_CEILING } from './service.js';
 import type { AIRequest, AIResponse } from '../gateway/envelope.js';
 import type { ExecuteContext, GatewayAdapter } from '../gateway/adapter-types.js';
 
@@ -176,11 +177,30 @@ export async function probeModelCapabilities(
 export function overridesFromProbes(
   existing: Record<string, boolean>,
   results: ProbeResult[],
+  /**
+   * Provider kind of the probed model. A capability the kind's ceiling caps (Q-097 —
+   * `local_ocr` json_schema/tools) is NEVER written as `true` from a probe: a grammar-
+   * constrained OCR server answers the json_schema probe with parseable JSON exactly because
+   * it is forced to, which is the failure the ceiling exists to prevent. Overrides are the one
+   * layer that beats the ceiling, so they must stay a deliberate, by-hand act for those keys.
+   */
+  kind?: string,
 ): Record<string, boolean> {
   const merged = { ...existing };
+  const ceiling = kind ? (KIND_CAPABILITY_CEILING[kind as keyof typeof KIND_CAPABILITY_CEILING] ?? {}) : {};
   for (const r of results) {
-    if (r.outcome === 'supported') merged[r.capability] = true;
-    else if (r.outcome === 'unsupported') merged[r.capability] = false;
+    if (r.outcome === 'supported') {
+      if ((ceiling as Record<string, false | undefined>)[r.capability] === false) continue;
+      merged[r.capability] = true;
+    } else if (r.outcome === 'unsupported') merged[r.capability] = false;
   }
   return merged;
+}
+
+/** Capabilities a probe is not allowed to switch on for this kind (surfaced to the operator). */
+export function ceilingCappedCapabilities(kind: string): string[] {
+  const ceiling = KIND_CAPABILITY_CEILING[kind as keyof typeof KIND_CAPABILITY_CEILING] ?? {};
+  return Object.entries(ceiling)
+    .filter(([, v]) => v === false)
+    .map(([k]) => k);
 }

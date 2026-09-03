@@ -8,7 +8,12 @@ import { isLocalKind } from '../../db/schema.js';
 import type { AIResponse, StreamChunk } from '../gateway/envelope.js';
 import { RETRYABLE_CODES, RouterError, toRouterError } from '../gateway/errors.js';
 import { routeForModel, type PipelineCtx, type PipelineDeps, type RouteDecision } from '../gateway/pipeline.js';
-import { verifyResponse, type SoftFinding, type VerifyFinding } from '../gateway/verify.js';
+import {
+  verifyResponse,
+  type SchemaValidationMode,
+  type SoftFinding,
+  type VerifyFinding,
+} from '../gateway/verify.js';
 import { clampToModel, selectModel } from '../policy/engine.js';
 import { MAX_RETRIES, retryDelayMs, sleep } from './backoff.js';
 import type { CircuitBreaker } from './breaker.js';
@@ -25,7 +30,12 @@ export interface ResilienceConfig {
    * all engage. Off restores pre-verification behavior: any 200 is a success.
    */
   verifyResponses?: boolean;
+  /** deployment default for forced-JSON schema verification (`ROUTER_SCHEMA_VALIDATION`, Q-099) */
+  schemaValidationDefault?: SchemaValidationMode;
 }
+
+/** audit `detail.path` is capped at 200 chars by the audit schema — never let a long path drop the row */
+const clipPath = (path: string | undefined): string | undefined => path?.slice(0, 200);
 
 /** Marker on an abort reason so a hop failure can be classified as a timeout, not a provider fault. */
 class TimeoutAbort extends Error {}
@@ -84,7 +94,7 @@ function auditRejected(
     model,
     requestHash: ctx.requestHash,
     // reason + schema PATH only — never the offending value (invariant 2)
-    detail: { reason, ...(path ? { path } : {}) },
+    detail: { reason, ...(path ? { path: clipPath(path) } : {}) },
   });
 }
 
@@ -104,7 +114,7 @@ function auditSoftFindings(ctx: PipelineCtx, deps: PipelineDeps, model: string, 
     model,
     requestHash: ctx.requestHash,
     // count + first schema PATH only — never the offending value (invariant 2)
-    detail: { reason: 'schema_enum_miss', count: soft.length, path: soft[0]!.path },
+    detail: { reason: 'schema_enum_miss', count: soft.length, path: clipPath(soft[0]!.path) },
   });
 }
 
@@ -183,12 +193,12 @@ async function executeHopWithRetries(
       // the provider's health instead of leaving it green.
       if (cfg.verifyResponses !== false) {
         const soft: SoftFinding[] = [];
-        const finding = verifyResponse(res, hopEnvelope(route, ctx), soft);
+        const finding = verifyResponse(res, hopEnvelope(route, ctx), soft, cfg.schemaValidationDefault);
         if (finding) {
           auditRejected(ctx, deps, route.model.canonicalId, finding.reason, finding.path);
           deps.metrics?.responsesRejectedTotal.inc({ reason: finding.reason });
           throw new RouterError('invalid_response', finding.message, {
-            detail: { reason: finding.reason, ...(finding.path ? { path: finding.path } : {}) },
+            detail: { reason: finding.reason, ...(finding.path ? { path: clipPath(finding.path) } : {}) },
           });
         }
         if (soft.length > 0) auditSoftFindings(ctx, deps, route.model.canonicalId, soft);
