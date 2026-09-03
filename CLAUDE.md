@@ -89,7 +89,11 @@ These are the product. Several are enforced by `/test/invariants` in CI from Pha
 - Docker single container + the shared appliance Postgres. Default port **8220** (block
   8220–8229 reserved for this app in the suite port table; supersedes the plan's 8300, which
   collides with `Vibe-1099`'s dev `mock-tax1099`). Record in DECISIONS.md at Phase 0.8.
-- License: BSL 1.1 → Apache 2.0 at 4 years, matching Vibe Trial Balance. Confirm in Phase 0.
+- License: **PolyForm Small Business 1.0.0** (D-008, operator-directed 2026-08-28; replaced
+  BSL 1.1 → Apache 2.0, which is what Vibe Trial Balance still uses — the suite is no longer
+  uniform here). No change date: it never converts to open source. Production use is limited
+  to companies under 100 people AND under $1M revenue; anyone larger needs a commercial
+  licence. SPDX `PolyForm-Small-Business-1.0.0`.
 - Conventional commits. Env config via zod — **refuse to boot on invalid config**; every env var
   documented (the gap checklist fails on an undocumented one).
 - Redis is always optional: every Redis-backed feature (breaker state, rate limits, cache) needs an

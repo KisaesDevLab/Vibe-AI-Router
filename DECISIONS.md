@@ -2,11 +2,15 @@
 
 Reviewed by Kurt in Phase 15. Format: decision → rationale → reversal cost.
 
-## D-001 — License: BSL 1.1 (Apache 2.0 at 4-year change date)
+## D-001 — License: BSL 1.1 (Apache 2.0 at 4-year change date) — **SUPERSEDED by D-008**
 
 Matches Vibe Trial Balance. Firm-hosted commercial product; BSL blocks competitive hosted
 resale while converting to genuinely open source on a clock. **Reversal: S** (swap LICENSE +
 headers before 1.0).
+
+> Superseded 2026-08-28 by **D-008** (PolyForm Small Business 1.0.0), operator-directed.
+> Recorded rather than rewritten: REVIEW-PACKET.md item 6c carries Kurt's Phase-15 "KEEP"
+> verdict on this decision, and that record stays accurate as of the date it was made.
 
 ## D-002 — Fastify over Express
 
@@ -48,3 +52,28 @@ for diff assistance. **Reversal: M** (could adopt drizzle-kit + a down-file conv
 
 Single modern driver for both the app (via drizzle-orm/postgres-js) and the migration runner;
 tagged-template parameterization by default. **Reversal: S**.
+
+## D-008 — License: PolyForm Small Business 1.0.0 (supersedes D-001)
+
+Operator-directed, 2026-08-28. Replaces BSL 1.1. Two consequences are material and were not
+carried over from D-001, so they are recorded explicitly rather than left to be discovered:
+
+1. **No change date.** BSL converted to Apache 2.0 four years after each release. PolyForm has
+   no such clock — the software never becomes open source by the passage of time. Any future
+   open-sourcing is now a deliberate act, not a default.
+2. **Production use is gated on licensee SIZE, not on what they do with it.** BSL permitted all
+   production use except offering a competing hosted service. PolyForm permits production use
+   only for companies with fewer than 100 total employees and contractors AND under
+   1,000,000 USD (2019, CPI-adjusted) revenue in the prior tax year. A CPA firm above either
+   threshold is not licensed to run the appliance and needs a separate commercial licence.
+   The competing-hosted-service carve-out is no longer the operative restriction; firm size is.
+
+Applies to `packages/sdk` (`@kisaes/vibe-ai-client`) as well, which every Vibe app imports —
+the SDK is not licensed more permissively than the router.
+
+Note the suite is no longer uniform: Vibe Trial Balance remains BSL 1.1. D-001's rationale
+("matches Vibe Trial Balance") no longer holds for this repo.
+
+**Reversal: S** (swap LICENSE + the `license` field in both package.json files + README/CLAUDE
+references). Note that reversal is cheap MECHANICALLY but not legally — anyone who received a
+copy under PolyForm keeps those terms for that copy.

@@ -2,7 +2,7 @@
   "name": "@kisaes/vibe-ai-client",
   "version": "0.2.2",
   "description": "Typed client for the Vibe AI Router — the only way Vibe apps talk to AI",
-  "license": "BUSL-1.1",
+  "license": "PolyForm-Small-Business-1.0.0",
   "author": "KisaesDevLab",
   "type": "module",
   "main": "./dist/index.js",

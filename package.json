@@ -3,7 +3,7 @@
   "version": "0.0.24",
   "private": true,
   "description": "Vibe AI Router — sole AI egress point for the Vibe appliance suite",
-  "license": "BUSL-1.1",
+  "license": "PolyForm-Small-Business-1.0.0",
   "author": "KisaesDevLab",
   "type": "module",
   "packageManager": "pnpm@9.15.9",

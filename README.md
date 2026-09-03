@@ -4,8 +4,15 @@ The sole AI egress point for the Vibe appliance suite. Firms configure their own
 keys; the router enforces task-class policy, deterministic data protection, and cost
 accounting. Apps never hold provider keys and never call AI providers directly.
 
-**Port 8220** · image `ghcr.io/kisaesdevlab/vibe-ai-router` · License BSL 1.1 (Apache 2.0 at
-the 4-year change date) · © 2026 KisaesDevLab
+**Port 8220** · image `ghcr.io/kisaesdevlab/vibe-ai-router` · License
+[PolyForm Small Business 1.0.0](https://polyformproject.org/licenses/small-business/1.0.0)
+· © 2026 KisaesDevLab
+
+> **Licensing note:** production use is permitted for companies with **fewer than 100 total
+> employees and contractors** and **under 1,000,000 USD (2019, CPI-adjusted) revenue** in the
+> prior tax year. Larger organizations need a separate commercial licence from KisaesDevLab.
+> There is no change date — this licence does not convert to an open-source licence on a
+> clock (it replaced BSL 1.1, which did; see D-008).
 
 ## What it does
 
