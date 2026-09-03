@@ -2,6 +2,15 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-09-03 — 0.0.26: dependency patch after the 0.0.25 release went red in CI
+
+`v0.0.25` pushed; both Release runs published `ghcr.io/kisaesdevlab/vibe-ai-router`
+`0.0.25` / `0.0` / `latest`, but CI's `pnpm audit --prod --audit-level high` failed on new
+`fast-uri` advisories (transitive via Fastify) published since the last green run. Overrides
+bumped (fast-uri 3.1.6 / 4.1.3, plus dev-only brace-expansion@1, js-yaml, nanoid), Fastify
+5.10.0 → 5.12.1. Prod audit clean; typecheck, lint, router + UI build, full suite green.
+Tagged `v0.0.26` so `latest` moves off the vulnerable image.
+
 ## 2026-09-03 — 0.0.25 review pass: all 10 `/code-review` findings adopted
 
 Kurt: "fix all issues as we need production ready release." Findings and outcomes:

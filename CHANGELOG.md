@@ -5,6 +5,22 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.26 — 2026-09-03
+
+**Dependency patch release — no behaviour change.** CI's production dependency audit
+(`pnpm audit --prod --audit-level high`) went red on the 0.0.25 tag from advisories published
+after the last green run (2026-08-28), so the `0.0.25` image in GHCR carries them. Use 0.0.26.
+
+- **`fast-uri` 3.1.6 / 4.1.3** (via Fastify's ajv and fast-json-stringify) — GHSA-5jgf-p345-68v8,
+  GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf, GHSA-jqff-g426-hqxp (host confusion via
+  percent-encoded scheme normalization). Pinned through `pnpm.overrides`, replacing the older
+  4.1.2 / 3.1.5 pins.
+- **Fastify 5.12.1** (from 5.10.0) — closes GHSA-w2qp-rph6-63g4 and GHSA-3m5p-2c4r-xxw2
+  (moderate). Full suite green on it; no API changes needed.
+- Dev-only, below CI's threshold but pinned for hygiene: `brace-expansion@1` 1.1.18,
+  `js-yaml@4` 4.3.1, `nanoid@3` 3.3.18. `esbuild` 0.18.x (moderate, dev-server only, via the
+  UI toolchain) is left alone — it never runs in the image.
+
 ## 0.0.25 — 2026-09-03
 
 **Vibe 1040 follow-ups (SDK 0.2.3)** — what the first appliance app to bind DigitalOcean
