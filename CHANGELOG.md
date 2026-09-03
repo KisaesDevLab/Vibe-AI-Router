@@ -5,6 +5,34 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.25 — 2026-09-03
+
+**Vibe 1040 follow-ups (SDK 0.2.3)** — what the first appliance app to bind DigitalOcean
+models had to rediscover, folded back into the router so the next one does not
+(`docs/plan-vibe-1040-followups.md`).
+
+- **SDK 0.2.3 — the codes the router already sends are guaranteed in the published union.**
+  `VibeAiErrorCode` is derived from a runtime `VIBE_AI_ERROR_CODES` array; a new
+  `test/sdk-error-codes.test.ts` asserts it is a superset of the router's `ERROR_CODES`, that
+  `INVALID_RESPONSE_REASONS` is identical on both sides, and that `docs/integration.md`
+  documents every router code. New `InvalidResponseReason` / `InvalidResponseDetail` types
+  and an `isInvalidResponse()` guard so apps branch on `detail.reason` without string
+  literals. `packages/sdk/CHANGELOG.md` now exists. Item A.
+- **Frozen contract: `docs/integration.md` error table now documents `invalid_response`,
+  `no_vision_provider`, `auth_error`, `content_filtered` and `unknown`** (additive, semver-
+  minor per §12.8), with the `invalid_response` row spelling out that the router already
+  retried and walked the chain, the six `detail.reason` values, and the `json_truncated` →
+  raise-`max_tokens` rule. Item B.
+- **Structural schema validation by default (`responseFormat.validation`).** The verifier
+  enforced `enum` as hard as `required`/`type`/`items`, so one invented member from a
+  40-key enum cost a same-model retry, a fallback walk, and a permanent `invalid_response`
+  — while the app was already dropping unknown keys itself. `enum` misses are now **soft**:
+  the response serves, a `response_soft_finding` audit row (`reason: 'schema_enum_miss'`,
+  count, first PATH — never a value) is written and
+  `vibe_router_response_soft_findings_total{reason}` increments. `validation: 'strict'` on
+  the wire (`response_format.json_schema.validation`, a router extension never forwarded to
+  providers) restores 0.0.24 behaviour. `required`/`type`/`items` stay hard. Item C.
+
 ## 0.0.24 — 2026-08-26
 
 **Redundancy for RESULTS, not just for status codes** — a provider that is up and answering

@@ -59,7 +59,19 @@ const result = await ai.complete('tb_classification', [
 | `rate_limited`, `provider_unavailable` | retryable (`err.retryable === true`); honor `retryAfterSeconds` |
 | `capability_missing`, `invalid_request` | app bug or config gap — log loudly |
 | `context_exceeded` | shrink the prompt |
-| `output_truncated` | **SDK-side** (`completeJson` only, since v0.2.1): the forced-JSON response was cut off at `max_tokens` (`finish_reason: 'length'`). `detail.completionTokens` is the served count. Not retryable as-is — raise the class's `max_tokens`/policy override, or split the input |
+| `auth_error` | app token missing, revoked, or wrong firm — re-provision; never retry in a loop |
+| `content_filtered` | the provider refused (HTTP 422). Terminal for this input — the router does not retry a refusal, and neither should you |
+| `no_vision_provider` | HTTP 409 (since 0.0.19): the class requires `vision` and no bound model advertises it — usually a discovered model that was never probed. **Park** the work; an admin fixes it in the console (Catalog → probe, or `POST /admin-api/models/:id/probe`) and the next attempt routes |
+| `invalid_response` | HTTP 502 (since 0.0.24): the router verified the response against your `json_schema` (or found it empty / not JSON), **already retried the same model and walked the whole fallback chain**, and every hop failed. `err.retryable` is `true`, but a fresh call is a re-roll of stochastic output, not a fix — retry at most once, then surface it. `detail.reason` is one of `json_truncated`, `schema_violation`, `response_not_json`, `empty_response`, `provider_error_finish`, `tool_arguments_not_json`; `detail.path` is the schema path for a violation (never the value). For `json_truncated` do **not** retry: raise the class's `max_tokens` (or the policy override) or ask for less. Use `isInvalidResponse(err)` (SDK ≥ 0.2.3) to branch on the reason with types |
+| `output_truncated` | **SDK-side** (`completeJson` only, since v0.2.1): the forced-JSON response was cut off at `max_tokens` (`finish_reason: 'length'`). `detail.completionTokens` is the served count. Not retryable as-is — raise the class's `max_tokens`/policy override, or split the input. Since router 0.0.24 the router usually catches the cutoff first and returns `invalid_response` / `json_truncated`, so handle both |
+| `unknown` | HTTP 500 — log with the `x-request-id` header (`result.requestId` / `detail.requestId`) and surface as a generic failure |
+
+Forced-JSON verification is **structural** by default (since 0.0.25): `required` / `type` /
+`items` from your schema are enforced, an `enum` miss is tolerated (audited router-side as
+`schema_enum_miss`) and the response is returned for your own code to reconcile. Pass
+`responseFormat.validation: 'strict'` to have enum misses rejected as `invalid_response`
+instead. `strict: true` (OpenAI's constrained-decoding flag) is a separate, provider-facing
+setting.
 
 ## Versioning (12.8)
 

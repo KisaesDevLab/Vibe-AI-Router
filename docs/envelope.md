@@ -30,6 +30,17 @@ engagementRef?, clientRef? } }`
 toolCallId? }`; `ContentPart`: `{type:'text',text}` | `{type:'image',url}`.
 `developer` role normalizes to `system`. `max_completion_tokens` wins over `max_tokens`.
 
+`ResponseFormat`: `{type:'text'}` | `{type:'json_object'}` | `{type:'json_schema', name,
+schema, strict?, validation?}`. On the wire the json_schema fields sit under
+`response_format.json_schema`. `strict` is OpenAI's constrained-decoding flag and is forwarded
+to providers that support it. `validation` (`'structural'` default | `'strict'`, added 0.0.25) is
+a **router extension that never reaches a provider**: it selects how `src/gateway/verify.ts`
+grades the response. Structural enforces `required`/`type`/`items` and treats an `enum` miss
+as a soft finding — audited as `response_soft_finding` (`reason: 'schema_enum_miss'`, count,
+first path) and counted in `vibe_router_response_soft_findings_total` — while the response
+still serves. Strict makes an enum miss a hard `schema_violation`, i.e. an `invalid_response`
+that triggers same-model retry and the fallback chain.
+
 `AIResponse`: `{ message { role:'assistant', content, toolCalls? }, finishReason: stop|length|
 tool_calls|content_filter|error, usage { promptTokens, completionTokens, cachedReadTokens,
 cacheWriteTokens, estimated }, served { model, providerId, latencyMs }, thinking? }`
@@ -65,10 +76,14 @@ matched scrubber values. `Retry-After` set when known.
 
 `invalid_response` means every hop in the policy chain answered but none produced a usable
 result (empty completion, forced-JSON answered with prose, tool arguments that are not JSON, a
-schema violation). Its `detail.reason` names which check failed and `detail.path` the schema
-pointer — never the offending value. Verification is per hop, so the client sees this only
-after same-model retries and the whole fallback chain were exhausted. See
-`src/gateway/verify.ts` and `ROUTER_VERIFY_RESPONSES`.
+schema violation). Its `detail.reason` names which check failed (`INVALID_RESPONSE_REASONS` in
+`src/gateway/verify.ts`, mirrored by the SDK) and `detail.path` the schema pointer — never the
+offending value. Verification is per hop, so the client sees this only after same-model retries
+and the whole fallback chain were exhausted; "retryable: yes" therefore means a fresh request is
+a re-roll, not that the router left anything untried. `json_truncated` short-circuits the
+same-model retry (deterministic cutoff) and advances the chain immediately. Under the default
+structural validation an `enum` miss is NOT an `invalid_response` — see `ResponseFormat`
+above. See also `ROUTER_VERIFY_RESPONSES`.
 
 ## Request identity
 

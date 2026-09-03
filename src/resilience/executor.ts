@@ -8,7 +8,7 @@ import { isLocalKind } from '../../db/schema.js';
 import type { AIResponse, StreamChunk } from '../gateway/envelope.js';
 import { RETRYABLE_CODES, RouterError, toRouterError } from '../gateway/errors.js';
 import { routeForModel, type PipelineCtx, type PipelineDeps, type RouteDecision } from '../gateway/pipeline.js';
-import { verifyResponse, type VerifyFinding } from '../gateway/verify.js';
+import { verifyResponse, type SoftFinding, type VerifyFinding } from '../gateway/verify.js';
 import { clampToModel, selectModel } from '../policy/engine.js';
 import { MAX_RETRIES, retryDelayMs, sleep } from './backoff.js';
 import type { CircuitBreaker } from './breaker.js';
@@ -88,6 +88,26 @@ function auditRejected(
   });
 }
 
+/**
+ * Structural-validation deviations on a hop that still SERVED (item C, Vibe 1040 follow-ups):
+ * one audit row per response with the count and the first path, plus a metric — so an operator
+ * can see a class whose model keeps inventing enum members without the request having failed.
+ */
+function auditSoftFindings(ctx: PipelineCtx, deps: PipelineDeps, model: string, soft: SoftFinding[]): void {
+  deps.metrics?.responseSoftFindingsTotal.inc({ reason: 'schema_enum_miss' }, soft.length);
+  if (!ctx.auth) return;
+  deps.audit?.({
+    firmId: ctx.auth.firmId,
+    event: 'response_soft_finding',
+    app: ctx.auth.app,
+    ...(ctx.taskClass ? { taskClass: ctx.taskClass.key } : {}),
+    model,
+    requestHash: ctx.requestHash,
+    // count + first schema PATH only — never the offending value (invariant 2)
+    detail: { reason: 'schema_enum_miss', count: soft.length, path: soft[0]!.path },
+  });
+}
+
 function auditHop(ctx: PipelineCtx, deps: PipelineDeps, from: string, to: string, reason: string): void {
   deps.metrics?.fallbackHopsTotal.inc();
   if (!ctx.auth) return;
@@ -162,7 +182,8 @@ async function executeHopWithRetries(
       // so it retries here and falls through to the next hop below — and is recorded against
       // the provider's health instead of leaving it green.
       if (cfg.verifyResponses !== false) {
-        const finding = verifyResponse(res, hopEnvelope(route, ctx));
+        const soft: SoftFinding[] = [];
+        const finding = verifyResponse(res, hopEnvelope(route, ctx), soft);
         if (finding) {
           auditRejected(ctx, deps, route.model.canonicalId, finding.reason, finding.path);
           deps.metrics?.responsesRejectedTotal.inc({ reason: finding.reason });
@@ -170,6 +191,7 @@ async function executeHopWithRetries(
             detail: { reason: finding.reason, ...(finding.path ? { path: finding.path } : {}) },
           });
         }
+        if (soft.length > 0) auditSoftFindings(ctx, deps, route.model.canonicalId, soft);
       }
       cfg.breaker.record(route.provider.id, true);
       deps.recordHealth?.(route.provider.id, ctx.auth!.firmId, route.provider.label, true);

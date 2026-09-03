@@ -47,10 +47,19 @@ export interface ToolDef {
 
 export type ToolChoice = 'auto' | 'none' | 'required' | { name: string };
 
+/**
+ * `validation` (router extension, never forwarded to a provider): how the router's response
+ * verifier treats the schema. `structural` (default) enforces `required`/`type`/`items` and
+ * tolerates `enum` misses as audited soft findings; `strict` also rejects enum misses, which
+ * triggers same-model retry and the fallback chain. `strict` (OpenAI's field) is unrelated — it
+ * is passed through to providers that support constrained decoding.
+ */
+export type SchemaValidationMode = 'structural' | 'strict';
+
 export type ResponseFormat =
   | { type: 'text' }
   | { type: 'json_object' }
-  | { type: 'json_schema'; name: string; schema: unknown; strict?: boolean };
+  | { type: 'json_schema'; name: string; schema: unknown; strict?: boolean; validation?: SchemaValidationMode };
 
 export interface AIRequestMetadata {
   app: string;
@@ -170,6 +179,8 @@ export const openAiChatBodySchema = z
             name: z.string(),
             schema: z.unknown().optional(),
             strict: z.boolean().nullish(),
+            /** router extension — see SchemaValidationMode */
+            validation: z.enum(['structural', 'strict']).optional(),
           }),
         }),
       ])
@@ -281,6 +292,9 @@ export function toEnvelope(
         schema: body.response_format.json_schema.schema,
         ...(body.response_format.json_schema.strict != null
           ? { strict: body.response_format.json_schema.strict }
+          : {}),
+        ...(body.response_format.json_schema.validation !== undefined
+          ? { validation: body.response_format.json_schema.validation }
           : {}),
       };
     } else {

@@ -62,6 +62,13 @@ export class Metrics {
     registers: [this.registry],
   });
 
+  readonly responseSoftFindingsTotal = new Counter({
+    name: 'vibe_router_response_soft_findings_total',
+    help: 'Usable results with tolerated schema deviations under structural validation (enum misses)',
+    labelNames: ['reason'] as const,
+    registers: [this.registry],
+  });
+
   readonly cacheEvents = new Counter({
     name: 'vibe_router_response_cache_events_total',
     help: 'Response cache hits/misses (opt-in task classes only)',

@@ -64,7 +64,7 @@ describe('envelope translation (2.1/2.4)', () => {
         tool_choice: { type: 'function', function: { name: 'lookup' } },
         response_format: {
           type: 'json_schema',
-          json_schema: { name: 'out', schema: { type: 'object' }, strict: true },
+          json_schema: { name: 'out', schema: { type: 'object' }, strict: true, validation: 'strict' },
         },
       },
       'k',
@@ -75,7 +75,13 @@ describe('envelope translation (2.1/2.4)', () => {
     expect(env.toolChoice).toEqual({ name: 'lookup' });
     expect(env.messages[1]?.toolCalls?.[0]).toEqual({ id: 'c1', name: 'lookup', arguments: '{"q":1}' });
     expect(env.messages[2]?.toolCallId).toBe('c1');
-    expect(env.responseFormat).toEqual({ type: 'json_schema', name: 'out', schema: { type: 'object' }, strict: true });
+    expect(env.responseFormat).toEqual({
+      type: 'json_schema',
+      name: 'out',
+      schema: { type: 'object' },
+      strict: true,
+      validation: 'strict',
+    });
   });
 
   it('translates vision content parts', () => {

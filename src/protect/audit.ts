@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import type { Db } from '../db/client.js';
 import { auditLog } from '../../db/schema.js';
+import { INVALID_RESPONSE_REASONS, SOFT_FINDING_REASONS } from '../gateway/verify.js';
 
 /** Registry of allowed events → detail schema. audit_log.event is text; this is the gate (Q-005). */
 const EVENT_SCHEMAS = {
@@ -95,14 +96,14 @@ const EVENT_SCHEMAS = {
   // A hop answered 200 with an unusable result. `reason` is a fixed vocabulary and `path` is a
   // schema POINTER — neither can carry response content (invariant 2).
   response_rejected: z.object({
-    reason: z.enum([
-      'empty_response',
-      'provider_error_finish',
-      'tool_arguments_not_json',
-      'response_not_json',
-      'json_truncated',
-      'schema_violation',
-    ]),
+    reason: z.enum(INVALID_RESPONSE_REASONS),
+    path: z.string().max(200).optional(),
+  }),
+  // A hop answered with a USABLE result that deviates from the schema in a way structural
+  // validation tolerates (enum miss). Count + first PATH only — never a value (invariant 2).
+  response_soft_finding: z.object({
+    reason: z.enum(SOFT_FINDING_REASONS),
+    count: z.number().int().positive(),
     path: z.string().max(200).optional(),
   }),
   provider_error: z.object({

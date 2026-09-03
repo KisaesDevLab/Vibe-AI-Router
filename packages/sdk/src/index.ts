@@ -8,22 +8,51 @@
 // Every code except `output_truncated` maps 1:1 to a router error code. `output_truncated`
 // is SDK-synthesized client-side (the router has no such code) — completeJson raises it when
 // a forced-JSON response is cut off at max_tokens (finish_reason 'length').
+//
+// Any change to this list is a PUBLIC TYPE CHANGE and needs an SDK version bump even when the
+// wire is additive — an app vendoring an older dist has a narrower union and cannot know
+// (0.2.2 shipped without `no_vision_provider`/`invalid_response` in some vendored copies).
+// The router's test suite asserts this array is a superset of its own `ERROR_CODES`.
 
-export type VibeAiErrorCode =
-  | 'invalid_request'
-  | 'auth_error'
-  | 'rate_limited'
-  | 'provider_unavailable'
-  | 'context_exceeded'
-  | 'content_filtered'
-  | 'policy_blocked'
-  | 'scrubber_blocked'
-  | 'capability_missing'
-  | 'no_vision_provider'
-  | 'invalid_response'
-  | 'budget_exceeded'
-  | 'output_truncated'
-  | 'unknown';
+export const VIBE_AI_ERROR_CODES = [
+  'invalid_request',
+  'auth_error',
+  'rate_limited',
+  'provider_unavailable',
+  'context_exceeded',
+  'content_filtered',
+  'policy_blocked',
+  'scrubber_blocked',
+  'capability_missing',
+  'no_vision_provider',
+  'invalid_response',
+  'budget_exceeded',
+  'output_truncated',
+  'unknown',
+] as const;
+export type VibeAiErrorCode = (typeof VIBE_AI_ERROR_CODES)[number];
+
+/**
+ * `detail.reason` values of `invalid_response` — which verification check the router's last hop
+ * failed. Mirror of `src/gateway/verify.ts` (asserted equal in the router's tests).
+ * `json_truncated` means the forced-JSON answer was cut off at max_tokens on EVERY hop: raise
+ * the task class's max_tokens (or the policy override) or ask for less; a re-roll cannot help.
+ */
+export const INVALID_RESPONSE_REASONS = [
+  'empty_response',
+  'provider_error_finish',
+  'tool_arguments_not_json',
+  'response_not_json',
+  'json_truncated',
+  'schema_violation',
+] as const;
+export type InvalidResponseReason = (typeof INVALID_RESPONSE_REASONS)[number];
+
+export interface InvalidResponseDetail {
+  reason: InvalidResponseReason;
+  /** schema path of the violation (`$.items[3].kind`) — a PATH only, never the offending value */
+  path?: string;
+}
 
 export class VibeAiError extends Error {
   readonly code: VibeAiErrorCode;
@@ -50,11 +79,25 @@ export class VibeAiError extends Error {
     return (
       this.code === 'rate_limited' ||
       this.code === 'provider_unavailable' ||
-      // the router already retried and exhausted the fallback chain, but the fault is
-      // stochastic model output — a later attempt can still succeed
+      // the router already retried the same model AND walked the whole fallback chain before
+      // returning this. A fresh call is a re-roll of stochastic output, not a fix — it can
+      // succeed, but never for `detail.reason === 'json_truncated'` (deterministic cutoff).
+      // Use isInvalidResponse() to branch on the reason before deciding to retry or park.
       this.code === 'invalid_response'
     );
   }
+}
+
+/**
+ * Narrow an error to `invalid_response` with a typed `detail`, so apps can branch on
+ * `detail.reason` without string literals: park on `json_truncated`, re-roll on the rest.
+ */
+export function isInvalidResponse(
+  err: unknown,
+): err is VibeAiError & { code: 'invalid_response'; detail: InvalidResponseDetail } {
+  if (!(err instanceof VibeAiError) || err.code !== 'invalid_response') return false;
+  const reason = err.detail?.['reason'];
+  return typeof reason === 'string' && (INVALID_RESPONSE_REASONS as readonly string[]).includes(reason);
 }
 
 // ── message / result shapes (OpenAI wire, typed) ────────────────────────────
@@ -81,6 +124,9 @@ export interface ToolDef {
   parameters?: unknown;
 }
 
+/** Router-side schema verification mode for forced-JSON requests (see RequestOptions.responseFormat). */
+export type SchemaValidationMode = 'structural' | 'strict';
+
 export interface RequestOptions {
   /** advisory — policy decides what actually serves */
   model?: string;
@@ -93,7 +139,21 @@ export interface RequestOptions {
   responseFormat?:
     | { type: 'text' }
     | { type: 'json_object' }
-    | { type: 'json_schema'; name: string; schema: unknown; strict?: boolean };
+    | {
+        type: 'json_schema';
+        name: string;
+        schema: unknown;
+        /** OpenAI constrained-decoding flag — forwarded to providers that support it */
+        strict?: boolean;
+        /**
+         * How the ROUTER verifies the response against `schema` (never forwarded to a provider).
+         * `structural` (default): `required`/`type`/`items` are enforced; an `enum` miss is
+         * tolerated (audited as `schema_enum_miss`) and the response is returned — the app
+         * keeps dropping unknown members itself. `strict`: an enum miss is an `invalid_response`,
+         * so the router retries the same model and walks the fallback chain before giving up.
+         */
+        validation?: SchemaValidationMode;
+      };
   /** attribution → ledger dimensions + role gating + per-user budgets */
   userId?: string;
   userRole?: 'admin' | 'partner' | 'staff';
@@ -253,6 +313,9 @@ export class VibeAiClient {
                       schema: options.responseFormat.schema,
                       ...(options.responseFormat.strict !== undefined
                         ? { strict: options.responseFormat.strict }
+                        : {}),
+                      ...(options.responseFormat.validation !== undefined
+                        ? { validation: options.responseFormat.validation }
                         : {}),
                     },
                   }
@@ -443,7 +506,7 @@ export class VibeAiClient {
   async completeJson<T>(
     taskClass: string,
     messages: ChatMessage[],
-    schema: { name: string; schema: unknown; strict?: boolean },
+    schema: { name: string; schema: unknown; strict?: boolean; validation?: SchemaValidationMode },
     options?: Omit<RequestOptions, 'responseFormat'>,
   ): Promise<CompletionResult & { data: T }> {
     const result = await this.complete(taskClass, messages, {

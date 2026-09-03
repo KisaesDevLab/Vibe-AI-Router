@@ -19,19 +19,42 @@
  */
 import type { AIRequest, AIResponse } from './envelope.js';
 
+/**
+ * The `detail.reason` vocabulary of `invalid_response`. Exported as a runtime array so the audit
+ * registry and the SDK's mirror (`INVALID_RESPONSE_REASONS` in `@kisaes/vibe-ai-client`) can be
+ * asserted equal in tests — they drifted silently once (Vibe 1040, 2026-09-03).
+ */
+export const INVALID_RESPONSE_REASONS = [
+  'empty_response',
+  'provider_error_finish',
+  'tool_arguments_not_json',
+  'response_not_json',
+  'json_truncated',
+  'schema_violation',
+] as const;
+export type InvalidResponseReason = (typeof INVALID_RESPONSE_REASONS)[number];
+
 export interface VerifyFinding {
   /** stable machine reason — safe for audit detail and error payloads */
-  reason:
-    | 'empty_response'
-    | 'provider_error_finish'
-    | 'tool_arguments_not_json'
-    | 'response_not_json'
-    | 'json_truncated'
-    | 'schema_violation';
+  reason: InvalidResponseReason;
   message: string;
   /** JSON pointer-ish path for schema violations — a PATH only, never the offending value */
   path?: string;
 }
+
+/**
+ * A schema deviation that does NOT make the response unusable (structural validation, item C of
+ * the Vibe 1040 follow-ups). Today the only soft keyword is `enum`: a model inventing one value
+ * outside a 40-member enum is a data-quality event for the app to handle, not a reason to burn a
+ * retry and a fallback walk. Carries a PATH only — never the offending value (invariant 2).
+ */
+export interface SoftFinding {
+  keyword: 'enum';
+  path: string;
+}
+
+export const SOFT_FINDING_REASONS = ['schema_enum_miss'] as const;
+export type SoftFindingReason = (typeof SOFT_FINDING_REASONS)[number];
 
 /** Models fence forced-JSON output surprisingly often; the SDK strips the same way. */
 export function stripFence(raw: string): string {
@@ -78,25 +101,40 @@ function typeMatches(value: unknown, expected: string): boolean {
  * and is not a substitute for validating untrusted input.
  *
  * Returns the first violation, or undefined when the value satisfies the supported subset.
+ *
+ * `opts.soft`, when supplied, switches `enum` to STRUCTURAL mode: a miss is appended there as a
+ * SoftFinding and evaluation continues. Without it (strict mode) an enum miss is a hard violation
+ * exactly as before. `required`/`type`/`items` are always hard — those break parsing.
  */
 export function validateSchemaSubset(
   value: unknown,
   schema: unknown,
   path = '$',
+  opts?: { soft?: SoftFinding[] },
 ): { path: string; message: string } | undefined {
   if (schema === null || typeof schema !== 'object') return undefined;
   const s = schema as JsonSchema;
 
   if (Array.isArray(s.enum) && s.enum.length > 0) {
     const ok = s.enum.some((e) => e === value || JSON.stringify(e) === JSON.stringify(value));
-    if (!ok) return { path, message: 'value is not one of the permitted enum members' };
+    if (!ok) {
+      if (!opts?.soft) return { path, message: 'value is not one of the permitted enum members' };
+      opts.soft.push({ keyword: 'enum', path });
+    }
   }
 
   const branches = s.anyOf ?? s.oneOf;
   if (Array.isArray(branches) && branches.length > 0) {
-    const anyOk = branches.some((b) => validateSchemaSubset(value, b, path) === undefined);
-    if (!anyOk) return { path, message: 'value matches none of the anyOf/oneOf branches' };
-    return undefined;
+    // each branch gets a scratch collector; only the branch that PASSES contributes its soft
+    // findings, so a rejected branch's enum misses never pollute the result
+    for (const b of branches) {
+      const scratch: SoftFinding[] = [];
+      if (validateSchemaSubset(value, b, path, opts?.soft ? { soft: scratch } : undefined) === undefined) {
+        opts?.soft?.push(...scratch);
+        return undefined;
+      }
+    }
+    return { path, message: 'value matches none of the anyOf/oneOf branches' };
   }
 
   if (s.type !== undefined) {
@@ -114,7 +152,7 @@ export function validateSchemaSubset(
     }
     for (const [key, sub] of Object.entries(s.properties ?? {})) {
       if (key in obj) {
-        const bad = validateSchemaSubset(obj[key], sub, `${path}.${key}`);
+        const bad = validateSchemaSubset(obj[key], sub, `${path}.${key}`, opts);
         if (bad) return bad;
       }
     }
@@ -122,7 +160,7 @@ export function validateSchemaSubset(
 
   if (Array.isArray(value) && s.items) {
     for (let i = 0; i < value.length; i++) {
-      const bad = validateSchemaSubset(value[i], s.items, `${path}[${i}]`);
+      const bad = validateSchemaSubset(value[i], s.items, `${path}[${i}]`, opts);
       if (bad) return bad;
     }
   }
@@ -134,11 +172,15 @@ export function validateSchemaSubset(
  * Verify one hop's response against what the request asked for. Returns the finding that makes
  * the response unusable, or undefined when it is acceptable.
  *
+ * `soft` collects structural-mode deviations (enum misses) for the caller to audit and count;
+ * the response still passes. It is ignored when the request asked for
+ * `responseFormat.validation: 'strict'`, where an enum miss is a hard finding.
+ *
  * NOTE ON INVARIANT 2: this inspects the response body in memory — as `translateResponse`
  * already does — but nothing here returns, logs, or persists content. Findings carry a reason
  * and a schema PATH only, so an audit row or client error can never leak the body.
  */
-export function verifyResponse(res: AIResponse, env: AIRequest): VerifyFinding | undefined {
+export function verifyResponse(res: AIResponse, env: AIRequest, soft?: SoftFinding[]): VerifyFinding | undefined {
   const content = res.message.content ?? '';
   const toolCalls = res.message.toolCalls ?? [];
   const wantsJson = env.responseFormat?.type === 'json_schema' || env.responseFormat?.type === 'json_object';
@@ -187,7 +229,9 @@ export function verifyResponse(res: AIResponse, env: AIRequest): VerifyFinding |
   }
 
   if (env.responseFormat?.type === 'json_schema' && env.responseFormat.schema) {
-    const bad = validateSchemaSubset(parsed, env.responseFormat.schema);
+    // default is STRUCTURAL: enum misses are soft. `strict` restores hard enum enforcement.
+    const strict = env.responseFormat.validation === 'strict';
+    const bad = validateSchemaSubset(parsed, env.responseFormat.schema, '$', strict ? undefined : { soft: soft ?? [] });
     if (bad) {
       return {
         reason: 'schema_violation',

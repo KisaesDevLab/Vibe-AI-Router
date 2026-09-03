@@ -24,7 +24,7 @@ import { clampToModel } from '../src/policy/engine.js';
 import { CircuitBreaker } from '../src/resilience/breaker.js';
 import { LoadShedGuard } from '../src/resilience/shed.js';
 import { RateLimiter } from '../src/resilience/limiter.js';
-import { stripFence, validateSchemaSubset, verifyResponse } from '../src/gateway/verify.js';
+import { stripFence, validateSchemaSubset, verifyResponse, type SoftFinding } from '../src/gateway/verify.js';
 import type { AIRequest, AIResponse } from '../src/gateway/envelope.js';
 import { EMPTY_USAGE } from '../src/gateway/envelope.js';
 import type { AuditEntry } from '../src/protect/audit.js';
@@ -62,9 +62,42 @@ describe('validateSchemaSubset', () => {
     expect(validateSchemaSubset({ vendor: 'Acme', total: '12.50' }, schema)?.path).toBe('$.total');
   });
 
-  it('flags an enum violation', () => {
+  it('flags an enum violation (strict mode — no soft collector)', () => {
     const bad = validateSchemaSubset({ vendor: 'A', total: 1, currency: 'GBP' }, schema);
     expect(bad?.path).toBe('$.currency');
+  });
+
+  it('STRUCTURAL mode: an enum miss is collected as a soft finding and the value passes', () => {
+    const soft: SoftFinding[] = [];
+    const bad = validateSchemaSubset({ vendor: 'A', total: 1, currency: 'GBP' }, schema, '$', { soft });
+    expect(bad).toBeUndefined();
+    expect(soft).toEqual([{ keyword: 'enum', path: '$.currency' }]);
+    // the path never carries the value
+    expect(JSON.stringify(soft)).not.toContain('GBP');
+  });
+
+  it('STRUCTURAL mode keeps required/type/items HARD', () => {
+    const soft: SoftFinding[] = [];
+    expect(validateSchemaSubset({ vendor: 'A' }, schema, '$', { soft })?.path).toBe('$.total');
+    expect(validateSchemaSubset({ vendor: 'A', total: 'x' }, schema, '$', { soft })?.path).toBe('$.total');
+    expect(validateSchemaSubset({ vendor: 'A', total: 1, lines: [{}] }, schema, '$', { soft })?.path).toBe(
+      '$.lines[0].desc',
+    );
+    expect(soft).toEqual([]);
+  });
+
+  it('anyOf: only the PASSING branch contributes soft findings (rejected branches are scratch)', () => {
+    const s = {
+      anyOf: [
+        { type: 'number' }, // fails on type for a string value
+        { type: 'string', enum: ['a', 'b'] }, // passes structurally, enum miss is soft
+      ],
+    };
+    const soft: SoftFinding[] = [];
+    expect(validateSchemaSubset('zzz', s, '$.k', { soft })).toBeUndefined();
+    expect(soft).toEqual([{ keyword: 'enum', path: '$.k' }]);
+    // strict: the enum miss makes the second branch fail too → no branch matches
+    expect(validateSchemaSubset('zzz', s, '$.k')?.message).toMatch(/none of the anyOf/);
   });
 
   it('descends into array items and reports the index', () => {
@@ -185,6 +218,26 @@ describe('verifyResponse', () => {
     expect(JSON.stringify(finding)).not.toContain('twelve');
   });
 
+  it('enum miss: STRUCTURAL by default → passes with a soft finding; strict → schema_violation', () => {
+    const schema = { type: 'object', required: ['k'], properties: { k: { type: 'string', enum: ['a', 'b'] } } };
+    const body = res({ content: '{"k":"zzz"}' });
+
+    const structural = env({ responseFormat: { type: 'json_schema', name: 'K', schema } } as Partial<AIRequest>);
+    const soft: SoftFinding[] = [];
+    expect(verifyResponse(body, structural, soft)).toBeUndefined();
+    expect(soft).toEqual([{ keyword: 'enum', path: '$.k' }]);
+    // and without a collector the verdict is the same (soft findings are simply dropped)
+    expect(verifyResponse(body, structural)).toBeUndefined();
+
+    const strict = env({
+      responseFormat: { type: 'json_schema', name: 'K', schema, validation: 'strict' },
+    } as Partial<AIRequest>);
+    const finding = verifyResponse(body, strict, []);
+    expect(finding?.reason).toBe('schema_violation');
+    expect(finding?.path).toBe('$.k');
+    expect(JSON.stringify(finding)).not.toContain('zzz');
+  });
+
   it('accepts a forced-JSON answer delivered as a tool call instead of content', () => {
     const e = env({
       responseFormat: { type: 'json_schema', name: 'R', schema: { type: 'object', required: ['a'] } },
@@ -199,7 +252,7 @@ describe('verifyResponse', () => {
 
 // ── chaos: redundancy end to end ─────────────────────────────────────────────
 
-type Mode = 'json-ok' | 'prose' | 'empty' | 'empty-stream' | 'schema-miss' | 'truncated';
+type Mode = 'json-ok' | 'prose' | 'empty' | 'empty-stream' | 'schema-miss' | 'enum-miss' | 'truncated';
 
 describe.skipIf(!url)('redundancy: healthy provider, unusable results', () => {
   let app: FastifyInstance;
@@ -265,6 +318,10 @@ describe.skipIf(!url)('redundancy: healthy provider, unusable results', () => {
             break;
           case 'schema-miss':
             res2.end(jsonBody({ vendor: 'Acme', total: 'twelve dollars' }));
+            break;
+          case 'enum-miss':
+            // structurally valid, but `currency` is not an enum member (a 397B model inventing a key)
+            res2.end(jsonBody({ vendor: 'Acme', total: 12, currency: 'GBP' }));
             break;
           case 'truncated':
             res2.end(
@@ -366,7 +423,9 @@ describe.skipIf(!url)('redundancy: healthy provider, unusable results', () => {
     await handle?.close();
   });
 
-  const chat = (opts: { stream?: boolean; json?: boolean; schema?: unknown } = {}): Promise<Response> =>
+  const chat = (
+    opts: { stream?: boolean; json?: boolean; schema?: unknown; validation?: 'structural' | 'strict' } = {},
+  ): Promise<Response> =>
     fetch(`${base}/v1/chat/completions`, {
       method: 'POST',
       headers: {
@@ -386,8 +445,13 @@ describe.skipIf(!url)('redundancy: healthy provider, unusable results', () => {
                   schema: opts.schema ?? {
                     type: 'object',
                     required: ['vendor', 'total'],
-                    properties: { vendor: { type: 'string' }, total: { type: 'number' } },
+                    properties: {
+                      vendor: { type: 'string' },
+                      total: { type: 'number' },
+                      currency: { type: 'string', enum: ['USD', 'EUR'] },
+                    },
                   },
+                  ...(opts.validation ? { validation: opts.validation } : {}),
                 },
               },
             }
@@ -428,6 +492,34 @@ describe.skipIf(!url)('redundancy: healthy provider, unusable results', () => {
     expect((rejected?.detail as { reason: string }).reason).toBe('schema_violation');
     // path only — the offending value never reaches the audit row
     expect(JSON.stringify(rejected?.detail)).not.toContain('twelve');
+  });
+
+  it('an ENUM miss is served under structural validation (default) — audited, counted, not rejected', async () => {
+    reset('enum-miss');
+    const res2 = await chat({ json: true });
+    expect(res2.status).toBe(200);
+    const body = (await res2.json()) as { model: string; choices: { message: { content: string } }[] };
+    // the PRIMARY served: no retry, no fallback walk
+    expect(body.model).toBe('openai/gpt-4o-mini');
+    expect(primaryHits).toBe(1);
+    expect(secondaryHits).toBe(0);
+    expect(JSON.parse(body.choices[0]!.message.content)).toMatchObject({ vendor: 'Acme', total: 12 });
+    expect(audits.some((a) => a.event === 'response_rejected')).toBe(false);
+    const soft = audits.find((a) => a.event === 'response_soft_finding');
+    expect(soft?.detail).toEqual({ reason: 'schema_enum_miss', count: 1, path: '$.currency' });
+    expect(JSON.stringify(soft?.detail)).not.toContain('GBP');
+  });
+
+  it('the same ENUM miss under validation: strict is rejected and falls back (today\'s behaviour)', async () => {
+    reset('enum-miss');
+    const res2 = await chat({ json: true, validation: 'strict' });
+    expect(res2.status).toBe(200);
+    const body = (await res2.json()) as { model: string };
+    expect(body.model).toBe('ollama/qwen3:14b');
+    expect(secondaryHits).toBeGreaterThanOrEqual(1);
+    const rejected = audits.find((a) => a.event === 'response_rejected');
+    expect(rejected?.detail).toMatchObject({ reason: 'schema_violation', path: '$.currency' });
+    expect(audits.some((a) => a.event === 'response_soft_finding')).toBe(false);
   });
 
   it('an empty completion falls back even with no response_format at all', async () => {

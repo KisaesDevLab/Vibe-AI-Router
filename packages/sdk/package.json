@@ -1,6 +1,6 @@
 {
   "name": "@kisaes/vibe-ai-client",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Typed client for the Vibe AI Router — the only way Vibe apps talk to AI",
   "license": "PolyForm-Small-Business-1.0.0",
   "author": "KisaesDevLab",
@@ -14,6 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
+    "test": "pnpm -w exec vitest run test/sdk",
     "prepare": "node -e \"const fs=require('fs');if(fs.existsSync('tsconfig.json')&&fs.existsSync('src'))require('child_process').execSync('tsc -p tsconfig.json',{stdio:'inherit'})\""
   },
   "engines": { "node": ">=20" },
