@@ -48,7 +48,10 @@ describe('planDiscovery (pure)', () => {
     expect(thirdPartyHostingFor('glm-5.3-flash')).toBeUndefined();
     expect(thirdPartyHostingFor('qwen3.5-397b-a17b')).toBeUndefined();
 
-    const plan = planDiscovery(['anthropic-claude-opus-5', 'digitalocean/openai-gpt-5', 'openai-gpt-oss-20b', 'glm-5.3'], new Set());
+    const plan = planDiscovery(
+      ['anthropic-claude-opus-5', 'digitalocean/openai-gpt-5', 'openai-gpt-oss-20b', 'glm-5.3'],
+      new Set(),
+    );
     const byId = new Map(plan.toInsert.map((t) => [t.canonicalId, t.thirdPartyHosted]));
     expect(byId.get('digitalocean/anthropic-claude-opus-5')?.vendor).toBe('anthropic');
     expect(byId.get('digitalocean/openai-gpt-5')?.vendor).toBe('openai');
@@ -171,7 +174,9 @@ describe.skipIf(!url)('discoverDigitalOceanModels (DB)', () => {
     expect(claude?.contextWindow).toBe(200000);
     expect(claude?.capabilityOverrides).toEqual({ vision: true });
 
-    const gpt = await handle.db.query.models.findFirst({ where: eq(models.canonicalId, 'digitalocean/openai-gpt-5.4') });
+    const gpt = await handle.db.query.models.findFirst({
+      where: eq(models.canonicalId, 'digitalocean/openai-gpt-5.4'),
+    });
     expect(gpt?.thirdPartyHosted).toBe(true);
     expect(gpt?.retentionNote).toMatch(/OpenAI's terms/);
     // still admitted — tagged, never filtered

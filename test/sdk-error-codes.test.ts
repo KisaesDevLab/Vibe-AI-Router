@@ -40,13 +40,16 @@ describe('SDK error taxonomy mirrors the router', () => {
   });
 
   it('isInvalidResponse narrows on a router-shaped error and rejects everything else', () => {
-    const err = new VibeAiError('invalid_response', 502, 'x', undefined, { reason: 'json_truncated', path: '$' });
+    const err = new VibeAiError('invalid_response', 502, 'x', undefined, {
+      reason: 'json_truncated',
+      path: '$',
+    });
     expect(isInvalidResponse(err)).toBe(true);
     if (isInvalidResponse(err)) expect(err.detail.reason).toBe('json_truncated');
     expect(isInvalidResponse(new VibeAiError('invalid_response', 502, 'x'))).toBe(false); // no detail
-    expect(isInvalidResponse(new VibeAiError('invalid_response', 502, 'x', undefined, { reason: 'made_up' }))).toBe(
-      false,
-    );
+    expect(
+      isInvalidResponse(new VibeAiError('invalid_response', 502, 'x', undefined, { reason: 'made_up' })),
+    ).toBe(false);
     expect(isInvalidResponse(new VibeAiError('rate_limited', 429, 'x'))).toBe(false);
     expect(isInvalidResponse(new Error('x'))).toBe(false);
   });

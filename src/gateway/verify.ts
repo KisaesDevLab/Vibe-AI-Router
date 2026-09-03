@@ -180,7 +180,11 @@ export function validateSchemaSubset(
  * already does — but nothing here returns, logs, or persists content. Findings carry a reason
  * and a schema PATH only, so an audit row or client error can never leak the body.
  */
-export function verifyResponse(res: AIResponse, env: AIRequest, soft?: SoftFinding[]): VerifyFinding | undefined {
+export function verifyResponse(
+  res: AIResponse,
+  env: AIRequest,
+  soft?: SoftFinding[],
+): VerifyFinding | undefined {
   const content = res.message.content ?? '';
   const toolCalls = res.message.toolCalls ?? [];
   const wantsJson = env.responseFormat?.type === 'json_schema' || env.responseFormat?.type === 'json_object';
@@ -231,7 +235,12 @@ export function verifyResponse(res: AIResponse, env: AIRequest, soft?: SoftFindi
   if (env.responseFormat?.type === 'json_schema' && env.responseFormat.schema) {
     // default is STRUCTURAL: enum misses are soft. `strict` restores hard enum enforcement.
     const strict = env.responseFormat.validation === 'strict';
-    const bad = validateSchemaSubset(parsed, env.responseFormat.schema, '$', strict ? undefined : { soft: soft ?? [] });
+    const bad = validateSchemaSubset(
+      parsed,
+      env.responseFormat.schema,
+      '$',
+      strict ? undefined : { soft: soft ?? [] },
+    );
     if (bad) {
       return {
         reason: 'schema_violation',

@@ -111,7 +111,11 @@ export function planDiscovery(
     if (existingCanonicalIds.has(canonicalId)) plan.alreadyKnown.push(canonicalId);
     else {
       const thirdPartyHosted = thirdPartyHostingFor(native);
-      plan.toInsert.push({ canonicalId, displayName: native, ...(thirdPartyHosted ? { thirdPartyHosted } : {}) });
+      plan.toInsert.push({
+        canonicalId,
+        displayName: native,
+        ...(thirdPartyHosted ? { thirdPartyHosted } : {}),
+      });
     }
   }
   return plan;
