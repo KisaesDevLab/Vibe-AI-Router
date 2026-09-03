@@ -41,6 +41,27 @@ models had to rediscover, folded back into the router so the next one does not
   OCR servers that honour grammar constraints. The adapter's `capabilities()` (which nothing
   gates on) now says the same. Policy editor hint: "local_ocr models transcribe; they do not
   emit structured output or coordinates". Item D.
+- **Curated DigitalOcean entries for the models Vibe 1040 binds** (`data/digitalocean-
+  models.json`, DO pricing page "last verified 1 Sep 2026"): `glm-5.3-flash` (1,048,576 ctx,
+  vision, $0.15/$0.50), `glm-5.3` (1,048,576 ctx, text only, $1.40/$4.40), `qwen3.8-max`
+  (1,000,000 ctx, $2.00/$6.00; vision deliberately unset — DO documents image input on one page
+  only, the probe decides). They previously arrived by discovery with an 8,192 placeholder, no
+  pricing and no vision, and Vibe 1040's runbook told operators to hand-edit them; the nightly
+  sync now corrects an already-discovered row in place (Q-088 path, asserted in
+  `test/digitalocean.test.ts`). Same pass refreshed `qwen3.5-397b-a17b` to DO's current
+  $0.55/$3.50 (was $0.385/$2.45; pricing history is append-only, so past ledger rows keep the
+  rate in force when they were written). Item E1.
+- **Third-party-hosted models on DigitalOcean are flagged, never filtered (Q-098, migration
+  0007).** DO's `/models` also serves commercial Anthropic and OpenAI models; discovery
+  inserted them as ordinary rows, so a `cloud_deidentified` class could bind Claude-on-DO
+  without anyone seeing that the retention terms are Anthropic's (Claude Fable: mandatory
+  30-day retention). New `models.third_party_hosted` + `retention_note` (backfilled), set by
+  discovery for `anthropic-*` and `openai-*` ids **except** DO's own open-weight
+  `openai-gpt-oss-*`. Catalog shows a "3rd-party hosted" chip with the dated note; the policy
+  editor asks for confirmation; and — because the UI is a convenience — `savePolicy` refuses a
+  flagged model unless it is named in `acknowledgedModels` (`PUT /admin-api/policies/:key`),
+  recording `acknowledgedThirdParty` in the `config_change` audit. Import implies
+  acknowledgement; the default pack never auto-picks a flagged model. Item E2.
 
 ## 0.0.24 — 2026-08-26
 

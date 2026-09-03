@@ -276,6 +276,8 @@ function pickDefaultModel(
   const capable = entries.filter((m) => {
     if (m.status !== 'active') return false;
     if (!availableKinds.has(m.providerKind)) return false;
+    // never auto-bind a third-party-hosted model (Q-098): that is an acknowledged operator choice
+    if (m.thirdPartyHosted) return false;
     const caps = effectiveCapabilities(m);
     if (entry.requires.tools && !caps.tools) return false;
     if (entry.requires.json_schema && !caps.json_schema) return false;

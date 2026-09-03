@@ -175,6 +175,16 @@ export function Catalog(): JSX.Element {
                       no provider
                     </span>
                   )}
+                  {m.thirdPartyHosted && (
+                    <span
+                      className="chip"
+                      style={{ marginLeft: 6 }}
+                      title={m.retentionNote ?? 'Served by a third-party vendor through this provider; retention terms are the vendor’s'}
+                      data-testid={`third-party-${m.canonicalId}`}
+                    >
+                      3rd-party hosted
+                    </span>
+                  )}
                 </td>
                 <td style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>{m.providerKind}</td>
                 <td className="num">{(m.contextWindow / 1000).toFixed(0)}k</td>

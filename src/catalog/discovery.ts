@@ -17,6 +17,7 @@
  * without any router release.
  */
 import type { Logger } from 'pino';
+import { and, eq, ne, or } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
 import { models, type providers } from '../../db/schema.js';
 import { getJson } from '../adapters/http.js';
@@ -40,8 +41,46 @@ export const DISCOVERED_CONTEXT_WINDOW = 8192;
 export const DISCOVERED_CAPABILITIES: Record<string, boolean> = { json_schema: true };
 const DO_NAMESPACE = 'digitalocean';
 
+/**
+ * Third-party-hosted models on DigitalOcean (Q-098, Vibe 1040 item E2). DO's /models also
+ * lists commercial Anthropic and OpenAI models; the curated file deliberately excludes them
+ * (Q-061) but discovery re-admitted them as ordinary rows, so an operator could bind a
+ * cloud_deidentified class to Claude-on-DO without seeing that the retention terms are the
+ * vendor's. Tagged, NOT filtered: a firm may legitimately want Claude on DO for a class whose
+ * WISP names Anthropic — the point is that it is a visible, acknowledged choice.
+ *
+ * `openai-gpt-oss-*` is open-weight and DO-hosted (already curated) — excluded on purpose.
+ * Note text quotes docs.digitalocean.com/products/gradient-ai-platform/details/data-privacy
+ * as read on 2026-09-03; re-verify when DO's page changes. Keep in sync with migration 0007.
+ */
+export interface ThirdPartyHosting {
+  vendor: 'anthropic' | 'openai';
+  retentionNote: string;
+}
+export const THIRD_PARTY_HOSTED: ReadonlyArray<{ test: RegExp } & ThirdPartyHosting> = [
+  {
+    test: /^anthropic-/,
+    vendor: 'anthropic',
+    retentionNote:
+      "Hosted by DigitalOcean but served under Anthropic's terms: zero retention, EXCEPT Claude Fable 5.1 / Fable 5, which require a mandatory 30-day retention of prompts and completions for trust-and-safety review (docs.digitalocean.com data-privacy page, 2026-09-03). Confirm against the firm's WISP before binding.",
+  },
+  {
+    test: /^openai-(?!gpt-oss-)/,
+    vendor: 'openai',
+    retentionNote:
+      "Hosted by DigitalOcean but served under OpenAI's terms. DigitalOcean's data-privacy page (2026-09-03) states OpenAI's zero-data-retention policy applies and excludes customer content from abuse-monitoring logs; those are OpenAI's terms, not DigitalOcean's. Confirm against the firm's WISP before binding.",
+  },
+];
+
+/** Pure: the third-party hosting record for a NATIVE (un-namespaced) DO model id, if any. */
+export function thirdPartyHostingFor(nativeId: string): ThirdPartyHosting | undefined {
+  const hit = THIRD_PARTY_HOSTED.find((t) => t.test.test(nativeId));
+  return hit ? { vendor: hit.vendor, retentionNote: hit.retentionNote } : undefined;
+}
+
 export interface DiscoveryPlan {
-  toInsert: { canonicalId: string; displayName: string }[];
+  toInsert: { canonicalId: string; displayName: string; thirdPartyHosted?: ThirdPartyHosting }[];
+  /** known rows that match the third-party predicate — re-tagged idempotently on every run */
   alreadyKnown: string[];
   skipped: string[];
 }
@@ -70,7 +109,10 @@ export function planDiscovery(
     if (seen.has(canonicalId)) continue;
     seen.add(canonicalId);
     if (existingCanonicalIds.has(canonicalId)) plan.alreadyKnown.push(canonicalId);
-    else plan.toInsert.push({ canonicalId, displayName: native });
+    else {
+      const thirdPartyHosted = thirdPartyHostingFor(native);
+      plan.toInsert.push({ canonicalId, displayName: native, ...(thirdPartyHosted ? { thirdPartyHosted } : {}) });
+    }
   }
   return plan;
 }
@@ -97,6 +139,8 @@ export interface DiscoverResult {
   discovered: string[];
   alreadyKnown: number;
   skipped: string[];
+  /** canonical ids (new or pre-existing) carrying the third-party-hosted flag after this run */
+  thirdPartyHosted: string[];
 }
 
 type ListIds = (baseUrl: string, apiKey: string | undefined, signal: AbortSignal) => Promise<string[]>;
@@ -119,6 +163,7 @@ export async function discoverDigitalOceanModels(
   const plan = planDiscovery(served, new Set(existing.map((m) => m.canonicalId)));
 
   const discovered: string[] = [];
+  const thirdPartyHosted: string[] = [];
   for (const m of plan.toInsert) {
     const [row] = await db
       .insert(models)
@@ -130,10 +175,30 @@ export async function discoverDigitalOceanModels(
         maxOutput: null,
         capabilities: DISCOVERED_CAPABILITIES,
         source: 'provider',
+        thirdPartyHosted: m.thirdPartyHosted !== undefined,
+        retentionNote: m.thirdPartyHosted?.retentionNote ?? null,
       })
       .onConflictDoNothing({ target: models.canonicalId })
       .returning({ id: models.id });
     if (row) discovered.push(m.canonicalId);
+    if (m.thirdPartyHosted) thirdPartyHosted.push(m.canonicalId);
+  }
+  // Rows discovered before 0007 (or whose note text has since been revised) are re-tagged in
+  // place — idempotent, touches only the two flag columns, never specs/overrides.
+  for (const canonicalId of plan.alreadyKnown) {
+    const native = canonicalId.slice(DO_NAMESPACE.length + 1);
+    const hosting = thirdPartyHostingFor(native);
+    if (!hosting) continue;
+    thirdPartyHosted.push(canonicalId);
+    await db
+      .update(models)
+      .set({ thirdPartyHosted: true, retentionNote: hosting.retentionNote })
+      .where(
+        and(
+          eq(models.canonicalId, canonicalId),
+          or(eq(models.thirdPartyHosted, false), ne(models.retentionNote, hosting.retentionNote)),
+        ),
+      );
   }
   return {
     providerId: provider.id,
@@ -141,6 +206,7 @@ export async function discoverDigitalOceanModels(
     discovered,
     alreadyKnown: plan.alreadyKnown.length,
     skipped: plan.skipped,
+    thirdPartyHosted,
   };
 }
 

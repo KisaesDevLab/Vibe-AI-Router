@@ -166,6 +166,14 @@ export const models = pgTable('models', {
   status: modelStatus('status').notNull().default('active'),
   deprecationDate: date('deprecation_date'),
   source: modelSource('source').notNull(),
+  /**
+   * Served by a third-party vendor THROUGH this provider kind (0007, Q-098): e.g. Anthropic or
+   * OpenAI models on DigitalOcean's serverless inference. Retention terms are the vendor's,
+   * not the host's — the console shows `retentionNote` and a policy save must acknowledge
+   * the model explicitly. Set by discovery; never by sync (curated feeds exclude them).
+   */
+  thirdPartyHosted: boolean('third_party_hosted').notNull().default(false),
+  retentionNote: text('retention_note'),
   ...timestamps,
 });
 

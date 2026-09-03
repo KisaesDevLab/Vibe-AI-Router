@@ -309,6 +309,18 @@ function Editor({
   const [busy, setBusy] = useState(false);
 
   const save = async (): Promise<void> => {
+    // third-party-hosted bindings (Claude/GPT on DigitalOcean, Q-098) need an explicit
+    // acknowledgement — the router refuses the save without it, so this confirm is the UI
+    // half of a server-side gate, not the gate itself
+    const bound = new Set([defaultModel, ...allowed, ...fallbacks]);
+    const thirdParty = models.filter((m) => bound.has(m.canonicalId) && m.thirdPartyHosted);
+    if (thirdParty.length > 0) {
+      const msg =
+        `${thirdParty.length === 1 ? 'This model is' : 'These models are'} hosted by DigitalOcean but served under a third-party vendor's terms:\n\n` +
+        thirdParty.map((m) => `• ${m.canonicalId}\n  ${m.retentionNote ?? 'retention terms are the vendor’s'}`).join('\n\n') +
+        `\n\nBind ${thirdParty.length === 1 ? 'it' : 'them'} to ${taskClass.key} anyway? The acknowledgement is audited.`;
+      if (!window.confirm(msg)) return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -318,6 +330,7 @@ function Editor({
         fallbackChain: fallbacks,
         maxTokensOverride: maxTokens === '' ? null : Number(maxTokens),
         monthlyBudgetCents: budget === '' ? null : Math.round(Number(budget) * 100),
+        ...(thirdParty.length > 0 ? { acknowledgedModels: thirdParty.map((m) => m.canonicalId) } : {}),
       });
       onSaved();
     } catch (err) {

@@ -752,6 +752,8 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
         temperatureMax: z.number().nullable().optional(),
         monthlyBudgetCents: z.number().int().nullable().optional(),
         enabled: z.boolean().optional(),
+        /** third-party-hosted models the operator confirmed in the console (Q-098) */
+        acknowledgedModels: z.array(z.string().max(200)).max(100).optional(),
       })
       .safeParse(req.body);
     if (!params.success || !body.success)
@@ -768,6 +770,7 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
         temperatureMax: body.data.temperatureMax ?? null,
         monthlyBudgetCents: body.data.monthlyBudgetCents ?? null,
         enabled: body.data.enabled ?? true,
+        ...(body.data.acknowledgedModels ? { acknowledgedModels: body.data.acknowledgedModels } : {}),
       });
       return await reply.send({ id });
     } catch (err) {

@@ -26,6 +26,13 @@ export interface SavePolicyInput {
   temperatureMax?: number | null;
   monthlyBudgetCents?: number | null;
   enabled?: boolean;
+  /**
+   * Canonical ids the operator has explicitly acknowledged as third-party hosted (Q-098) —
+   * e.g. Claude on DigitalOcean, whose retention terms are Anthropic's. Binding such a model
+   * without acknowledging it is refused server-side (invariant 6: the UI confirm is a
+   * convenience, the router decides).
+   */
+  acknowledgedModels?: string[];
 }
 
 /** The config-time gate (7.3): returns the specific reason a model may not serve this class. */
@@ -58,6 +65,7 @@ export async function savePolicy(db: Db, engine: PolicyEngine, input: SavePolicy
   });
   const byCanonical = new Map(rows.map((m) => [m.canonicalId, m]));
 
+  const acknowledged = new Set(input.acknowledgedModels ?? []);
   const problems: string[] = [];
   for (const id of new Set(canonicalIds)) {
     const model = byCanonical.get(id);
@@ -67,6 +75,13 @@ export async function savePolicy(db: Db, engine: PolicyEngine, input: SavePolicy
     }
     const violation = configTimeViolation(model, tc);
     if (violation) problems.push(violation);
+    // third-party-hosted models bind only with an explicit acknowledgement (Q-098)
+    if (model.thirdPartyHosted && !acknowledged.has(id)) {
+      problems.push(
+        `${id}: third-party hosted — ${model.retentionNote ?? 'retention terms are the upstream vendor’s'} ` +
+          `(acknowledge it in acknowledgedModels to bind)`,
+      );
+    }
   }
   if (problems.length > 0) {
     throw new RouterError('invalid_request', `policy rejected: ${problems.join('; ')}`, {
@@ -126,6 +141,11 @@ export async function savePolicy(db: Db, engine: PolicyEngine, input: SavePolicy
         allowed: (input.allowedModelCanonicalIds ?? []).join(','),
         fallback: (input.fallbackChainCanonicalIds ?? []).join(','),
         enabled: values.enabled,
+        // which bound models were third-party hosted and explicitly acknowledged (Q-098)
+        ...(() => {
+          const bound = [...new Set(canonicalIds)].filter((c) => byCanonical.get(c)?.thirdPartyHosted);
+          return bound.length > 0 ? { acknowledgedThirdParty: bound.join(',') } : {};
+        })(),
       },
     },
   });
@@ -253,6 +273,8 @@ export async function importPolicies(
       temperatureMax: p.temperatureMax,
       monthlyBudgetCents: p.monthlyBudgetCents,
       enabled: p.enabled,
+      // an export only ever contains bindings an operator already acknowledged (Q-098)
+      acknowledgedModels: [p.defaultModel, ...p.allowedModels, ...p.fallbackChain],
     });
     count++;
   }

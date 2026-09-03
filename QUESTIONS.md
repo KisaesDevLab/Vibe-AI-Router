@@ -619,3 +619,25 @@ Grouped by phase. This file is the Phase 15 review agenda.
   policy editor's hidden-model hint names the reason ("local_ocr models transcribe…") instead
   of the generic override hint.** → one merge function + a const; reversal is deleting the
   const → **S**
+- [Q-098] DigitalOcean's `GET /models` also lists commercial `anthropic-*` and `openai-*`
+  models. The curated file excludes them on purpose (Q-061) but discovery (Q-082) re-admitted
+  them as ordinary `digitalocean/…` rows with `json_schema: true`, so an operator could bind a
+  `cloud_deidentified` class to Claude-on-DO without seeing that the retention terms are the
+  vendor's (Claude Fable carries a mandatory 30-day retention). Filter them, or flag them? →
+  **Flag, never filter — a firm may legitimately want Claude on DO for a class whose WISP
+  names Anthropic; the point is that it is a VISIBLE, acknowledged choice. Migration 0007
+  adds `models.third_party_hosted` + `retention_note` (backfilled for pre-existing rows);
+  discovery tags matching ids on insert and re-tags known rows idempotently
+  (`THIRD_PARTY_HOSTED` in `src/catalog/discovery.ts`, notes quoting DO's data-privacy page
+  dated 2026-09-03). The predicate is `^anthropic-` and `^openai-` EXCLUDING `openai-gpt-oss-*`
+  — the plan doc's `/^(anthropic|openai)-/` would have mis-tagged DO's own open-weight gpt-oss
+  family, which is already curated. Gate is server-side (invariant 6): `savePolicy` refuses a
+  flagged model unless it appears in `acknowledgedModels`; the console confirm supplies that
+  list and the `config_change` audit records `acknowledgedThirdParty`. Policy import implies
+  acknowledgement (an export only contains bindings an operator already confirmed), and the
+  default pack never auto-picks a flagged model. Discrepancy recorded: the Vibe 1040 plan doc
+  states OpenAI-on-DO "has no zero-data-retention at all (verified 2026-09-01)", but DO's page
+  as read on 2026-09-03 says OpenAI's zero-data-retention policy applies and excludes customer
+  content from abuse-monitoring logs — the note quotes the page and dates it; whoever reads
+  differently should re-verify against the live page, not this file.** → two columns + one
+  predicate + one save-time check; reversal is migration down + deleting the predicate → **S**

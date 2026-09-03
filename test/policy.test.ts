@@ -449,6 +449,50 @@ describe.skipIf(!url)('policy persistence (DB)', () => {
     ).rejects.toThrow(/missing capability json_schema/);
   });
 
+  it('savePolicy refuses a third-party-hosted model until it is acknowledged (Q-098)', async () => {
+    await handle.db
+      .insert(models)
+      .values({
+        canonicalId: 'digitalocean/anthropic-claude-test',
+        providerKind: 'digitalocean',
+        displayName: 'anthropic-claude-test',
+        contextWindow: 200000,
+        capabilities: { json_schema: true, tools: true, vision: true },
+        source: 'provider',
+        thirdPartyHosted: true,
+        retentionNote: 'served under Anthropic terms (test)',
+      })
+      .onConflictDoNothing();
+    const input = {
+      firmId,
+      taskClassKey: 'tb_research_summary', // cloud_allowed, no capability requirements
+      defaultModelCanonicalId: 'ollama/qwen3:14b',
+      fallbackChainCanonicalIds: ['digitalocean/anthropic-claude-test'],
+    };
+    // unacknowledged → refused, and the message carries the note so the operator sees WHY
+    await expect(savePolicy(handle.db, engine, input)).rejects.toThrow(/third-party hosted.*Anthropic terms/);
+    // acknowledging a DIFFERENT model does not count
+    await expect(
+      savePolicy(handle.db, engine, { ...input, acknowledgedModels: ['ollama/qwen3:14b'] }),
+    ).rejects.toThrow(/third-party hosted/);
+    // acknowledged → saved
+    await expect(
+      savePolicy(handle.db, engine, { ...input, acknowledgedModels: ['digitalocean/anthropic-claude-test'] }),
+    ).resolves.toBeTypeOf('string');
+    // and export → import round-trips without re-asking (the export IS the acknowledgement)
+    const exported = await exportPolicies(handle.db, firmId);
+    expect(exported.policies.find((p) => p.taskClassKey === 'tb_research_summary')?.fallbackChain).toEqual([
+      'digitalocean/anthropic-claude-test',
+    ]);
+    await expect(importPolicies(handle.db, engine, firmId, exported)).resolves.toMatchObject({ policies: exported.policies.length });
+    // restore the class binding other tests rely on
+    await savePolicy(handle.db, engine, {
+      firmId,
+      taskClassKey: 'tb_research_summary',
+      defaultModelCanonicalId: 'anthropic/claude-sonnet-4-5',
+    });
+  });
+
   it('savePolicy rejects cloud default for local_only class (7.3/7.5)', async () => {
     await expect(
       savePolicy(handle.db, engine, {

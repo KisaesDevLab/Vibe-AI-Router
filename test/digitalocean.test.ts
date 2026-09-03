@@ -20,7 +20,7 @@ import { createLogger } from '../src/lib/logger.js';
 import { savePolicy } from '../src/policy/save.js';
 import { loadVendoredFeed, syncCatalog } from '../src/catalog/sync.js';
 import { checkBaseUrl } from '../src/lib/ssrf.js';
-import { models, policies, providers, taskClasses, usageLedger } from '../db/schema.js';
+import { modelPricing, models, policies, providers, taskClasses, usageLedger } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { resetDb } from './helpers.js';
 import { DEMO } from '../db/seed.js';
@@ -153,6 +153,52 @@ describe.skipIf(!url)('DigitalOcean provider kind', () => {
     expect((llama!.capabilities as Record<string, boolean>)['tools']).toBeUndefined();
     const kimi = rows.find((m) => m.canonicalId === 'digitalocean/kimi-k2.5');
     expect((kimi!.capabilities as Record<string, boolean>)['vision']).toBe(true);
+  });
+
+  it('the 2026-09-03 additions are curated with DO specs and pricing (Vibe 1040 item E1)', async () => {
+    const rows = await handle.db.query.models.findMany({ where: eq(models.providerKind, 'digitalocean') });
+    const flash = rows.find((m) => m.canonicalId === 'digitalocean/glm-5.3-flash');
+    expect(flash?.contextWindow).toBe(1_048_576);
+    expect(flash?.capabilities).toMatchObject({ vision: true, json_schema: true, caching: true });
+    const glm = rows.find((m) => m.canonicalId === 'digitalocean/glm-5.3');
+    expect(glm?.contextWindow).toBe(1_048_576);
+    expect((glm?.capabilities as Record<string, boolean>)['vision']).toBeUndefined(); // text only
+    const qwenMax = rows.find((m) => m.canonicalId === 'digitalocean/qwen3.8-max');
+    expect(qwenMax?.contextWindow).toBe(1_000_000);
+    // vision deliberately unset — DO documents image input on one page only; the probe decides
+    expect((qwenMax?.capabilities as Record<string, boolean>)['vision']).toBeUndefined();
+    const price = await handle.db.query.modelPricing.findFirst({ where: eq(modelPricing.modelId, flash!.id) });
+    expect(Number(price?.inputPerMtok)).toBe(0.15);
+    expect(Number(price?.outputPerMtok)).toBe(0.5);
+  });
+
+  it('a placeholder row discovered before curation is corrected in place by the nightly sync (Q-088 path)', async () => {
+    // simulate: discovery inserted glm-5.3-flash with placeholder specs BEFORE the curated
+    // entry shipped — delete the synced row and put the discovered-shaped one in its place
+    const synced = await handle.db.query.models.findFirst({ where: eq(models.canonicalId, 'digitalocean/glm-5.3-flash') });
+    await handle.db.delete(modelPricing).where(eq(modelPricing.modelId, synced!.id));
+    await handle.db.delete(models).where(eq(models.id, synced!.id));
+    const [placeholder] = await handle.db
+      .insert(models)
+      .values({
+        canonicalId: 'digitalocean/glm-5.3-flash',
+        providerKind: 'digitalocean',
+        displayName: 'glm-5.3-flash',
+        contextWindow: 8192, // DISCOVERED_CONTEXT_WINDOW
+        capabilities: { json_schema: true },
+        source: 'provider',
+      })
+      .returning();
+    const { feed, sha256 } = await loadVendoredFeed();
+    const report = await syncCatalog(handle.db, feed, { source: 'test-vendored', sourceSha256: sha256 });
+    expect(report.updated).toContain('digitalocean/glm-5.3-flash');
+    const after = await handle.db.query.models.findFirst({ where: eq(models.id, placeholder!.id) });
+    // the curated context window replaces the 8192 placeholder — no operator hand-edit needed
+    expect(after?.contextWindow).toBe(1_048_576);
+    expect(after?.capabilities).toMatchObject({ vision: true, json_schema: true });
+    expect(after?.source).toBe('provider'); // still operator-editable
+    const pricing = await handle.db.query.modelPricing.findMany({ where: eq(modelPricing.modelId, placeholder!.id) });
+    expect(pricing).toHaveLength(1);
   });
 
   it('routes to DO with the model access key and a prefix-stripped model name; ledger uses DO pricing', async () => {

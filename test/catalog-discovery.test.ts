@@ -14,7 +14,9 @@ import {
   DISCOVERED_CONTEXT_WINDOW,
   discoverDigitalOceanModels,
   planDiscovery,
+  thirdPartyHostingFor,
 } from '../src/catalog/discovery.js';
+import { updateModel } from '../src/catalog/service.js';
 
 describe('planDiscovery (pure)', () => {
   it('normalizes bare + namespaced ids, splits new vs known, dedupes, skips junk', () => {
@@ -33,6 +35,25 @@ describe('planDiscovery (pure)', () => {
     expect(plan.toInsert.find((t) => t.canonicalId === 'digitalocean/new-c')?.displayName).toBe('new-c');
     // '', the number, and the whitespace-only entry are all skipped (never inserted)
     expect(plan.skipped).toHaveLength(3);
+  });
+
+  it('tags third-party-hosted ids (Q-098): anthropic-*/openai-* yes, open-weight gpt-oss and OSS models no', () => {
+    expect(thirdPartyHostingFor('anthropic-claude-sonnet-4.6')?.vendor).toBe('anthropic');
+    expect(thirdPartyHostingFor('anthropic-claude-fable-5.1')?.retentionNote).toMatch(/30-day/);
+    expect(thirdPartyHostingFor('openai-gpt-5.4')?.vendor).toBe('openai');
+    expect(thirdPartyHostingFor('openai-o3')?.vendor).toBe('openai');
+    // DO-hosted open-weight family — NOT third party (already in the curated file)
+    expect(thirdPartyHostingFor('openai-gpt-oss-120b')).toBeUndefined();
+    expect(thirdPartyHostingFor('openai-gpt-oss-20b')).toBeUndefined();
+    expect(thirdPartyHostingFor('glm-5.3-flash')).toBeUndefined();
+    expect(thirdPartyHostingFor('qwen3.5-397b-a17b')).toBeUndefined();
+
+    const plan = planDiscovery(['anthropic-claude-opus-5', 'digitalocean/openai-gpt-5', 'openai-gpt-oss-20b', 'glm-5.3'], new Set());
+    const byId = new Map(plan.toInsert.map((t) => [t.canonicalId, t.thirdPartyHosted]));
+    expect(byId.get('digitalocean/anthropic-claude-opus-5')?.vendor).toBe('anthropic');
+    expect(byId.get('digitalocean/openai-gpt-5')?.vendor).toBe('openai');
+    expect(byId.get('digitalocean/openai-gpt-oss-20b')).toBeUndefined();
+    expect(byId.get('digitalocean/glm-5.3')).toBeUndefined();
   });
 });
 
@@ -108,5 +129,69 @@ describe.skipIf(!url)('discoverDigitalOceanModels (DB)', () => {
     const res2 = await discoverDigitalOceanModels(handle.db, provider!, 'key', { listIds });
     expect(res2.discovered).toEqual([]);
     expect(res2.alreadyKnown).toBe(2);
+    expect(res2.thirdPartyHosted).toEqual([]);
+  });
+
+  it('flags third-party-hosted rows on insert AND re-tags pre-0007 rows in place (Q-098)', async () => {
+    // a row discovered BEFORE the flag existed — plain digitalocean/… with no tag
+    await handle.db
+      .insert(models)
+      .values({
+        canonicalId: 'digitalocean/anthropic-claude-sonnet-4.6',
+        providerKind: 'digitalocean',
+        displayName: 'anthropic-claude-sonnet-4.6',
+        contextWindow: 200000, // operator-corrected spec — must survive re-tagging
+        capabilities: { json_schema: true },
+        capabilityOverrides: { vision: true },
+        source: 'provider',
+      })
+      .onConflictDoNothing();
+
+    const provider = await handle.db.query.providers.findFirst({ where: eq(providers.id, providerId) });
+    const listIds = (): Promise<string[]> =>
+      Promise.resolve(['anthropic-claude-sonnet-4.6', 'openai-gpt-5.4', 'openai-gpt-oss-120b', 'glm-5.3']);
+
+    const res = await discoverDigitalOceanModels(handle.db, provider!, 'key', { listIds });
+    expect(res.discovered.sort()).toEqual([
+      'digitalocean/glm-5.3',
+      'digitalocean/openai-gpt-5.4',
+      'digitalocean/openai-gpt-oss-120b',
+    ]);
+    expect(res.thirdPartyHosted.sort()).toEqual([
+      'digitalocean/anthropic-claude-sonnet-4.6',
+      'digitalocean/openai-gpt-5.4',
+    ]);
+
+    const claude = await handle.db.query.models.findFirst({
+      where: eq(models.canonicalId, 'digitalocean/anthropic-claude-sonnet-4.6'),
+    });
+    expect(claude?.thirdPartyHosted).toBe(true);
+    expect(claude?.retentionNote).toMatch(/Anthropic's terms/);
+    // re-tagging touched ONLY the flag columns
+    expect(claude?.contextWindow).toBe(200000);
+    expect(claude?.capabilityOverrides).toEqual({ vision: true });
+
+    const gpt = await handle.db.query.models.findFirst({ where: eq(models.canonicalId, 'digitalocean/openai-gpt-5.4') });
+    expect(gpt?.thirdPartyHosted).toBe(true);
+    expect(gpt?.retentionNote).toMatch(/OpenAI's terms/);
+    // still admitted — tagged, never filtered
+    expect(gpt?.source).toBe('provider');
+
+    for (const id of ['digitalocean/openai-gpt-oss-120b', 'digitalocean/glm-5.3']) {
+      const row = await handle.db.query.models.findFirst({ where: eq(models.canonicalId, id) });
+      expect(row?.thirdPartyHosted).toBe(false);
+      expect(row?.retentionNote).toBeNull();
+    }
+
+    // an operator edit through the catalog service never clears the flag
+    await updateModel(handle.db, gpt!.id, { contextWindow: 400000 });
+    const edited = await handle.db.query.models.findFirst({ where: eq(models.id, gpt!.id) });
+    expect(edited?.contextWindow).toBe(400000);
+    expect(edited?.thirdPartyHosted).toBe(true);
+
+    // idempotent: a second run changes nothing and reports the same set
+    const res2 = await discoverDigitalOceanModels(handle.db, provider!, 'key', { listIds });
+    expect(res2.discovered).toEqual([]);
+    expect(res2.thirdPartyHosted.sort()).toEqual(res.thirdPartyHosted.sort());
   });
 });

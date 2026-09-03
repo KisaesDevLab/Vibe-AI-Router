@@ -140,6 +140,9 @@ export interface Model {
   pricing: { inputPerMtok: string | null; outputPerMtok: string | null } | null;
   /** the firm has a provider of this model's kind configured — i.e. it is routable today */
   configured: boolean;
+  /** served by a third-party vendor through this kind (Claude/GPT on DigitalOcean) — Q-098 */
+  thirdPartyHosted: boolean;
+  retentionNote: string | null;
 }
 
 export interface ProbeResponse {
