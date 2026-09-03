@@ -7,7 +7,7 @@ core sees only the envelope (principle 8). Later phases extend, never break.
 
 | Method | Purity | Purpose |
 | --- | --- | --- |
-| `capabilities()` | pure | static family capabilities (config-time gating input) |
+| `capabilities()` | pure | static family capabilities — documentary; gating reads the catalog row via `effectiveCapabilities()` + `KIND_CAPABILITY_CEILING` (`src/catalog/service.ts`, Q-097). `local_ocr` reports `tools:false, jsonSchema:false, streaming:false` |
 | `translateRequest(env, ctx)` | pure | envelope → `{url, method, headers, body}`; secrets enter here only |
 | `execute(env, ctx, signal)` | IO | non-streaming call → `AIResponse` |
 | `executeStream(env, ctx, signal)` | IO | streaming call → `AsyncIterable<StreamChunk>` |

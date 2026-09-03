@@ -16,7 +16,7 @@ import {
   PolicyEngine,
   type EffectivePolicy,
 } from '../src/policy/engine.js';
-import { exportPolicies, importPolicies, savePolicy } from '../src/policy/save.js';
+import { configTimeViolation, exportPolicies, importPolicies, savePolicy } from '../src/policy/save.js';
 import { applyDefaultPack, DEFAULT_PACK } from '../src/policy/pack.js';
 import { resetDb } from './helpers.js';
 import type { AIRequest } from '../src/gateway/envelope.js';
@@ -138,6 +138,24 @@ describe('modelViolation (7.4/7.5/7.6)', () => {
       capabilities: { vision: true },
     });
     expect(modelViolation(ocr, fakeEffective(tc, ocr), baseEnv())).toBeUndefined();
+  });
+
+  it('local_ocr can NOT bind to a json_schema class even if the row claims it — kind ceiling (Q-097)', () => {
+    const layout = fakeClass({ sensitivity: 'local_only', requires: { vision: true, json_schema: true } });
+    const ocr = fakeModel({
+      providerKind: 'local_ocr',
+      canonicalId: 'glm/GLM-OCR',
+      capabilities: { vision: true, json_schema: true },
+    });
+    // config time (policy save) and request time (modelViolation) both refuse
+    expect(configTimeViolation(ocr, layout)).toMatch(/missing capability json_schema/);
+    expect(modelViolation(ocr, fakeEffective(layout, ocr), baseEnv())?.code).toBe('capability_missing');
+    // the operator's explicit override re-admits it (existing Q-062 mechanism)
+    const unlocked = fakeModel({ ...ocr, capabilityOverrides: { json_schema: true } });
+    expect(configTimeViolation(unlocked, layout)).toBeUndefined();
+    // a plain vision class is unaffected
+    const transcribe = fakeClass({ sensitivity: 'local_only', requires: { vision: true } });
+    expect(configTimeViolation(ocr, transcribe)).toBeUndefined();
   });
 
   it('missing class-required capability names the capability', () => {

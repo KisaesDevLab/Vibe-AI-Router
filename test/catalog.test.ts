@@ -80,6 +80,50 @@ describe('parseFeed (pure)', () => {
   });
 });
 
+describe('effectiveCapabilities — per-kind ceiling (Q-097, pure)', () => {
+  type ModelRow = typeof models.$inferSelect;
+  const row = (over: Partial<ModelRow>): ModelRow =>
+    ({
+      id: 'm',
+      canonicalId: 'glm/GLM-OCR',
+      providerKind: 'local_ocr',
+      displayName: 'GLM-OCR',
+      contextWindow: 8192,
+      maxOutput: null,
+      capabilities: {},
+      capabilityOverrides: {},
+      status: 'active',
+      deprecationDate: null,
+      source: 'custom',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ...over,
+    }) as ModelRow;
+
+  it('local_ocr: json_schema/tools are false even when the row advertises them; vision passes through', () => {
+    const caps = effectiveCapabilities(row({ capabilities: { vision: true, json_schema: true, tools: true } }));
+    expect(caps).toMatchObject({ vision: true, json_schema: false, tools: false });
+  });
+
+  it('local_ocr: an explicit override re-enables json_schema (operator verified grammar support)', () => {
+    const caps = effectiveCapabilities(
+      row({ capabilities: { vision: true, json_schema: true }, capabilityOverrides: { json_schema: true } }),
+    );
+    expect(caps).toMatchObject({ vision: true, json_schema: true, tools: false });
+  });
+
+  it('other kinds are unaffected: base values pass through and overrides still win', () => {
+    const caps = effectiveCapabilities(
+      row({ providerKind: 'local', canonicalId: 'ollama/x', capabilities: { json_schema: true, tools: true } }),
+    );
+    expect(caps).toMatchObject({ json_schema: true, tools: true, vision: false });
+    const overridden = effectiveCapabilities(
+      row({ providerKind: 'digitalocean', capabilities: { json_schema: true }, capabilityOverrides: { json_schema: false } }),
+    );
+    expect(overridden.json_schema).toBe(false);
+  });
+});
+
 describe.skipIf(!url)('syncCatalog (DB)', () => {
   let handle: DbHandle;
 

@@ -604,3 +604,18 @@ Grouped by phase. This file is the Phase 15 review agenda.
   that greps ui/src for `href="/admin-api/…"` so the class of bug cannot return silently
   (verified to fail when a raw href is reintroduced).** → both fixes are local; the guard is a
   test-only addition → **S**
+- [Q-097] GLM-OCR (`local_ocr`) advertised `json_schema` and `vision` like every other
+  openai-compat kind, so Vibe 1040's bounding-box class (`v1040_layout`: vision + json_schema)
+  bound to it at config time and llama-server's grammar constraint then forced a 0.9B OCR model
+  to invent a spans array (Vibe 1040 Q14). Fix at the adapter, or at the catalog? → **At the
+  catalog, because the adapter's `capabilities()` has zero call sites — config-time
+  (`save.ts`), request-time (`engine.ts`) and the default-pack picker all read
+  `effectiveCapabilities(row)`. A per-kind ceiling `KIND_CAPABILITY_CEILING` in
+  `src/catalog/service.ts` (`local_ocr: { json_schema: false, tools: false }`) sits between the
+  row's base capabilities and its overrides: a key capped `false` is false whatever the row
+  says, and only an explicit `capability_overrides` entry re-enables it (the existing Q-062
+  unlock, for operators whose OCR server genuinely honours grammar constraints). The adapter's
+  `capabilities()` is made truthful for `local_ocr` too, but documented as non-gating. The
+  policy editor's hidden-model hint names the reason ("local_ocr models transcribe…") instead
+  of the generic override hint.** → one merge function + a const; reversal is deleting the
+  const → **S**

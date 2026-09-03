@@ -46,12 +46,33 @@ export const customModelSchema = z.object({
 
 export type CustomModelInput = z.infer<typeof customModelSchema>;
 
-/** overrides win over synced capabilities and survive re-sync (5.5) */
+type ProviderKind = (typeof PROVIDER_KINDS)[number];
+
+/**
+ * Per-KIND capability ceiling (Q-097, Vibe 1040 item D). A key set to `false` here is treated
+ * as false regardless of the row's base `capabilities` — only an explicit `capability_overrides`
+ * entry can re-enable it. This is the single enforced source of "what a kind can do"; the
+ * adapter's `capabilities()` mirrors it for documentation but nothing gates on it.
+ *
+ * `local_ocr` (GLM-OCR via llama-server) transcribes: text and Markdown tables, no geometry, no
+ * tool calling. Its grammar constraint will FORCE a 0.9B OCR model to invent a spans array
+ * rather than refuse, so advertising json_schema let a bounding-box class bind to it and
+ * produced confident garbage. Operators whose OCR server genuinely honours grammar constraints
+ * re-enable `json_schema` per model via overrides (Q-062).
+ */
+export const KIND_CAPABILITY_CEILING: Partial<Record<ProviderKind, Partial<Record<CapabilityKey, false>>>> = {
+  local_ocr: { json_schema: false, tools: false },
+};
+
+/** overrides win over synced capabilities and survive re-sync (5.5); the kind ceiling sits between */
 export function effectiveCapabilities(model: ModelRow): Record<CapabilityKey, boolean> {
   const base = (model.capabilities ?? {}) as Record<string, boolean>;
   const overrides = (model.capabilityOverrides ?? {}) as Record<string, boolean>;
+  const ceiling = KIND_CAPABILITY_CEILING[model.providerKind as ProviderKind] ?? {};
   const out = {} as Record<CapabilityKey, boolean>;
-  for (const key of CAPABILITY_KEYS) out[key] = overrides[key] ?? base[key] ?? false;
+  for (const key of CAPABILITY_KEYS) {
+    out[key] = overrides[key] ?? (ceiling[key] === false ? false : base[key]) ?? false;
+  }
   return out;
 }
 

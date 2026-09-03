@@ -285,6 +285,13 @@ function Editor({
               reason: `no ${m.providerKind} provider configured — add one under Providers to route here`,
             };
           const missing = missingCaps.filter((c) => !m.effective[c]);
+          // local_ocr is capped by kind (Q-097): GLM-OCR transcribes, it does not emit
+          // structured output or coordinates — say so instead of the generic hint
+          if (m.providerKind === 'local_ocr' && missing.some((c) => c === 'json_schema' || c === 'tools'))
+            return {
+              id: m.canonicalId,
+              reason: `local_ocr models transcribe; they do not emit structured output or coordinates — override ${missing.join(' + ')} per model in Catalog only if your OCR server honours grammar constraints`,
+            };
           return {
             id: m.canonicalId,
             reason: `doesn't advertise ${missing.join(' + ')} — enable in Catalog → capability overrides if the model supports it`,

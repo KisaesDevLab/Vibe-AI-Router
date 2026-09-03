@@ -37,7 +37,11 @@ Providers → Add provider → "GLM-OCR (local)" → `http://vibe-glm-ocr:8090/v
 connection (✓ = llama-server answered `/models`). Then Catalog → Add custom model:
 canonical id `glm/GLM-OCR`, kind `local_ocr`, context 8192 (or per your build), capabilities
 **vision = true**, pricing 0. `local_ocr` is LOCAL-tier: usable by `local_only` classes,
-scrubber-exempt, LAN-pinned.
+scrubber-exempt, LAN-pinned. Since 0.0.25 the kind is capped to transcription: `json_schema`
+and `tools` are false for every `local_ocr` model regardless of what the row says (Q-097), so
+a class that asks for structured output or bounding boxes will not offer it. Only set a
+`json_schema` capability override on it if your OCR server genuinely honours grammar
+constraints — llama-server will otherwise force a 0.9B model to invent geometry.
 
 **P4. Optional cloud providers.** Anthropic preset (`https://api.anthropic.com`) and/or
 DigitalOcean Gradient preset (`https://inference.do-ai.run/v1`) with the firm's own keys.

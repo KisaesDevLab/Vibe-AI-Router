@@ -32,6 +32,15 @@ models had to rediscover, folded back into the router so the next one does not
   `vibe_router_response_soft_findings_total{reason}` increments. `validation: 'strict'` on
   the wire (`response_format.json_schema.validation`, a router extension never forwarded to
   providers) restores 0.0.24 behaviour. `required`/`type`/`items` stay hard. Item C.
+- **`local_ocr` models can no longer bind to structured-output classes by default (Q-097).**
+  Every openai-compat kind advertised `json_schema` + `vision`, so a GLM-OCR row passed
+  config-time gating for a bounding-box class and llama-server's grammar constraint forced a
+  0.9B OCR model to invent geometry. A per-kind ceiling in `effectiveCapabilities()`
+  (`KIND_CAPABILITY_CEILING`, `src/catalog/service.ts`) makes `json_schema` and `tools` false
+  for `local_ocr` whatever the row says; an explicit capability override re-enables them for
+  OCR servers that honour grammar constraints. The adapter's `capabilities()` (which nothing
+  gates on) now says the same. Policy editor hint: "local_ocr models transcribe; they do not
+  emit structured output or coordinates". Item D.
 
 ## 0.0.24 — 2026-08-26
 
