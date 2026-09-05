@@ -1,0 +1,220 @@
+{
+  "_doc": "myBooks policy import for DigitalOcean-hosted open-weight models, replacing direct Claude Sonnet 4.5. Revised 2026-09-04 against DO's current catalog (router 0.0.25+, curated feed refreshed the same day; docs/integration-plans/mybooks.md §1.2). Apply with POST /admin-api/policies/import AFTER (1) the DigitalOcean provider is configured and discovered, so every id below has a catalog row — kimi-k3 is enrich-only and exists only after discovery — and (2) all eight classes are widened to cloud_deidentified via PATCH /admin-api/task-classes/:key, because import never relaxes sensitivity. Chains are DigitalOcean open-weight only; no Anthropic/OpenAI-on-DO model appears, so acknowledgedModels stays empty. Fallbacks are ordered best to least on accuracy, not cost. kimi-k2.6 is last on every vision chain because DO no longer documents image input for it; probe before relying on it.",
+  "version": 1,
+  "taskClasses": [
+    {
+      "key": "mybooks_txn_categorize",
+      "app": "vibe-mybooks",
+      "description": "Bank transaction categorization",
+      "sensitivity": "cloud_deidentified",
+      "requires": { "json_schema": true },
+      "defaultMaxTokens": 2048
+    },
+    {
+      "key": "mybooks_receipt_extract",
+      "app": "vibe-mybooks",
+      "description": "Receipt/invoice OCR field extraction",
+      "sensitivity": "cloud_deidentified",
+      "requires": { "json_schema": true, "vision": true },
+      "defaultMaxTokens": 4096
+    },
+    {
+      "key": "mybooks_bill_extract",
+      "app": "vibe-mybooks",
+      "description": "Vendor bill / invoice field extraction",
+      "sensitivity": "cloud_deidentified",
+      "requires": { "json_schema": true, "vision": true },
+      "defaultMaxTokens": 4096
+    },
+    {
+      "key": "mybooks_doc_classify",
+      "app": "vibe-mybooks",
+      "description": "Document type classification for routing",
+      "sensitivity": "cloud_deidentified",
+      "requires": { "json_schema": true, "vision": true },
+      "defaultMaxTokens": 1024
+    },
+    {
+      "key": "mybooks_statement_extract",
+      "app": "vibe-mybooks",
+      "description": "Bank-statement transaction extraction + check reads (full statements)",
+      "sensitivity": "cloud_deidentified",
+      "requires": { "json_schema": true, "vision": true },
+      "defaultMaxTokens": 16384
+    },
+    {
+      "key": "mybooks_vendor_enrich",
+      "app": "vibe-mybooks",
+      "description": "Merchant/vendor enrichment lookups",
+      "sensitivity": "cloud_deidentified",
+      "requires": { "json_schema": true },
+      "defaultMaxTokens": 1024
+    },
+    {
+      "key": "mybooks_chat",
+      "app": "vibe-mybooks",
+      "description": "Bookkeeping chat assistant",
+      "sensitivity": "cloud_deidentified",
+      "requires": {},
+      "defaultMaxTokens": 2048
+    },
+    {
+      "key": "mybooks_report_narrative",
+      "app": "vibe-mybooks",
+      "description": "Client-facing report narration",
+      "sensitivity": "cloud_deidentified",
+      "requires": {},
+      "defaultMaxTokens": 1024
+    }
+  ],
+  "policies": [
+    {
+      "taskClassKey": "mybooks_txn_categorize",
+      "defaultModel": "digitalocean/deepseek-v4-pro-0813",
+      "allowedModels": [
+        "digitalocean/deepseek-v4-pro-0813",
+        "digitalocean/kimi-k2.6",
+        "digitalocean/qwen3.5-397b-a17b",
+        "digitalocean/deepseek-v4-flash-0731"
+      ],
+      "fallbackChain": [
+        "digitalocean/kimi-k2.6",
+        "digitalocean/qwen3.5-397b-a17b",
+        "digitalocean/deepseek-v4-flash-0731"
+      ],
+      "maxTokensOverride": null,
+      "temperatureMin": null,
+      "temperatureMax": null,
+      "monthlyBudgetCents": null,
+      "enabled": true,
+      "acknowledgedModels": []
+    },
+    {
+      "taskClassKey": "mybooks_receipt_extract",
+      "defaultModel": "digitalocean/glm-5.3-flash",
+      "allowedModels": [
+        "digitalocean/glm-5.3-flash",
+        "digitalocean/qwen3.8-max",
+        "digitalocean/kimi-k3",
+        "digitalocean/kimi-k2.6"
+      ],
+      "fallbackChain": ["digitalocean/qwen3.8-max", "digitalocean/kimi-k3", "digitalocean/kimi-k2.6"],
+      "maxTokensOverride": null,
+      "temperatureMin": null,
+      "temperatureMax": null,
+      "monthlyBudgetCents": null,
+      "enabled": true,
+      "acknowledgedModels": []
+    },
+    {
+      "taskClassKey": "mybooks_bill_extract",
+      "defaultModel": "digitalocean/glm-5.3-flash",
+      "allowedModels": [
+        "digitalocean/glm-5.3-flash",
+        "digitalocean/qwen3.8-max",
+        "digitalocean/kimi-k3",
+        "digitalocean/kimi-k2.6"
+      ],
+      "fallbackChain": ["digitalocean/qwen3.8-max", "digitalocean/kimi-k3", "digitalocean/kimi-k2.6"],
+      "maxTokensOverride": null,
+      "temperatureMin": null,
+      "temperatureMax": null,
+      "monthlyBudgetCents": null,
+      "enabled": true,
+      "acknowledgedModels": []
+    },
+    {
+      "taskClassKey": "mybooks_doc_classify",
+      "defaultModel": "digitalocean/glm-5.3-flash",
+      "allowedModels": [
+        "digitalocean/glm-5.3-flash",
+        "digitalocean/qwen3.8-max",
+        "digitalocean/kimi-k3",
+        "digitalocean/kimi-k2.6"
+      ],
+      "fallbackChain": ["digitalocean/qwen3.8-max", "digitalocean/kimi-k3", "digitalocean/kimi-k2.6"],
+      "maxTokensOverride": null,
+      "temperatureMin": null,
+      "temperatureMax": null,
+      "monthlyBudgetCents": null,
+      "enabled": true,
+      "acknowledgedModels": []
+    },
+    {
+      "taskClassKey": "mybooks_statement_extract",
+      "defaultModel": "digitalocean/qwen3.8-max",
+      "allowedModels": [
+        "digitalocean/qwen3.8-max",
+        "digitalocean/kimi-k3",
+        "digitalocean/glm-5.3-flash",
+        "digitalocean/kimi-k2.6"
+      ],
+      "fallbackChain": ["digitalocean/kimi-k3", "digitalocean/glm-5.3-flash", "digitalocean/kimi-k2.6"],
+      "maxTokensOverride": null,
+      "temperatureMin": null,
+      "temperatureMax": null,
+      "monthlyBudgetCents": null,
+      "enabled": true,
+      "acknowledgedModels": []
+    },
+    {
+      "taskClassKey": "mybooks_vendor_enrich",
+      "defaultModel": "digitalocean/deepseek-v4-pro-0813",
+      "allowedModels": [
+        "digitalocean/deepseek-v4-pro-0813",
+        "digitalocean/kimi-k2.6",
+        "digitalocean/qwen3.5-397b-a17b",
+        "digitalocean/deepseek-v4-flash-0731"
+      ],
+      "fallbackChain": [
+        "digitalocean/kimi-k2.6",
+        "digitalocean/qwen3.5-397b-a17b",
+        "digitalocean/deepseek-v4-flash-0731"
+      ],
+      "maxTokensOverride": null,
+      "temperatureMin": null,
+      "temperatureMax": null,
+      "monthlyBudgetCents": null,
+      "enabled": true,
+      "acknowledgedModels": []
+    },
+    {
+      "taskClassKey": "mybooks_chat",
+      "defaultModel": "digitalocean/deepseek-v4-pro-0813",
+      "allowedModels": [
+        "digitalocean/deepseek-v4-pro-0813",
+        "digitalocean/kimi-k2.6",
+        "digitalocean/qwen3.5-397b-a17b",
+        "digitalocean/deepseek-v4-flash-0731"
+      ],
+      "fallbackChain": [
+        "digitalocean/kimi-k2.6",
+        "digitalocean/qwen3.5-397b-a17b",
+        "digitalocean/deepseek-v4-flash-0731"
+      ],
+      "maxTokensOverride": null,
+      "temperatureMin": null,
+      "temperatureMax": null,
+      "monthlyBudgetCents": null,
+      "enabled": true,
+      "acknowledgedModels": []
+    },
+    {
+      "taskClassKey": "mybooks_report_narrative",
+      "defaultModel": "digitalocean/deepseek-v4-pro-0813",
+      "allowedModels": [
+        "digitalocean/deepseek-v4-pro-0813",
+        "digitalocean/kimi-k2.6",
+        "digitalocean/qwen3.5-397b-a17b",
+        "digitalocean/glm-5.3"
+      ],
+      "fallbackChain": ["digitalocean/kimi-k2.6", "digitalocean/qwen3.5-397b-a17b", "digitalocean/glm-5.3"],
+      "maxTokensOverride": null,
+      "temperatureMin": null,
+      "temperatureMax": null,
+      "monthlyBudgetCents": null,
+      "enabled": true,
+      "acknowledgedModels": []
+    }
+  ]
+}

@@ -5,6 +5,28 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.27 — 2026-09-05
+
+**Docs-and-data release — no router behaviour change.**
+
+- **Curated DigitalOcean catalog refreshed against DO's pages as of 2026-09-04** (pricing
+  page "last verified 1 Sep 2026"), prompted by the myBooks DigitalOcean binding
+  (`docs/integration-plans/mybooks.md` §1.2). `deepseek-v4-pro` is now $0.87/$1.74 with a
+  1,048,576 context (was $1.39/$2.78, 262,144); `deepseek-4-flash` $0.068/$0.168, 1,048,576.
+  Two GA ids added — `deepseek-v4-pro-0813` ($1.32/$3.96) and `deepseek-v4-flash-0731`
+  ($0.08/$0.252), both 1M — so they exist after the nightly sync instead of arriving by
+  discovery with placeholder specs. `qwen3.8-max` gains `vision`: DO's models page now
+  documents text, image and video input and structured outputs for it. Pricing history is
+  append-only, so past ledger rows keep the rate in force when written.
+- **Kimi K2.5 / K2.6 vision is now unconfirmed on DO.** The models page no longer states a
+  modality for either; the curated `vision` flag is kept (existing appliance bindings depend
+  on it) and the `_doc` says to probe (Q-089) before relying on it. The myBooks runbook puts
+  K2.6 last on every vision chain for that reason.
+- **myBooks: DigitalOcean policy set replacing direct Claude Sonnet 4.5** —
+  `docs/integration-plans/mybooks.digitalocean-policies.json` for
+  `POST /admin-api/policies/import`, with the rationale and apply sequence in the runbook.
+  Docs only; no router behaviour change.
+
 ## 0.0.26 — 2026-09-03
 
 **Dependency patch release — no behaviour change.** CI's production dependency audit
