@@ -165,11 +165,28 @@ describe.skipIf(!url)('DigitalOcean provider kind', () => {
     expect((glm?.capabilities as Record<string, boolean>)['vision']).toBeUndefined(); // text only
     const qwenMax = rows.find((m) => m.canonicalId === 'digitalocean/qwen3.8-max');
     expect(qwenMax?.contextWindow).toBe(1_000_000);
-    // vision deliberately unset — DO documents image input on one page only; the probe decides
-    expect((qwenMax?.capabilities as Record<string, boolean>)['vision']).toBeUndefined();
+    // vision set 2026-09-04: DO's serverless models page now documents "Text, images, and
+    // video" input plus structured outputs for Qwen3.8-Max (it was one-page-only on 09-03)
+    expect((qwenMax?.capabilities as Record<string, boolean>)['vision']).toBe(true);
     const price = await handle.db.query.modelPricing.findFirst({ where: eq(modelPricing.modelId, flash!.id) });
     expect(Number(price?.inputPerMtok)).toBe(0.15);
     expect(Number(price?.outputPerMtok)).toBe(0.5);
+  });
+
+  it('the 2026-09-04 refresh carries the GA DeepSeek variants and DO\'s current V4 pricing', async () => {
+    const rows = await handle.db.query.models.findMany({ where: eq(models.providerKind, 'digitalocean') });
+    const ga = rows.find((m) => m.canonicalId === 'digitalocean/deepseek-v4-pro-0813');
+    expect(ga?.contextWindow).toBe(1_048_576);
+    expect(ga?.capabilities).toMatchObject({ json_schema: true, caching: true });
+    expect((ga?.capabilities as Record<string, boolean>)['vision']).toBeUndefined(); // text only
+    const flashGa = rows.find((m) => m.canonicalId === 'digitalocean/deepseek-v4-flash-0731');
+    expect(flashGa?.contextWindow).toBe(1_048_576);
+    // the preview rows were repriced and widened to 1M on DO's pricing page (verified 1 Sep 2026)
+    const pro = rows.find((m) => m.canonicalId === 'digitalocean/deepseek-v4-pro');
+    expect(pro?.contextWindow).toBe(1_048_576);
+    const proPrice = await handle.db.query.modelPricing.findFirst({ where: eq(modelPricing.modelId, pro!.id) });
+    expect(Number(proPrice?.inputPerMtok)).toBe(0.87);
+    expect(Number(proPrice?.outputPerMtok)).toBe(1.74);
   });
 
   it('a placeholder row discovered before curation is corrected in place by the nightly sync (Q-088 path)', async () => {

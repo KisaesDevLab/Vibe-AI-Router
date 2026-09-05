@@ -2,6 +2,19 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-09-05 — 0.0.27: DigitalOcean catalog refresh for the myBooks binding
+
+Docs-and-data release, no router behaviour change. The curated DigitalOcean feed was
+re-read against DO's models and pricing pages (last verified 1 Sep 2026): DeepSeek V4 Pro
+and V4 Flash repriced and widened to 1M context, GA ids `deepseek-v4-pro-0813` and
+`deepseek-v4-flash-0731` added, `qwen3.8-max` gains `vision` now that DO documents image
+input for it. DO no longer states a modality for Kimi K2.5/K2.6; their flags are kept
+pending a probe (Q-089) and the `_doc` says so. myBooks gets a DigitalOcean policy set
+replacing direct Claude Sonnet 4.5 — `docs/integration-plans/mybooks.digitalocean-policies.json`
+plus the rationale and apply sequence in its runbook, revised for 0.0.25's `local_ocr`
+ceiling and `invalid_response`. Typecheck, lint, full suite (388) green; DigitalOcean suite
+run against Postgres.
+
 ## 2026-09-03 — 0.0.26: dependency patch after the 0.0.25 release went red in CI
 
 `v0.0.25` pushed; both Release runs published `ghcr.io/kisaesdevlab/vibe-ai-router`

@@ -8,7 +8,7 @@ fixes applied) from the Round J cross-repo review.
 | Runbook | App | Registration identity | Remaining app-side work |
 | --- | --- | --- | --- |
 | [trial-balance-app.md](trial-balance-app.md) | Vibe Trial Balance | `vibe-tb` | A7 (headers) |
-| [mybooks.md](mybooks.md) | myBooks | `vibe-mybooks` | A2 (errors); optional R4 OCR routing |
+| [mybooks.md](mybooks.md) | myBooks | `vibe-mybooks` | A2 (errors, re-vendor SDK 0.2.3); optional R4 as a transcription-only class — GLM-OCR cannot bind to its `json_schema` classes since 0.0.25 |
 | [payroll-time.md](payroll-time.md) | Vibe Payroll-Time | `vibe-payroll-time` | none |
 | [tax-research-chat.md](tax-research-chat.md) | Vibe Tax Research Chat | `vibe-tax-research` | A3, A4, A9 |
 | [transaction-convertor.md](transaction-convertor.md) | Vibe Transaction Convertor | `vibe-tx-converter` | A5; optional R4 OCR routing |

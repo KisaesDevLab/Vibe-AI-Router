@@ -1,6 +1,6 @@
 {
   "sample_spec": {
-    "_doc": "First-party curated catalog for DigitalOcean Gradient serverless inference (Q-061). Open-source models only — the platform's commercial Anthropic/OpenAI models are reachable through their own provider kinds with the firm's own keys, which is the product's compliance story. Shape mirrors LiteLLM entries (costs are USD per TOKEN). Sources: docs.digitalocean.com/products/inference/details/models + /pricing, retrieved 2026-07-29, pricing refreshed 2026-09-03 (DO page 'last verified 1 Sep 2026'; qwen3.5-397b-a17b rose from $0.385/$2.45 to $0.55/$3.50 per MTok, cache read unchanged). 2026-09-03 additions for Vibe 1040 (item E1): glm-5.3-flash (1,048,576 ctx, text+image+video per DO docs → vision true), glm-5.3 (1,048,576 ctx, text only), qwen3.8-max (1,000,000 ctx per DO models page; DO lists image input on one page only, so vision is deliberately NOT set — the operator's probe decides). Capabilities: json_schema is set true across DO chat models (Q-083 — DO's inference API is OpenAI-compatible and JSON/structured output is broadly supported, so these are selectable for cloud JSON task classes out of the box); tools is left unset (= false, DO documents tool calling only for its commercial models) and operators enable it per model via capability overrides after verifying against their account; vision is set only where DO documents multimodal input (Kimi family); caching only where DO publishes a cached-input price. kimi-k3 carries no max_input_tokens because DO has not published its context window — the sync treats such entries as ENRICH-ONLY (Q-088): they never create a catalog row, but enrich a discovered row's capabilities and pricing in place, leaving its operator-editable specs alone.",
+    "_doc": "Refreshed 2026-09-04 against docs.digitalocean.com/products/inference/details/pricing (page last verified 1 Sep 2026) and the serverless models page: DeepSeek V4 Pro and V4 Flash repriced and widened to 1M context; GA variants deepseek-v4-pro-0813 and deepseek-v4-flash-0731 added; cache_read kept at the 25%-of-input ratio the existing entries use; qwen3.8-max gains vision because DO now documents text, image and video input for it. Kimi K2.5/K2.6 were documented multimodal when first curated but the models page no longer states a modality for them - kept pending a live probe (Q-089). First-party curated catalog for DigitalOcean Gradient serverless inference (Q-061). Open-source models only — the platform's commercial Anthropic/OpenAI models are reachable through their own provider kinds with the firm's own keys, which is the product's compliance story. Shape mirrors LiteLLM entries (costs are USD per TOKEN). Sources: docs.digitalocean.com/products/inference/details/models + /pricing, retrieved 2026-07-29, pricing refreshed 2026-09-03 (DO page 'last verified 1 Sep 2026'; qwen3.5-397b-a17b rose from $0.385/$2.45 to $0.55/$3.50 per MTok, cache read unchanged). 2026-09-03 additions for Vibe 1040 (item E1): glm-5.3-flash (1,048,576 ctx, text+image+video per DO docs → vision true), glm-5.3 (1,048,576 ctx, text only), qwen3.8-max (1,000,000 ctx per DO models page; vision was deliberately left unset on 2026-09-03 while DO listed image input on one page only; set true on 2026-09-04 once the models page documented text, image and video input). Capabilities: json_schema is set true across DO chat models (Q-083 — DO's inference API is OpenAI-compatible and JSON/structured output is broadly supported, so these are selectable for cloud JSON task classes out of the box); tools is left unset (= false, DO documents tool calling only for its commercial models) and operators enable it per model via capability overrides after verifying against their account; vision is set only where DO documents multimodal input (GLM-5.3 Flash, Qwen3.8-Max, Kimi K3; Kimi K2.5/K2.6 kept from the original read, see the 2026-09-04 note); caching only where DO publishes a cached-input price. kimi-k3 carries no max_input_tokens because DO has not published its context window — the sync treats such entries as ENRICH-ONLY (Q-088): they never create a catalog row, but enrich a discovered row's capabilities and pricing in place, leaving its operator-editable specs alone.",
     "litellm_provider": "digitalocean"
   },
   "digitalocean/llama3.3-70b-instruct": {
@@ -28,20 +28,40 @@
     "mode": "chat"
   },
   "digitalocean/deepseek-v4-pro": {
-    "max_input_tokens": 262144,
-    "input_cost_per_token": 0.000001392,
-    "output_cost_per_token": 0.000002784,
-    "cache_read_input_token_cost": 0.000000348,
+    "max_input_tokens": 1048576,
+    "input_cost_per_token": 0.00000087,
+    "output_cost_per_token": 0.00000174,
+    "cache_read_input_token_cost": 0.0000002175,
+    "supports_prompt_caching": true,
+    "supports_response_schema": true,
+    "litellm_provider": "digitalocean",
+    "mode": "chat"
+  },
+  "digitalocean/deepseek-v4-pro-0813": {
+    "max_input_tokens": 1048576,
+    "input_cost_per_token": 0.00000132,
+    "output_cost_per_token": 0.00000396,
+    "cache_read_input_token_cost": 0.00000033,
     "supports_prompt_caching": true,
     "supports_response_schema": true,
     "litellm_provider": "digitalocean",
     "mode": "chat"
   },
   "digitalocean/deepseek-4-flash": {
-    "max_input_tokens": 262144,
-    "input_cost_per_token": 0.000000112,
-    "output_cost_per_token": 0.000000224,
-    "cache_read_input_token_cost": 0.000000028,
+    "max_input_tokens": 1048576,
+    "input_cost_per_token": 0.000000068,
+    "output_cost_per_token": 0.000000168,
+    "cache_read_input_token_cost": 0.000000017,
+    "supports_prompt_caching": true,
+    "supports_response_schema": true,
+    "litellm_provider": "digitalocean",
+    "mode": "chat"
+  },
+  "digitalocean/deepseek-v4-flash-0731": {
+    "max_input_tokens": 1048576,
+    "input_cost_per_token": 0.00000008,
+    "output_cost_per_token": 0.000000252,
+    "cache_read_input_token_cost": 0.00000002,
     "supports_prompt_caching": true,
     "supports_response_schema": true,
     "litellm_provider": "digitalocean",
@@ -112,6 +132,7 @@
     "output_cost_per_token": 0.000006,
     "cache_read_input_token_cost": 0.0000002,
     "supports_prompt_caching": true,
+    "supports_vision": true,
     "supports_response_schema": true,
     "litellm_provider": "digitalocean",
     "mode": "chat"
