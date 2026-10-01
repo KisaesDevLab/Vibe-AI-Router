@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api, ApiError, type Model, type ProbeResponse, type ScrapeReport } from '../api';
+import { api, ApiError, type CatalogRefreshReport, type Model, type ProbeResponse, type ScrapeReport } from '../api';
 import { Caps } from '../components';
 
 type SortKey = 'model' | 'ctx' | 'in' | 'out' | 'status' | 'kind';
@@ -19,6 +19,7 @@ export function Catalog(): JSX.Element {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [scraping, setScraping] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const reload = (): void => {
     const params = new URLSearchParams();
@@ -88,6 +89,35 @@ export function Catalog(): JSX.Element {
     }
   };
 
+  const refreshProviders = async (): Promise<void> => {
+    setError('');
+    setNotice('');
+    setRefreshing(true);
+    try {
+      const r = await api.post<CatalogRefreshReport>('/admin-api/catalog/refresh');
+      const added = r.providers.reduce((n, p) => n + p.discovered.length, 0);
+      const priced =
+        (r.doDocs?.pricingChanged.length ?? 0) +
+        (r.livePricing?.pricingChanged.length ?? 0) +
+        (r.vendoredSync?.pricingChanged ?? 0);
+      const problems = [
+        ...r.failed.map((f) => `${f.providerLabel}: ${f.reason}`),
+        ...r.pricingErrors,
+      ];
+      setNotice(
+        r.providers.length + r.failed.length === 0
+          ? 'No DigitalOcean or Anthropic provider is linked — nothing to refresh.'
+          : `Refreshed ${r.providers.length} provider(s): ${added} new model(s), pricing updated on ${priced}`,
+      );
+      if (problems.length > 0) setError(problems.join(' · '));
+      reload();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'catalog refresh failed');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const perMtok = (v: string | null | undefined): string =>
     v == null ? '—' : `$${Number(v).toFixed(Number(v) < 1 ? 2 : 0)}`;
 
@@ -96,9 +126,12 @@ export function Catalog(): JSX.Element {
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <div>
           <h1>Model catalog</h1>
-          <p className="sub">Synced nightly from the vendored pricing feed; custom models are yours to manage.</p>
+          <p className="sub">Synced nightly from the vendored pricing feed and your linked DigitalOcean / Anthropic providers; custom models are yours to manage.</p>
         </div>
         <div className="row" style={{ gap: 8 }}>
+          <button onClick={() => void refreshProviders()} disabled={refreshing} data-testid="refresh-providers" title="Pull the current model list and pricing from every linked DigitalOcean and Anthropic provider">
+            {refreshing ? 'Refreshing…' : 'Refresh models & pricing'}
+          </button>
           <button onClick={() => void scrapeDocs()} disabled={scraping} data-testid="scrape-docs" title="Pull published capabilities, context windows, and pricing from docs.digitalocean.com into discovered DigitalOcean models">
             {scraping ? 'Reading DO docs…' : 'Detect from DO docs'}
           </button>

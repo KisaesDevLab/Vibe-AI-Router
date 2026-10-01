@@ -85,6 +85,7 @@ async function main(): Promise<void> {
       ...(env.LEDGER_RETENTION_DAYS ? { retentionDays: env.LEDGER_RETENTION_DAYS } : {}),
       adapterFor: (kind: string) => adapters.get(kind),
       breakerSnapshot: () => breaker.snapshot(),
+      pricingFeedUrl: env.CATALOG_PRICING_FEED_URL,
     },
     gateway: {
       deps: {
@@ -160,6 +161,7 @@ async function main(): Promise<void> {
           // enable nightly live-provider model discovery only when the vault can supply keys
           // (Q-082); without MASTER_KEY there are no cloud credentials to discover with anyway
           vault ? (providerId: string) => vault.getActiveApiKey(providerId) : undefined,
+          { pricingFeedUrl: env.CATALOG_PRICING_FEED_URL },
         )
       : undefined;
 

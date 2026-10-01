@@ -166,6 +166,16 @@ export interface ScrapeReport {
   unmatched: number;
 }
 
+/** POST /admin-api/catalog/refresh — models + pricing pulled from every linked DO / Anthropic provider */
+export interface CatalogRefreshReport {
+  providers: { providerLabel: string; discovered: string[]; alreadyKnown: number }[];
+  failed: { providerLabel: string; reason: string }[];
+  doDocs: ScrapeReport | null;
+  livePricing: { matched: number; pricingChanged: string[]; specsUpdated: string[] } | null;
+  pricingErrors: string[];
+  vendoredSync: { added: number; updated: number; pricingChanged: number; deprecated: number } | null;
+}
+
 export interface TaskClass {
   id: string;
   key: string;

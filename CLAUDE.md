@@ -131,7 +131,9 @@ asserts the same envelope through both families yields structurally identical `A
 **Model catalog** syncs from LiteLLM's pinned `model_prices_and_context_window.json`. Sync is
 additive and flagging only — never auto-deletes; missing models are marked `deprecated`. Pricing
 appends to `model_pricing` history (`effective_from`) so historical ledger rows can be recomputed
-against the pricing in force at request time.
+against the pricing in force at request time. Linked DigitalOcean and Anthropic providers are also
+pulled live (`src/catalog/refresh.ts`, Q-101): discovered models land as `source='provider'` and are
+priced from DO's docs / LiteLLM's live file — which never write to an id the vendored feed carries.
 
 **Schema is created whole in Phase 1** (16 tables) so later phases don't fight migrations.
 

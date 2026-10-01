@@ -15,6 +15,7 @@ Validation: `src/config/env.ts` (zod). Invalid config → the process refuses to
 | `ROUTER_MAX_MESSAGES` | no | `200` | max messages per request |
 | `ROUTER_MAX_JSON_DEPTH` | no | `24` | JSON nesting cap, checked before schema parse |
 | `CATALOG_SYNC_CRON` | no | `15 3 * * *` | nightly catalog sync schedule; empty string disables |
+| `CATALOG_PRICING_FEED_URL` | no | LiteLLM upstream `model_prices_and_context_window.json` on raw.githubusercontent.com | https URL of the live price feed applied to **discovered** models only (Q-101). Fetched only while refreshing a linked Anthropic provider — a local-only appliance never requests it. Empty string disables it; discovered Claude models then cost `cost_unknown` until priced by hand or by a release |
 | `ADMIN_BOOTSTRAP_TOKEN` | no | — | ≥16 chars; enables pre-UI admin endpoints (`/admin/*`); unset → routes not registered |
 | `MASTER_KEY` | no | — | 32B base64 vault master key; unset → cloud credentials unavailable, local-only mode still serves |
 | `MASTER_KEY_VERSION` | no | `1` | keyring version of `MASTER_KEY` |

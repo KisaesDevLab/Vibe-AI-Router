@@ -245,6 +245,54 @@ function jsonEq(a: unknown, b: unknown): boolean {
   return stable(a) === stable(b);
 }
 
+/**
+ * Canonical ids the vendored feed carries (creatable and enrich-only alike). The vendored sync
+ * rewrites capabilities and pricing for every one of them nightly, so the live refresh sources
+ * (Q-101) must leave these ids alone — two writers with different answers would append a
+ * pricing row each, every night.
+ */
+export async function loadCuratedIds(): Promise<Set<string>> {
+  const { feed } = await loadVendoredFeed();
+  return new Set(parseFeed(feed).entries.map((e) => e.canonicalId));
+}
+
+/**
+ * Pricing is append-only history (5.4): writes a row only when the latest one differs and the
+ * incoming entry carries at least one price. Returns whether a row was appended.
+ */
+export async function appendPricingIfChanged(
+  db: Db,
+  modelId: string,
+  p: SyncedModel['pricing'],
+  now: Date,
+): Promise<boolean> {
+  const latest = await db.query.modelPricing.findFirst({
+    where: eq(modelPricing.modelId, modelId),
+    orderBy: (row, { desc }) => desc(row.effectiveFrom),
+  });
+  const differs =
+    !latest ||
+    !numEq(latest.inputPerMtok, p.inputPerMtok) ||
+    !numEq(latest.outputPerMtok, p.outputPerMtok) ||
+    !numEq(latest.cacheReadPerMtok, p.cacheReadPerMtok) ||
+    !numEq(latest.cacheWritePerMtok, p.cacheWritePerMtok);
+  const hasAnyPrice =
+    p.inputPerMtok !== null ||
+    p.outputPerMtok !== null ||
+    p.cacheReadPerMtok !== null ||
+    p.cacheWritePerMtok !== null;
+  if (!differs || !hasAnyPrice) return false;
+  await db.insert(modelPricing).values({
+    modelId,
+    effectiveFrom: now,
+    inputPerMtok: p.inputPerMtok,
+    outputPerMtok: p.outputPerMtok,
+    cacheReadPerMtok: p.cacheReadPerMtok,
+    cacheWritePerMtok: p.cacheWritePerMtok,
+  });
+  return true;
+}
+
 /** Runs a sync. Idempotent: same feed twice → zero changes on the second run (5.9). */
 export async function syncCatalog(
   db: Db,
@@ -373,32 +421,7 @@ async function syncOneModel(
       }
     }
 
-    // pricing: append-only history — write only when the latest row differs (5.4)
-    const latest = await db.query.modelPricing.findFirst({
-      where: eq(modelPricing.modelId, modelId),
-      orderBy: (p, { desc }) => desc(p.effectiveFrom),
-    });
-    const p = entry.pricing;
-    const differs =
-      !latest ||
-      !numEq(latest.inputPerMtok, p.inputPerMtok) ||
-      !numEq(latest.outputPerMtok, p.outputPerMtok) ||
-      !numEq(latest.cacheReadPerMtok, p.cacheReadPerMtok) ||
-      !numEq(latest.cacheWritePerMtok, p.cacheWritePerMtok);
-    const hasAnyPrice =
-      p.inputPerMtok !== null ||
-      p.outputPerMtok !== null ||
-      p.cacheReadPerMtok !== null ||
-      p.cacheWritePerMtok !== null;
-    if (differs && hasAnyPrice) {
-      await db.insert(modelPricing).values({
-        modelId,
-        effectiveFrom: now,
-        inputPerMtok: p.inputPerMtok,
-        outputPerMtok: p.outputPerMtok,
-        cacheReadPerMtok: p.cacheReadPerMtok,
-        cacheWritePerMtok: p.cacheWritePerMtok,
-      });
+    if (await appendPricingIfChanged(db, modelId, entry.pricing, now)) {
       report.pricingChanged.push(entry.canonicalId);
     } else if (
       current !== undefined &&

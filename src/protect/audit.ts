@@ -55,6 +55,15 @@ const EVENT_SCHEMAS = {
     skippedCurated: z.number(),
     unmatched: z.number(),
   }),
+  /** live price feed applied to discovered models (Q-101) — canonical ids + the payload hash */
+  catalog_live_pricing_applied: z.object({
+    source: z.string().max(300),
+    sourceSha256: z.string(),
+    candidates: z.number(),
+    matched: z.number(),
+    pricingChanged: z.array(z.string()).max(200),
+    specsUpdated: z.array(z.string()).max(200),
+  }),
   credential_test: z.object({
     ok: z.boolean(),
     latencyMs: z.number(),

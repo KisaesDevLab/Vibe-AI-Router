@@ -12,16 +12,17 @@
  * data/digitalocean-models.json entry with the same canonical id later ships — so the
  * conservative placeholder specs below are self-healing.
  *
- * Only DigitalOcean today: OpenAI/Groq/etc. are covered by the vendored LiteLLM feed, and the
- * local tiers are pinned to the operator's own server. DO is the kind whose model set changes
- * without any router release.
+ * DigitalOcean and Anthropic (Q-101): both release models between router releases, and both
+ * expose a live list. OpenAI/Groq/etc. stay on the vendored LiteLLM feed, and the local tiers
+ * are pinned to the operator's own server. Orchestration across providers, and the pricing
+ * that goes with a pull, lives in refresh.ts.
  */
-import type { Logger } from 'pino';
+import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
 import { models, type providers } from '../../db/schema.js';
 import { getJson } from '../adapters/http.js';
-import { writeAudit } from '../protect/audit.js';
+import { ANTHROPIC_VERSION } from '../adapters/anthropic/translate.js';
 
 type ProviderRow = typeof providers.$inferSelect;
 
@@ -213,44 +214,208 @@ export async function discoverDigitalOceanModels(
   };
 }
 
+// ── Anthropic (Q-101) ────────────────────────────────────────────────────────────────────────
+
 /**
- * Nightly: discover across every configured DigitalOcean provider. Best-effort — a provider
- * that errors (endpoint down, missing key) is logged and never blocks the others or the
- * catalog sync. Audits only when something new was actually added (a config-relevant change).
+ * One entry of Anthropic's `GET /v1/models`. Unlike DigitalOcean's list, it publishes real
+ * specs — `max_input_tokens` (the context window), `max_tokens` (the output cap) and a
+ * `capabilities` tree with `supported` at each leaf — so a discovered Claude model needs no
+ * placeholder. It publishes no pricing; that comes from the live pricing feed (live-pricing.ts).
  */
-export async function runProviderDiscovery(
-  db: Db,
-  log: Logger,
-  getApiKey: (providerId: string) => Promise<string | undefined>,
-): Promise<DiscoverResult[]> {
-  const doProviders = await db.query.providers.findMany({
-    where: (p, { and, eq, isNull }) => and(eq(p.kind, 'digitalocean'), isNull(p.deletedAt)),
-  });
-  const results: DiscoverResult[] = [];
-  for (const provider of doProviders) {
-    try {
-      const apiKey = await getApiKey(provider.id);
-      const result = await discoverDigitalOceanModels(db, provider, apiKey);
-      results.push(result);
-      if (result.discovered.length > 0) {
-        log.info(
-          { provider: provider.label, discovered: result.discovered },
-          'discovered new provider models',
-        );
-        await writeAudit(db, {
-          firmId: provider.firmId,
-          event: 'provider_models_discovered',
-          detail: {
-            providerId: provider.id,
-            providerLabel: provider.label,
-            discovered: result.discovered,
-            alreadyKnown: result.alreadyKnown,
-          },
-        }).catch(() => {});
-      }
-    } catch (err) {
-      log.warn({ err, provider: provider.label }, 'provider model discovery failed');
-    }
+const anthropicModelSchema = z
+  .object({
+    id: z.string().regex(/^[A-Za-z0-9_.:\-]{1,200}$/),
+    display_name: z.string().min(1).max(200).optional(),
+    max_input_tokens: z.number().int().positive().optional(),
+    max_tokens: z.number().int().positive().optional(),
+    capabilities: z.record(z.unknown()).optional(),
+  })
+  .passthrough();
+export type AnthropicModel = z.infer<typeof anthropicModelSchema>;
+
+const ANTHROPIC_NAMESPACE = 'anthropic';
+const ANTHROPIC_PAGE_LIMIT = 1000;
+const ANTHROPIC_MAX_PAGES = 10;
+
+/**
+ * Pure: Models API capability tree → internal capability keys. Tool calling and prompt caching
+ * are properties of the Messages API for every Claude model (the vendored feed marks them true
+ * across the family), so they are asserted for the kind; the rest is read from the tree and
+ * left unset when the leaf is absent.
+ */
+export function anthropicCapabilities(tree: Record<string, unknown> | undefined): Record<string, boolean> {
+  const supported = (key: string): boolean | undefined => {
+    const node = tree?.[key];
+    if (node === null || typeof node !== 'object') return undefined;
+    const value = (node as { supported?: unknown }).supported;
+    return typeof value === 'boolean' ? value : undefined;
+  };
+  const vision = supported('image_input');
+  const jsonSchema = supported('structured_outputs');
+  const reasoning = supported('thinking');
+  return {
+    tools: true,
+    caching: true,
+    ...(vision !== undefined ? { vision } : {}),
+    ...(jsonSchema !== undefined ? { json_schema: jsonSchema } : {}),
+    ...(reasoning !== undefined ? { reasoning } : {}),
+  };
+}
+
+/** IO: every model the key can use, following `has_more` / `last_id` pagination. */
+export async function listAnthropicModels(
+  baseUrl: string,
+  apiKey: string | undefined,
+  signal: AbortSignal,
+): Promise<unknown[]> {
+  const base = baseUrl.replace(/\/+$/, '');
+  const headers: Record<string, string> = {
+    accept: 'application/json',
+    'anthropic-version': ANTHROPIC_VERSION,
+  };
+  if (apiKey) headers['x-api-key'] = apiKey;
+  const out: unknown[] = [];
+  let afterId: string | undefined;
+  for (let page = 0; page < ANTHROPIC_MAX_PAGES; page++) {
+    const query = `limit=${ANTHROPIC_PAGE_LIMIT}${afterId ? `&after_id=${encodeURIComponent(afterId)}` : ''}`;
+    const body = (await getJson(`${base}/v1/models?${query}`, headers, signal)) as {
+      data?: unknown;
+      has_more?: unknown;
+      last_id?: unknown;
+    };
+    if (!Array.isArray(body.data)) break;
+    out.push(...(body.data as unknown[]));
+    if (body.has_more !== true || typeof body.last_id !== 'string' || body.last_id === afterId) break;
+    afterId = body.last_id;
   }
-  return results;
+  return out;
+}
+
+type ListAnthropicModels = (
+  baseUrl: string,
+  apiKey: string | undefined,
+  signal: AbortSignal,
+) => Promise<unknown[]>;
+
+/**
+ * Discover + insert for one Anthropic provider. Same ownership rules as DigitalOcean: unknown
+ * ids are inserted as source='provider'; 'synced' and 'custom' rows are never touched; an id
+ * the vendored feed carries is left for its sync to create (so it lands as 'synced', with the
+ * feed's deprecation tracking). A row this discovery created earlier is refreshed
+ * conservatively — capabilities additively, specs only where still placeholder/unset — so an
+ * operator's corrections survive. No pricing is written here.
+ */
+export async function discoverAnthropicModels(
+  db: Db,
+  provider: ProviderRow,
+  apiKey: string | undefined,
+  opts?: { listModels?: ListAnthropicModels; signal?: AbortSignal; curatedIds?: ReadonlySet<string> },
+): Promise<DiscoverResult> {
+  const signal = opts?.signal ?? AbortSignal.timeout(20_000);
+  const served = await (opts?.listModels ?? listAnthropicModels)(provider.baseUrl, apiKey, signal);
+  const existing = new Map((await db.query.models.findMany()).map((m) => [m.canonicalId, m]));
+
+  const discovered: string[] = [];
+  const skipped: string[] = [];
+  const seen = new Set<string>();
+  let alreadyKnown = 0;
+  for (const raw of served) {
+    const parsed = anthropicModelSchema.safeParse(raw);
+    if (!parsed.success) {
+      // never echo an id that failed validation — it is untrusted provider output and this
+      // list reaches the admin API response
+      skipped.push('malformed entry');
+      continue;
+    }
+    const m = parsed.data;
+    const canonicalId = `${ANTHROPIC_NAMESPACE}/${m.id}`;
+    if (seen.has(canonicalId)) continue;
+    seen.add(canonicalId);
+    const capabilities = anthropicCapabilities(m.capabilities);
+    const row = existing.get(canonicalId);
+
+    if (!row) {
+      if (opts?.curatedIds?.has(canonicalId)) {
+        alreadyKnown++;
+        continue;
+      }
+      const [inserted] = await db
+        .insert(models)
+        .values({
+          canonicalId,
+          providerKind: 'anthropic',
+          displayName: m.display_name ?? m.id,
+          contextWindow: m.max_input_tokens ?? DISCOVERED_CONTEXT_WINDOW,
+          maxOutput: m.max_tokens ?? null,
+          capabilities,
+          source: 'provider',
+        })
+        .onConflictDoNothing({ target: models.canonicalId })
+        .returning({ id: models.id });
+      if (inserted) discovered.push(canonicalId);
+      continue;
+    }
+
+    alreadyKnown++;
+    if (row.source !== 'provider' || opts?.curatedIds?.has(canonicalId)) continue;
+    const set: Partial<typeof models.$inferInsert> = {};
+    const base = { ...((row.capabilities ?? {}) as Record<string, boolean>) };
+    let capsChanged = false;
+    for (const [key, val] of Object.entries(capabilities)) {
+      if (val && base[key] !== true) {
+        base[key] = true;
+        capsChanged = true;
+      }
+    }
+    if (capsChanged) set.capabilities = base;
+    if (m.max_input_tokens !== undefined && row.contextWindow === DISCOVERED_CONTEXT_WINDOW) {
+      set.contextWindow = m.max_input_tokens;
+    }
+    if (m.max_tokens !== undefined && row.maxOutput === null) set.maxOutput = m.max_tokens;
+    if (Object.keys(set).length > 0) await db.update(models).set(set).where(eq(models.id, row.id));
+  }
+  return {
+    providerId: provider.id,
+    providerLabel: provider.label,
+    discovered,
+    alreadyKnown,
+    skipped,
+    thirdPartyHosted: [],
+  };
+}
+
+/** Provider kinds whose served-model list can be pulled live. */
+export const DISCOVERABLE_KINDS = ['digitalocean', 'anthropic'] as const;
+export type DiscoverableKind = (typeof DISCOVERABLE_KINDS)[number];
+
+export function isDiscoverableKind(kind: string): kind is DiscoverableKind {
+  return (DISCOVERABLE_KINDS as readonly string[]).includes(kind);
+}
+
+/** Dispatch by provider kind. Throws for a kind with no live model list. */
+export async function discoverProviderModels(
+  db: Db,
+  provider: ProviderRow,
+  apiKey: string | undefined,
+  opts?: {
+    listIds?: ListIds;
+    listAnthropicModels?: ListAnthropicModels;
+    signal?: AbortSignal;
+    curatedIds?: ReadonlySet<string>;
+  },
+): Promise<DiscoverResult> {
+  if (provider.kind === 'digitalocean') {
+    return discoverDigitalOceanModels(db, provider, apiKey, {
+      ...(opts?.listIds ? { listIds: opts.listIds } : {}),
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+    });
+  }
+  if (provider.kind === 'anthropic') {
+    return discoverAnthropicModels(db, provider, apiKey, {
+      ...(opts?.listAnthropicModels ? { listModels: opts.listAnthropicModels } : {}),
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+      ...(opts?.curatedIds ? { curatedIds: opts.curatedIds } : {}),
+    });
+  }
+  throw new Error(`model discovery is not supported for provider kind ${provider.kind}`);
 }
