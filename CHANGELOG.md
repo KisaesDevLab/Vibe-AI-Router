@@ -5,7 +5,7 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
-## Unreleased
+## 0.0.28 — 2026-10-01
 
 - **Refresh models and pricing from linked providers (Q-101).** One pass pulls the current
   model list from every linked DigitalOcean and Anthropic provider and the pricing that goes
@@ -24,6 +24,13 @@ completeness. See "Not yet verified" in the README.
   curated file also lists (e.g. `kimi-k3`); the nightly sync reset those values anyway.
 - **New outbound call:** `raw.githubusercontent.com`, only while refreshing a linked Anthropic
   provider. A local-only appliance never makes it.
+- **myBooks runbook: import ordering corrected.** Policy import creates a task class that
+  does not exist yet with the file's sensitivity and only refuses to relax an existing one,
+  so a fresh router needs no widening step. `scripts/apply-policy-import.mjs` handles both
+  cases through the admin API (credentials from the environment, never printed).
+- **Security: dependency patch.** Fastify 5.12.1 → 5.12.5 and overrides fast-uri 4.1.5 /
+  3.1.8, brace-expansion 5.0.12, clearing 15 production advisories (10 high) published since
+  0.0.26 — including Fastify request-body replacement and auth / validation / header bypass.
 
 ## 0.0.27 — 2026-09-05
 

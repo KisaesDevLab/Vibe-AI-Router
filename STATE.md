@@ -2,6 +2,20 @@
 
 Newest first. Updated after every meaningful change (suite build-kit convention).
 
+## 2026-10-01 — 0.0.28: live model + pricing refresh from linked providers (Q-101)
+
+`refreshProviderCatalog` pulls models for every linked DigitalOcean and Anthropic provider
+and prices them in the same pass — nightly ahead of the vendored sync, on each provider
+connection, and from `POST /admin-api/catalog/refresh` / the Catalog page. Anthropic gains
+live discovery via `GET /v1/models` (real context, output cap, capability tree); its prices
+come from LiteLLM's live file (`CATALOG_PRICING_FEED_URL`), DO's from the docs scrape. Both
+write only to discovered rows the vendored feed does not list — no churn against the nightly
+sync (asserted in `test/catalog-refresh.test.ts`). myBooks runbook import ordering corrected
+and `scripts/apply-policy-import.mjs` added. Release gate found 15 new prod advisories
+(Fastify, fast-uri, brace-expansion); Fastify → 5.12.5 plus overrides, prod audit clean.
+Typecheck, lint, UI typecheck, full suite (401) green against `airouter_test`. Not yet
+exercised against live DigitalOcean / Anthropic accounts.
+
 ## 2026-09-05 — 0.0.27: DigitalOcean catalog refresh for the myBooks binding
 
 Docs-and-data release, no router behaviour change. The curated DigitalOcean feed was
