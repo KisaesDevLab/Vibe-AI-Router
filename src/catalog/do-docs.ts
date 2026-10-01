@@ -188,7 +188,18 @@ export interface ScrapeReport {
   unmatched: number;
 }
 
-export async function applyScrapedToCatalog(db: Db, scraped: ScrapedModel[]): Promise<ScrapeReport> {
+export async function applyScrapedToCatalog(
+  db: Db,
+  scraped: ScrapedModel[],
+  opts?: {
+    /**
+     * Ids the vendored feed carries (Q-101). Its nightly sync resets their capabilities and
+     * pricing to the curated values, so a scrape that also wrote them would churn a pricing
+     * row per night once the scrape runs unattended. They are reported as skippedCurated.
+     */
+    curatedIds?: ReadonlySet<string>;
+  },
+): Promise<ScrapeReport> {
   const report: ScrapeReport = {
     scraped: scraped.length,
     matched: 0,
@@ -206,7 +217,7 @@ export async function applyScrapedToCatalog(db: Db, scraped: ScrapedModel[]): Pr
       continue;
     }
     report.matched++;
-    if (row.source !== 'provider') {
+    if (row.source !== 'provider' || opts?.curatedIds?.has(canonicalId)) {
       report.skippedCurated.push(canonicalId);
       continue;
     }

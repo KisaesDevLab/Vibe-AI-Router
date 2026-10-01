@@ -10,11 +10,16 @@ import { firms, taskClasses } from '../../db/schema.js';
 import { writeAudit } from '../protect/audit.js';
 import { loadVendoredFeed, syncCatalog, type DiffReport } from './sync.js';
 import { findRetiredModelReferences } from './service.js';
-import { runProviderDiscovery } from './discovery.js';
+import { refreshProviderCatalog } from './refresh.js';
 import { findInvalidBindings, findUnacknowledgedThirdPartyBindings } from '../policy/save.js';
 
 /** Live-endpoint model discovery (Q-082): supply a key resolver to enable it, omit to skip. */
 export type GetApiKey = (providerId: string) => Promise<string | undefined>;
+
+export interface CatalogSyncOptions {
+  /** live price feed for discovered models (Q-101); absent or empty → not fetched */
+  pricingFeedUrl?: string;
+}
 
 async function firmIdForAudit(db: Db): Promise<string | undefined> {
   const firm = await db.query.firms.findFirst({ orderBy: firms.createdAt });
@@ -26,13 +31,17 @@ export async function runCatalogSync(
   log: Logger,
   onSuccess?: () => void,
   getApiKey?: GetApiKey,
+  opts: CatalogSyncOptions = {},
 ): Promise<DiffReport | undefined> {
   const firmId = await firmIdForAudit(db);
-  // Live-provider discovery (Q-082) runs independently of the vendored sync's success — a
-  // feed load failure must not suppress it, and its own failure must not fail the sync.
+  // Live-provider refresh (Q-082 models, Q-101 pricing) runs independently of the vendored
+  // sync's success — a feed load failure must not suppress it, and its own failure must not
+  // fail the sync. It runs FIRST so the sync below enriches anything it just discovered.
   if (getApiKey) {
     try {
-      await runProviderDiscovery(db, log, getApiKey);
+      await refreshProviderCatalog(db, log, getApiKey, {
+        ...(opts.pricingFeedUrl ? { pricingFeedUrl: opts.pricingFeedUrl } : {}),
+      });
     } catch (err) {
       log.warn({ err }, 'provider model discovery pass failed');
     }
@@ -164,9 +173,10 @@ export function startCatalogScheduler(
   cronExpr: string,
   onSuccess?: () => void,
   getApiKey?: GetApiKey,
+  opts: CatalogSyncOptions = {},
 ): ScheduledTask {
   const task = cron.schedule(cronExpr, () => {
-    void runCatalogSync(db, log, onSuccess, getApiKey);
+    void runCatalogSync(db, log, onSuccess, getApiKey, opts);
   });
   log.info({ cron: cronExpr }, 'catalog sync scheduled');
   return task;

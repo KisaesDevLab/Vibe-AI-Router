@@ -5,6 +5,33 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## 0.0.28 — 2026-10-01
+
+- **Refresh models and pricing from linked providers (Q-101).** One pass pulls the current
+  model list from every linked DigitalOcean and Anthropic provider and the pricing that goes
+  with it. It runs nightly ahead of the vendored sync, whenever a provider connection is
+  established, and on demand: `POST /admin-api/catalog/refresh`, or **Refresh models &
+  pricing** on the Catalog page. `POST /admin-api/providers/:id/discover-models` (and the
+  Providers page's **Discover models** button) now accepts Anthropic providers too.
+- **Anthropic live model discovery.** New Claude models appear without a router release, with
+  the context window, output cap and capabilities Anthropic's Models API reports.
+- **Pricing for discovered models.** DigitalOcean prices come from the docs scrape, which now
+  also runs unattended; Anthropic prices come from LiteLLM's live upstream file
+  (`CATALOG_PRICING_FEED_URL`, empty string disables). Both write only to discovered models
+  the vendored feed does not list — models in the vendored snapshot keep their release-pinned
+  price. Audit event `catalog_live_pricing_applied` records the payload sha256.
+- **Behaviour change:** "Detect from DO docs" no longer writes to a discovered model that the
+  curated file also lists (e.g. `kimi-k3`); the nightly sync reset those values anyway.
+- **New outbound call:** `raw.githubusercontent.com`, only while refreshing a linked Anthropic
+  provider. A local-only appliance never makes it.
+- **myBooks runbook: import ordering corrected.** Policy import creates a task class that
+  does not exist yet with the file's sensitivity and only refuses to relax an existing one,
+  so a fresh router needs no widening step. `scripts/apply-policy-import.mjs` handles both
+  cases through the admin API (credentials from the environment, never printed).
+- **Security: dependency patch.** Fastify 5.12.1 → 5.12.5 and overrides fast-uri 4.1.5 /
+  3.1.8, brace-expansion 5.0.12, clearing 15 production advisories (10 high) published since
+  0.0.26 — including Fastify request-body replacement and auth / validation / header bypass.
+
 ## 0.0.27 — 2026-09-05
 
 **Docs-and-data release — no router behaviour change.**

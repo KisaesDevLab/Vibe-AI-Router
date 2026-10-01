@@ -36,7 +36,10 @@ import { hashPassword, verifyPassword } from '../lib/password.js';
 import { checkBaseUrlWithDns } from '../lib/ssrf.js';
 import { safeString } from '../lib/safe-string.js';
 import { queryAudit, auditToCsv, writeAudit } from '../protect/audit.js';
-import { discoverDigitalOceanModels } from '../catalog/discovery.js';
+import { discoverProviderModels, isDiscoverableKind } from '../catalog/discovery.js';
+import { refreshProviderCatalog } from '../catalog/refresh.js';
+import { loadCuratedIds } from '../catalog/sync.js';
+import type { FetchPricingFeed } from '../catalog/live-pricing.js';
 import { runCatalogSync } from '../catalog/scheduler.js';
 import { ceilingCappedCapabilities, overridesFromProbes, probeModelCapabilities } from '../catalog/probe.js';
 import { applyScrapedToCatalog, fetchDocsPage, scrapeDoDocs, type FetchPage } from '../catalog/do-docs.js';
@@ -80,6 +83,12 @@ export interface AdminApiOptions {
   refreshCatalog?: (reason: string) => void;
   /** DO docs page fetcher (Q-090) — injectable so tests run against vendored fixtures */
   fetchDocsPage?: FetchPage;
+  /** live price feed for discovered models (Q-101); absent or empty → not fetched */
+  pricingFeedUrl?: string;
+  /** price feed fetcher — injectable so tests never reach the network */
+  fetchPricingFeed?: FetchPricingFeed;
+  /** live model-list seams for /catalog/refresh — tests only */
+  discoverSeams?: Parameters<typeof discoverProviderModels>[3];
 }
 
 /**
@@ -113,7 +122,9 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
       if (catalogRefreshInFlight) return;
       catalogRefreshInFlight = true;
       opts.deps.log.info({ reason }, 'provider connection established — refreshing model catalog');
-      void runCatalogSync(db, opts.deps.log, undefined, opts.deps.getApiKey)
+      void runCatalogSync(db, opts.deps.log, undefined, opts.deps.getApiKey, {
+        ...(opts.pricingFeedUrl ? { pricingFeedUrl: opts.pricingFeedUrl } : {}),
+      })
         .catch(() => {})
         .finally(() => {
           catalogRefreshInFlight = false;
@@ -396,9 +407,10 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
     }
   });
 
-  // on-demand live-endpoint model discovery (Q-082) — DigitalOcean only (the one cloud kind
-  // whose model set changes without a router release). Additive: adds models DO serves that
-  // the catalog lacks, as conservative source='provider' rows; never removes or overwrites.
+  // on-demand live-endpoint model discovery (Q-082, Q-101) — DigitalOcean and Anthropic, the
+  // cloud kinds whose model set changes without a router release. Additive: adds models the
+  // provider serves that the catalog lacks, as source='provider' rows; never removes or
+  // overwrites. Pricing follows via the background refresh it kicks off.
   app.post('/admin-api/providers/:id/discover-models', async (req, reply) => {
     const session = requireAdmin(req, reply);
     if (!session) return reply;
@@ -407,15 +419,20 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
     const provider = await db.query.providers.findFirst({ where: eq(providers.id, params.data.id) });
     if (!provider || provider.deletedAt || provider.firmId !== session.firmId)
       return fail(reply, new RouterError('invalid_request', 'provider not found'));
-    if (provider.kind !== 'digitalocean')
-      return fail(reply, new RouterError('invalid_request', 'discovery is supported only for digitalocean providers'));
+    if (!isDiscoverableKind(provider.kind))
+      return fail(
+        reply,
+        new RouterError('invalid_request', 'discovery is supported only for digitalocean and anthropic providers'),
+      );
     if (!opts.vault) return fail(reply, new RouterError('unknown', 'vault unavailable (MASTER_KEY unset)'));
     try {
       const apiKey = await opts.vault.getActiveApiKey(provider.id);
-      const result = await discoverDigitalOceanModels(db, provider, apiKey);
+      const curatedIds = await loadCuratedIds();
+      const result = await discoverProviderModels(db, provider, apiKey, { curatedIds });
       if (result.discovered.length > 0) {
-        // enrich placeholder rows from the vendored feed right away (context/caps/pricing)
-        // instead of waiting for the nightly sync
+        opts.deps.engine.invalidate();
+        // enrich the new rows right away (vendored feed, then live pricing) instead of
+        // waiting for the nightly pass
         refreshCatalogOnConnection(`discover:${provider.label}`);
         await writeAudit(db, {
           firmId: provider.firmId,
@@ -648,6 +665,47 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
     }
   });
 
+  // Refresh models + pricing for every linked DigitalOcean / Anthropic provider (Q-101), then
+  // run the vendored sync so anything just discovered is enriched before the reply. Each step
+  // is best-effort and reported; the catalog is suite-wide, hence the sole-firm guard.
+  app.post('/admin-api/catalog/refresh', async (req, reply) => {
+    const session = requireAdmin(req, reply);
+    if (!session) return reply;
+    if (!(await assertSoleFirm(session, reply))) return reply;
+    const vault = opts.vault;
+    if (!vault) return fail(reply, new RouterError('unknown', 'vault unavailable (MASTER_KEY unset)'));
+    try {
+      const report = await refreshProviderCatalog(
+        db,
+        opts.deps.log,
+        (providerId) => vault.getActiveApiKey(providerId),
+        {
+          firmId: session.firmId,
+          userId: session.userId,
+          ...(opts.pricingFeedUrl ? { pricingFeedUrl: opts.pricingFeedUrl } : {}),
+          ...(opts.fetchDocsPage ? { fetchDocsPage: opts.fetchDocsPage } : {}),
+          ...(opts.fetchPricingFeed ? { fetchPricingFeed: opts.fetchPricingFeed } : {}),
+          ...(opts.discoverSeams ? { discover: opts.discoverSeams } : {}),
+        },
+      );
+      const sync = await runCatalogSync(db, opts.deps.log);
+      opts.deps.engine.invalidate(); // new rows, caps and context all affect gating
+      return await reply.send({
+        ...report,
+        vendoredSync: sync
+          ? {
+              added: sync.added.length,
+              updated: sync.updated.length,
+              pricingChanged: sync.pricingChanged.length,
+              deprecated: sync.deprecated.length,
+            }
+          : null,
+      });
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
   // DO docs scrape (Q-090): pull published capabilities + specs + PRICING from
   // docs.digitalocean.com (fixed URLs) into discovered rows. Conservative by construction —
   // see src/catalog/do-docs.ts. Operator-triggered only.
@@ -657,7 +715,7 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
     if (!(await assertSoleFirm(session, reply))) return reply;
     try {
       const scraped = await scrapeDoDocs(opts.fetchDocsPage ?? fetchDocsPage, AbortSignal.timeout(30_000));
-      const report = await applyScrapedToCatalog(db, scraped);
+      const report = await applyScrapedToCatalog(db, scraped, { curatedIds: await loadCuratedIds() });
       if (report.capabilitiesUpdated.length > 0 || report.specsUpdated.length > 0) {
         opts.deps.engine.invalidate(); // caps/context affect config- and request-time gating
       }

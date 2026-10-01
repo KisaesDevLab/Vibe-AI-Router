@@ -668,6 +668,31 @@ Grouped by phase. This file is the Phase 15 review agenda.
   time is deliberately NOT blocked for pre-existing bindings: an upgrade must not silently take
   down a class that was routing yesterday; the operator re-saves in the console to acknowledge
   or rebinds.** → two columns + scan; reversal is migration down → **S**
+- [Q-101] Operator request (2026-10-01): one way to pull the current model list for every
+  linked DigitalOcean and Anthropic provider, with pricing updated in the same pull. Before
+  this, DO discovery added ids with no price (the docs scrape was a separate button) and
+  Anthropic had no live discovery at all — a new Claude model needed a router release. →
+  **`refreshProviderCatalog` (src/catalog/refresh.ts), run nightly ahead of the vendored sync,
+  on every provider connection (Q-085), and from `POST /admin-api/catalog/refresh` ("Refresh
+  models & pricing" in the console). Models: DO `GET /models` (unchanged), Anthropic
+  `GET /v1/models` — which publishes context window, output cap and a capability tree, so
+  discovered Claude rows carry real specs, not the DO placeholder. Pricing: DO from the docs
+  scrape (Q-090, now also run unattended), Anthropic from LiteLLM's live upstream file
+  (`CATALOG_PRICING_FEED_URL`; empty disables) because Anthropic's API publishes no prices.
+  Ownership boundary, chosen as the restrictive default: both pricing sources write ONLY to
+  discovered (`source='provider'`) rows whose id the vendored feed does not carry. The
+  vendored snapshot stays the pinned source for everything it lists (Q-017 is not reopened),
+  and the boundary is also what prevents churn — the vendored sync rewrites its ids nightly,
+  so a second writer with a different number would append a pricing row per night forever
+  (asserted by test/catalog-refresh.test.ts). Consequences: a price change to a model the
+  vendored file already lists still waits for a release; a live price is applied only when
+  input AND output are both published; the feed is fetched only when an Anthropic provider
+  answered, so a local-only appliance makes no outbound call. Tool calling and prompt caching
+  are asserted for every discovered Claude model (true across the family in the vendored
+  feed); vision / json_schema / reasoning come from the capability tree.** → new module +
+  one env var, no schema change. Extending live pricing to vendored-listed models needs a
+  `source` column on `model_pricing` so each writer compares against its own last row
+  (migration) → **M**
 - [Q-097 addendum, 2026-09-03 review] The ceiling applies at READ time, so a 0.0.24 policy that
   bound a `local_ocr` row advertising `json_schema` to a class requiring it fails
   `capability_missing` on every request after upgrade until an override is set or the class is

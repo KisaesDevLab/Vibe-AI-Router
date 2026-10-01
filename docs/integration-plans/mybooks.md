@@ -145,16 +145,42 @@ shaped for `POST /admin-api/policies/import`. Order matters:
 2. Optional but recommended: `POST /admin-api/models/:id/probe {"apply":true}` on
    `glm-5.3-flash` and `kimi-k2.6` to confirm vision against the firm's own key. Curated
    rows already carry `vision`, so gating passes without it; the probe is verification.
-3. Boot myBooks once in router mode so the eight classes register (`local_only`).
-4. Widen each class: `PATCH /admin-api/task-classes/<key> {"sensitivity":"cloud_deidentified"}`
-   × 8. **Import never relaxes sensitivity** — a `local_only` class rejects every DO model at
-   import with "local_only class requires a local model". The `sensitivity` values in the
-   JSON document intent; they do not perform the widening.
-5. `POST /admin-api/policies/import` with the file. Expect eight policies created; no
-   acknowledgement prompts, because no third-party-hosted model is bound.
-6. Cut the app over: `VIBE_AI_MODE=router` and remove the direct Anthropic key from
-   myBooks' configuration once verification (§4) passes. Keep direct mode available as the
-   non-router deployment path only.
+3. **Order matters here.** `importPolicies` (`src/policy/save.ts`) *creates* a task class
+   that does not exist yet, with the file's `sensitivity` — but for a class that already
+   exists it **never relaxes** sensitivity. So:
+   - **Fresh router (myBooks has never registered):** import first. The eight classes are
+     created `cloud_deidentified` by the import, and myBooks' later registration leaves
+     an existing class's tier alone. No widening step.
+   - **myBooks already registered (classes exist `local_only`):** widen first —
+     `PATCH /admin-api/task-classes/<key> {"sensitivity":"cloud_deidentified"}` × 8 —
+     or the import rejects every DO model with "local_only class requires a local model".
+   `scripts/apply-policy-import.mjs` checks which case applies and does the right thing.
+4. `POST /admin-api/policies/import` with the file. Expect eight policies created; no
+   acknowledgement prompts, because no third-party-hosted model is bound. Or run the
+   script, which does steps 1–4 and reads the result back:
+
+   ```bash
+   # credentials in a gitignored file, never on the command line
+   cat > .env.local <<'EOF'
+   ROUTER_URL=https://<router host>
+   ROUTER_ADMIN_EMAIL=<admin email>
+   ROUTER_ADMIN_PASSWORD=<admin password>
+   # DO_API_KEY=<model access key>   # only if the firm has no DigitalOcean provider yet
+   EOF
+   set -a; . ./.env.local; set +a
+   node scripts/apply-policy-import.mjs --dry-run   # shows what it would widen and bind
+   node scripts/apply-policy-import.mjs             # applies; prints the eight bindings
+   ```
+
+   The script logs in, verifies the DigitalOcean provider has a stored credential, runs
+   discovery, refuses if any bound id is still missing from the catalog, widens only the
+   classes that exist `local_only`, imports, and prints each class's tier and chain. It
+   prints nothing that came from the environment.
+5. Boot myBooks in router mode (`VIBE_AI_MODE=router`, token from P5). Registration finds
+   the classes already present and reports them `cloud_deidentified`.
+6. Cut the app over: remove the direct Anthropic key from myBooks' configuration once
+   verification (§4) passes. Keep direct mode available as the non-router deployment path
+   only.
 
 **What changes for the firm.** Every task's images and text now go to DigitalOcean instead
 of Anthropic. The scrubber still rewrites text parts on the way out; images still pass

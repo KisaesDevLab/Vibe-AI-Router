@@ -105,8 +105,8 @@ export function Providers(): JSX.Element {
             <div className="row">
               <Status value={p.status} />
               <button onClick={() => void test(p)}>Test connection</button>
-              {p.kind === 'digitalocean' && (
-                <button onClick={() => void discover(p)} title="Add models this provider serves that aren't in the catalog yet">
+              {(p.kind === 'digitalocean' || p.kind === 'anthropic') && (
+                <button onClick={() => void discover(p)} title="Add models this provider serves that aren't in the catalog yet; pricing follows in the background">
                   Discover models
                 </button>
               )}

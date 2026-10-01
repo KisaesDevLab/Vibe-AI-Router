@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+const DEFAULT_PRICING_FEED_URL =
+  'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
+
 /**
  * Environment configuration. The process REFUSES TO BOOT on invalid config (principle: fail
  * closed, never guess). Every variable added here MUST be documented in docs/env.md — the
@@ -22,6 +25,15 @@ const envSchema = z.object({
   ROUTER_MAX_JSON_DEPTH: z.coerce.number().int().positive().default(24),
   /** Catalog sync schedule (5.6); empty string disables the cron */
   CATALOG_SYNC_CRON: z.string().default('15 3 * * *'),
+  /**
+   * Live price feed for DISCOVERED models (Q-101) — LiteLLM's upstream price file by default.
+   * Fetched only while refreshing a linked Anthropic provider, so a local-only appliance never
+   * requests it. Empty string disables it: discovered Claude models then stay cost_unknown
+   * until an operator enters a price or a release refreshes the vendored snapshot.
+   */
+  CATALOG_PRICING_FEED_URL: z
+    .union([z.literal(''), z.string().url().startsWith('https://')])
+    .default(DEFAULT_PRICING_FEED_URL),
   /** Pre-Phase-11 admin surface; unset → bootstrap admin routes are not registered (Q-018) */
   ADMIN_BOOTSTRAP_TOKEN: z.string().min(16).optional(),
   /** Vault master key, 32B base64. Unset → cloud credentials unavailable; local-only still works. */
