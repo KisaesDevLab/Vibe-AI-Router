@@ -106,8 +106,9 @@ benchmarks and on the shape of the work, then execution (latency, context, cost)
   DO's models page, as of 2026-09-04, no longer states a modality for K2.6 or K2.5; the
   Router's catalog still carries `vision` from an earlier read. Run
   `POST /admin-api/models/:id/probe` before relying on it for images.
-- **`qwen3.5-397b-a17b`** (MMLU-Pro 87.8, IFEval 92.6, 131K ctx) is the second text
-  fallback. **`deepseek-v4-flash-0731`** (GA, $0.08/$0.25) is the cheap tail for the three
+- **`qwen3.8-max`** (1M ctx) is the second text fallback. It replaced `qwen3.5-397b-a17b`
+  on 2026-11-19, after DO deprecated that model from serverless on 10 Nov 2026 and named
+  `qwen3.8-max` as its successor. **`deepseek-v4-flash-0731`** (GA, $0.08/$0.25) is the cheap tail for the three
   high-volume text classes; **`glm-5.3`** is the tail for report narration, where prose
   quality matters more than cost.
 
@@ -119,14 +120,14 @@ benchmarks), `gemma-4-31B-it`, `mimo-v2.5-pro`, `minimax-m2.5`, `nvidia-nemotron
 
 | Class | Default | Fallback 1 | Fallback 2 | Fallback 3 |
 | --- | --- | --- | --- | --- |
-| `mybooks_txn_categorize` | `deepseek-v4-pro-0813` | `kimi-k2.6` | `qwen3.5-397b-a17b` | `deepseek-v4-flash-0731` |
+| `mybooks_txn_categorize` | `deepseek-v4-pro-0813` | `kimi-k2.6` | `qwen3.8-max` | `deepseek-v4-flash-0731` |
 | `mybooks_receipt_extract` | `glm-5.3-flash` | `qwen3.8-max` | `kimi-k3` | `kimi-k2.6` |
 | `mybooks_bill_extract` | `glm-5.3-flash` | `qwen3.8-max` | `kimi-k3` | `kimi-k2.6` |
 | `mybooks_doc_classify` | `glm-5.3-flash` | `qwen3.8-max` | `kimi-k3` | `kimi-k2.6` |
 | `mybooks_statement_extract` | `qwen3.8-max` | `kimi-k3` | `glm-5.3-flash` | `kimi-k2.6` |
-| `mybooks_vendor_enrich` | `deepseek-v4-pro-0813` | `kimi-k2.6` | `qwen3.5-397b-a17b` | `deepseek-v4-flash-0731` |
-| `mybooks_chat` | `deepseek-v4-pro-0813` | `kimi-k2.6` | `qwen3.5-397b-a17b` | `deepseek-v4-flash-0731` |
-| `mybooks_report_narrative` | `deepseek-v4-pro-0813` | `kimi-k2.6` | `qwen3.5-397b-a17b` | `glm-5.3` |
+| `mybooks_vendor_enrich` | `deepseek-v4-pro-0813` | `kimi-k2.6` | `qwen3.8-max` | `deepseek-v4-flash-0731` |
+| `mybooks_chat` | `deepseek-v4-pro-0813` | `kimi-k2.6` | `qwen3.8-max` | `deepseek-v4-flash-0731` |
+| `mybooks_report_narrative` | `deepseek-v4-pro-0813` | `kimi-k2.6` | `qwen3.8-max` | `glm-5.3` |
 
 All ids are `digitalocean/<name>`. The vision classes can only chain among DO models that
 carry `vision` in the catalog — `glm-5.3-flash`, `qwen3.8-max`, `kimi-k3`, `kimi-k2.6`,

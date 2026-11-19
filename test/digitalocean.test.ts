@@ -185,8 +185,28 @@ describe.skipIf(!url)('DigitalOcean provider kind', () => {
     const pro = rows.find((m) => m.canonicalId === 'digitalocean/deepseek-v4-pro');
     expect(pro?.contextWindow).toBe(1_048_576);
     const proPrice = await handle.db.query.modelPricing.findFirst({ where: eq(modelPricing.modelId, pro!.id) });
-    expect(Number(proPrice?.inputPerMtok)).toBe(0.87);
-    expect(Number(proPrice?.outputPerMtok)).toBe(1.74);
+    // repriced again on DO's pricing page (verified 18 Nov 2026)
+    expect(Number(proPrice?.inputPerMtok)).toBe(1.74);
+    expect(Number(proPrice?.outputPerMtok)).toBe(3.48);
+  });
+
+  it('the 2026-11-19 refresh dates DO\'s Nov 23 retirements and adds their successors', async () => {
+    const rows = await handle.db.query.models.findMany({ where: eq(models.providerKind, 'digitalocean') });
+    for (const id of ['deepseek-v4-pro', 'mimo-v2.5-pro', 'deepseek-3.2']) {
+      const row = rows.find((m) => m.canonicalId === `digitalocean/${id}`);
+      expect(row?.deprecationDate).toBe('2026-11-23');
+      expect(row?.status).toBe('active'); // still routable until DO turns it off
+    }
+    const flash = rows.find((m) => m.canonicalId === 'digitalocean/deepseek-v4.1-flash-1017');
+    expect(flash?.contextWindow).toBe(1_048_576);
+    expect(flash?.capabilities).toMatchObject({ vision: true, json_schema: true, caching: true });
+    const flashPrice = await handle.db.query.modelPricing.findFirst({ where: eq(modelPricing.modelId, flash!.id) });
+    expect(Number(flashPrice?.inputPerMtok)).toBe(0.3);
+    expect(Number(flashPrice?.outputPerMtok)).toBe(1.2);
+    // models DO deprecated from serverless on 10 Nov 2026 are no longer curated
+    for (const id of ['llama-4-maverick', 'deepseek-4-flash', 'qwen3.5-397b-a17b', 'openai-gpt-oss-20b']) {
+      expect(rows.find((m) => m.canonicalId === `digitalocean/${id}`)).toBeUndefined();
+    }
   });
 
   it('a placeholder row discovered before curation is corrected in place by the nightly sync (Q-088 path)', async () => {
