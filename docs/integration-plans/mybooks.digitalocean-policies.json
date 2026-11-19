@@ -1,5 +1,5 @@
 {
-  "_doc": "myBooks policy import for DigitalOcean-hosted open-weight models, replacing direct Claude Sonnet 4.5. Revised 2026-09-04 against DO's current catalog (router 0.0.25+, curated feed refreshed the same day; docs/integration-plans/mybooks.md §1.2). Apply with POST /admin-api/policies/import (or scripts/apply-policy-import.mjs) AFTER the DigitalOcean provider is configured and discovered, so every id below has a catalog row — kimi-k3 is enrich-only and exists only after discovery. Import CREATES a class that does not exist yet with the sensitivity below, but never relaxes an existing one: on a router where myBooks has already registered its classes local_only, PATCH /admin-api/task-classes/:key to cloud_deidentified first. Chains are DigitalOcean open-weight only; no Anthropic/OpenAI-on-DO model appears, so acknowledgedModels stays empty. Fallbacks are ordered best to least on accuracy, not cost. kimi-k2.6 is last on every vision chain because DO no longer documents image input for it; probe before relying on it.",
+  "_doc": "myBooks policy import for DigitalOcean-hosted open-weight models, replacing direct Claude Sonnet 4.5. Revised 2026-11-19: qwen3.5-397b-a17b, which DO deprecated from serverless on 10 Nov 2026, replaced by qwen3.8-max (DO's named successor) in every text chain. Previously revised 2026-09-04 against DO's current catalog (router 0.0.25+, curated feed refreshed the same day; docs/integration-plans/mybooks.md §1.2). Apply with POST /admin-api/policies/import (or scripts/apply-policy-import.mjs) AFTER the DigitalOcean provider is configured and discovered, so every id below has a catalog row — kimi-k3 is enrich-only and exists only after discovery. Import CREATES a class that does not exist yet with the sensitivity below, but never relaxes an existing one: on a router where myBooks has already registered its classes local_only, PATCH /admin-api/task-classes/:key to cloud_deidentified first. Chains are DigitalOcean open-weight only; no Anthropic/OpenAI-on-DO model appears, so acknowledgedModels stays empty. Fallbacks are ordered best to least on accuracy, not cost. kimi-k2.6 is last on every vision chain because DO no longer documents image input for it; probe before relying on it.",
   "version": 1,
   "taskClasses": [
     {
@@ -74,12 +74,12 @@
       "allowedModels": [
         "digitalocean/deepseek-v4-pro-0813",
         "digitalocean/kimi-k2.6",
-        "digitalocean/qwen3.5-397b-a17b",
+        "digitalocean/qwen3.8-max",
         "digitalocean/deepseek-v4-flash-0731"
       ],
       "fallbackChain": [
         "digitalocean/kimi-k2.6",
-        "digitalocean/qwen3.5-397b-a17b",
+        "digitalocean/qwen3.8-max",
         "digitalocean/deepseek-v4-flash-0731"
       ],
       "maxTokensOverride": null,
@@ -163,12 +163,12 @@
       "allowedModels": [
         "digitalocean/deepseek-v4-pro-0813",
         "digitalocean/kimi-k2.6",
-        "digitalocean/qwen3.5-397b-a17b",
+        "digitalocean/qwen3.8-max",
         "digitalocean/deepseek-v4-flash-0731"
       ],
       "fallbackChain": [
         "digitalocean/kimi-k2.6",
-        "digitalocean/qwen3.5-397b-a17b",
+        "digitalocean/qwen3.8-max",
         "digitalocean/deepseek-v4-flash-0731"
       ],
       "maxTokensOverride": null,
@@ -184,12 +184,12 @@
       "allowedModels": [
         "digitalocean/deepseek-v4-pro-0813",
         "digitalocean/kimi-k2.6",
-        "digitalocean/qwen3.5-397b-a17b",
+        "digitalocean/qwen3.8-max",
         "digitalocean/deepseek-v4-flash-0731"
       ],
       "fallbackChain": [
         "digitalocean/kimi-k2.6",
-        "digitalocean/qwen3.5-397b-a17b",
+        "digitalocean/qwen3.8-max",
         "digitalocean/deepseek-v4-flash-0731"
       ],
       "maxTokensOverride": null,
@@ -205,10 +205,10 @@
       "allowedModels": [
         "digitalocean/deepseek-v4-pro-0813",
         "digitalocean/kimi-k2.6",
-        "digitalocean/qwen3.5-397b-a17b",
+        "digitalocean/qwen3.8-max",
         "digitalocean/glm-5.3"
       ],
-      "fallbackChain": ["digitalocean/kimi-k2.6", "digitalocean/qwen3.5-397b-a17b", "digitalocean/glm-5.3"],
+      "fallbackChain": ["digitalocean/kimi-k2.6", "digitalocean/qwen3.8-max", "digitalocean/glm-5.3"],
       "maxTokensOverride": null,
       "temperatureMin": null,
       "temperatureMax": null,

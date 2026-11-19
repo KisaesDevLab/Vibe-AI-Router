@@ -5,6 +5,21 @@ the **first public release is `0.0.1`** — the code has never run against a rea
 model server, or production traffic. The number reflects deployment maturity, not feature
 completeness. See "Not yet verified" in the README.
 
+## Unreleased
+
+- **DigitalOcean retirements, Nov 2026.** The curated DO catalog now dates DO's three
+  November 23 retirements (`deepseek-v4-pro`, `mimo-v2.5-pro`, `deepseek-3.2`; DO returns 404
+  after that date) and adds `deepseek-v4.1-flash-1017` (1M context and output, vision). Their
+  successors are `deepseek-v4-pro-0813`, `glm-5.3` and `deepseek-v4.1-flash-1017`. Prices
+  refreshed to DO's pages (last verified 18 Nov 2026): `deepseek-v4-pro` $1.74/$3.48,
+  `deepseek-3.2` $0.50/$1.60, and the `deepseek-v4-pro-0813` cache read corrected to $0.044.
+- **Behaviour change:** `llama-4-maverick`, `deepseek-4-flash`, `qwen3.5-397b-a17b` and
+  `openai-gpt-oss-20b` leave the curated feed, because DO deprecated them from serverless on
+  10 Nov 2026. The nightly sync marks their rows deprecated (still routable, never deleted)
+  and the deprecation alert flags any policy that still references them.
+- **myBooks DO policy pack:** `qwen3.5-397b-a17b` replaced by `qwen3.8-max` in every text
+  chain. Routers that already imported the pack need the same edit in their policies.
+
 ## 0.0.28 — 2026-10-01
 
 - **Refresh models and pricing from linked providers (Q-101).** One pass pulls the current
