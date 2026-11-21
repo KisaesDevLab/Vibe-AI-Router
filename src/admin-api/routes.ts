@@ -299,7 +299,7 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
     label: z.string().min(1).max(120),
     baseUrl: z.string().url(),
     authType: z.enum(['api_key', 'none']).default('api_key'),
-    modelMapping: z.record(z.string()).default({}),
+    modelMapping: z.record(z.string(), z.string()).default({}),
   });
 
   app.post('/admin-api/providers', async (req, reply) => {
@@ -867,8 +867,8 @@ export function registerAdminApi(app: FastifyInstance, opts: AdminApiOptions): v
       budgets: z
         .object({
           firm_monthly_cents: z.number().int().positive().optional(),
-          apps: z.record(z.number().int().positive()).optional(),
-          users: z.record(z.number().int().positive()).optional(),
+          apps: z.record(z.string(), z.number().int().positive()).optional(),
+          users: z.record(z.string(), z.number().int().positive()).optional(),
           soft_pct: z.number().int().min(1).max(100).optional(),
         })
         .optional(),

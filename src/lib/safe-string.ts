@@ -18,7 +18,7 @@ export function hasControlChars(value: string): boolean {
 }
 
 /** A bounded, control-character-free string suitable for DB filters. */
-export const safeString = (max = 200): z.ZodEffects<z.ZodString, string, string> =>
+export const safeString = (max = 200): z.ZodString =>
   z
     .string()
     .max(max)

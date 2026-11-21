@@ -15,8 +15,8 @@ const EVENT_SCHEMAS = {
     entityId: z.string().optional(),
     action: z.enum(['create', 'update', 'delete', 'rotate', 'promote', 'revoke']),
     /** metadata only — for credentials this is key_version/last4, never material */
-    before: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
-    after: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
+    before: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
+    after: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
   }),
   catalog_sync_completed: z.object({
     source: z.string(),
@@ -41,7 +41,7 @@ const EVENT_SCHEMAS = {
     modelCanonicalId: z.string(),
     providerId: z.string(),
     providerLabel: z.string(),
-    results: z.record(z.enum(['supported', 'unsupported', 'inconclusive'])),
+    results: z.record(z.string(), z.enum(['supported', 'unsupported', 'inconclusive'])),
     applied: z.boolean(),
   }),
   /** operator-triggered DO docs scrape (Q-090) — counts + canonical ids only */
@@ -106,11 +106,11 @@ const EVENT_SCHEMAS = {
   blocked_scrubber: z.object({
     mode: z.enum(['block']),
     /** match TYPES + counts only — never matched values (8.3) */
-    matches: z.record(z.number()),
+    matches: z.record(z.string(), z.number()),
   }),
   /** scope 'fallback_only': primary is local — the scrub product applies only to cloud hops (Q-072) */
-  scrubber_redacted: z.object({ matches: z.record(z.number()), scope: z.enum(['fallback_only']).optional() }),
-  scrubber_warning: z.object({ matches: z.record(z.number()), scope: z.enum(['fallback_only']).optional() }),
+  scrubber_redacted: z.object({ matches: z.record(z.string(), z.number()), scope: z.enum(['fallback_only']).optional() }),
+  scrubber_warning: z.object({ matches: z.record(z.string(), z.number()), scope: z.enum(['fallback_only']).optional() }),
   blocked_policy: z.object({ code: z.string(), reason: z.string().max(300) }),
   // The serving model's own output ceiling (models.max_output) was below the class/policy cap
   // the caller asked for. Counts only.

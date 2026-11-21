@@ -179,7 +179,7 @@ const exportSchema = z.object({
       app: z.string(),
       description: z.string(),
       sensitivity: z.enum(['local_only', 'cloud_deidentified', 'cloud_allowed']),
-      requires: z.record(z.unknown()),
+      requires: z.record(z.string(), z.unknown()),
       defaultMaxTokens: z.number().int().positive(),
     }),
   ),

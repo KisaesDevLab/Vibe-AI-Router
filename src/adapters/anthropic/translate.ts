@@ -215,7 +215,7 @@ const responseSchema = z.object({
   content: z.array(
     z.union([
       z.object({ type: z.literal('text'), text: z.string() }),
-      z.object({ type: z.literal('tool_use'), id: z.string(), name: z.string(), input: z.unknown() }),
+      z.object({ type: z.literal('tool_use'), id: z.string(), name: z.string(), input: z.unknown().optional() }),
       z.object({ type: z.literal('thinking'), thinking: z.string() }),
       z.object({ type: z.literal('redacted_thinking') }).passthrough(),
     ]),
