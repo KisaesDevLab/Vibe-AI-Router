@@ -228,7 +228,7 @@ const anthropicModelSchema = z
     display_name: z.string().min(1).max(200).optional(),
     max_input_tokens: z.number().int().positive().optional(),
     max_tokens: z.number().int().positive().optional(),
-    capabilities: z.record(z.unknown()).optional(),
+    capabilities: z.record(z.string(), z.unknown()).optional(),
   })
   .passthrough();
 export type AnthropicModel = z.infer<typeof anthropicModelSchema>;
